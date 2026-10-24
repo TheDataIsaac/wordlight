@@ -1,0 +1,5 @@
+.wordlight-data/
+*.tar.gz
+node_modules/
+qa/
+build/

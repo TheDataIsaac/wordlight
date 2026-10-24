@@ -1,0 +1,54 @@
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:#101a16;color:#f2efdf;font:16px/1.4 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;padding-bottom:calc(88px + env(safe-area-inset-bottom))}
+[hidden]{display:none!important}
+button,select,input{font:inherit;color:inherit}
+button{min-height:48px;border-radius:12px;border:1px solid #3b5a4f;background:#1d3029;padding:0 14px;cursor:pointer;touch-action:manipulation}
+button:active{background:#2a4339}
+button:disabled{opacity:.45}
+button.primary{background:#e7c68a;border-color:#e7c68a;color:#1b241f;font-weight:700}
+button.link{min-height:40px;border:0;background:none;text-decoration:underline;padding:0 4px}
+.bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));background:#203e36;border-bottom:1px solid #2f5146}
+.brand{font-weight:700;letter-spacing:.02em}
+.brand span{font-size:11px;letter-spacing:.14em;color:#e7c68a;margin-left:4px}
+.connection{margin-left:auto;font-size:13px;color:#c7d3c8}
+.connection.ok::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#7fd19b;margin-right:6px}
+.connection.bad{color:#f3b484}
+main{padding:12px 14px;max-width:640px;margin:0 auto}
+.card{background:#172720;border:1px solid #2b453b;border-radius:16px;padding:14px;margin-bottom:12px}
+h1{font-size:22px;margin:0 0 8px}
+h2{font-size:18px;margin:6px 0}
+label{display:block;font-size:13px;color:#c7d3c8;margin:10px 0 4px}
+input,select{width:100%;min-height:48px;border-radius:10px;border:1px solid #3b5a4f;background:#0f1a15;padding:0 12px}
+.login button{width:100%;margin-top:14px}
+.error{color:#f3b484;min-height:1.4em}
+.muted{color:#aebdb2}
+.small{font-size:13px;margin:4px 0 0}
+.live-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px}
+.badge{background:#b8333a;color:#fff;font-weight:700;font-size:12px;letter-spacing:.1em;padding:3px 8px;border-radius:6px}
+.badge.hidden-screen{background:#55615b}
+#livePosition{margin-left:auto}
+.live-text{white-space:pre-line;font-size:17px;max-height:9.8em;overflow:hidden;margin:4px 0}
+.live.blanked .live-text,.live.blanked h2{opacity:.45}
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.step{min-height:96px;font-size:22px;font-weight:700;border-radius:16px}
+#next{background:#2c5a4b;border-color:#3f7a66}
+.wide{width:100%;margin-bottom:12px;font-weight:600}
+.wide.restore{background:#e7c68a;border-color:#e7c68a;color:#1b241f}
+.timer{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.timer-value{font-size:30px;font-variant-numeric:tabular-nums;font-weight:700;min-width:5ch}
+.timer-buttons{display:flex;gap:8px;flex:1}
+.timer-buttons button{flex:1}
+.slides{list-style:none;margin:12px 0 0;padding:0}
+.slides li{margin-bottom:8px}
+.slides button{width:100%;text-align:left;padding:10px 12px;min-height:56px;display:block}
+.slides button[aria-pressed="true"]{border-color:#e7c68a;background:#2a3a28;box-shadow:inset 0 0 0 1px #e7c68a}
+.slides .title{display:block;font-weight:600}
+.slides .text{display:block;font-size:13px;color:#aebdb2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slides .on-air{float:right;background:#b8333a;color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:5px;margin-left:6px}
+#more{width:100%}
+.message{position:fixed;left:14px;right:14px;bottom:calc(86px + env(safe-area-inset-bottom));z-index:4;margin:0 auto;max-width:612px;padding:10px 14px;border-radius:12px;background:#2a3a28;border:1px solid #e7c68a;color:#f2efdf;text-align:center;pointer-events:none}
+.message:empty{display:none}
+.send-bar{position:fixed;left:0;right:0;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#203e36;border-top:1px solid #2f5146}
+.send-bar span{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.send-bar button{min-height:56px;padding:0 20px}

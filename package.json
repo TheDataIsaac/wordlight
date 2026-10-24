@@ -1,0 +1,11 @@
+{
+  "name": "wordlight",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests.mjs refresh.test.mjs timer-appearance.test.mjs performance.test.mjs slide-breaks.test.mjs scenes.test.mjs live-fit-lower.test.mjs picker-bridge.test.mjs bridge.test.mjs recovery.test.mjs songs.test.mjs graphics.test.mjs songlibrary.test.mjs nkjv.test.mjs bolls.test.mjs bibles.test.mjs versions.test.mjs remote.test.mjs items.test.mjs"
+  }
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#203e36">
+<meta name="referrer" content="no-referrer">
+<title>Wordlight remote</title>
+<link rel="stylesheet" href="remote.css"></head><body>
+<header class="bar"><span class="brand">wordlight <span>REMOTE</span></span><span id="connection" class="connection" role="status">Connecting…</span><button id="signOut" class="link" type="button" hidden>Sign out</button></header>
+<main>
+<form id="login" class="card login" hidden>
+ <h1>Phone remote</h1>
+ <p>Enter the remote password set in Wordlight on the computer.</p>
+ <label for="password">Password</label>
+ <input id="password" type="password" autocomplete="current-password" maxlength="128" required>
+ <button class="primary" type="submit">Sign in</button>
+ <p id="loginError" class="error" role="alert"></p>
+</form>
+<div id="remote" hidden>
+ <section class="card live" aria-labelledby="liveLabel">
+  <div class="live-top"><span id="liveLabel" class="badge">LIVE</span><span id="livePlace" class="muted"></span><span id="livePosition" class="muted"></span></div>
+  <h2 id="liveTitle"></h2>
+  <p id="liveText" class="live-text"></p>
+  <p id="liveNext" class="muted small"></p>
+ </section>
+ <div class="steps">
+  <button id="previous" class="step" type="button" aria-label="Previous slide on screen">‹ Previous</button>
+  <button id="next" class="step" type="button" aria-label="Next slide on screen">Next ›</button>
+ </div>
+ <button id="blank" class="wide" type="button">Hide screen</button>
+ <section class="card timer" aria-label="Countdown">
+  <span id="timerValue" class="timer-value">--:--</span>
+  <div class="timer-buttons"><button type="button" data-timer="start">Start</button><button type="button" data-timer="pause">Pause</button><button type="button" data-timer="reset">Reset</button></div>
+ </section>
+ <section class="card browse" aria-labelledby="browseTitle">
+  <h2 id="browseTitle">Choose a slide</h2>
+  <p class="muted small">Browsing here does not change the screen. Pick a slide, then Send to live.</p>
+  <label for="showPick">Show</label><select id="showPick"></select>
+  <label for="scenePick">Item</label><select id="scenePick"></select>
+  <ol id="slides" class="slides"></ol>
+  <button id="more" type="button" hidden>Show more slides</button>
+ </section>
+</div>
+<p id="message" class="message" role="status" aria-live="polite"></p>
+</main>
+<div id="sendBar" class="send-bar" hidden><span id="sendWhat"></span><button id="send" class="primary" type="button">Send to live</button></div>
+<script type="module" src="remote.mjs"></script>
+</body></html>
