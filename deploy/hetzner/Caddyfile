@@ -1,0 +1,29 @@
+# Wordlight web studio: static files only, plain HTTP inside the Docker network (the edge proxy does TLS).
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	root * /srv
+
+	# The companion API lives only on each user's own computer (127.0.0.1). Nothing under /api is served here;
+	# the studio's same-origin checks get a plain 404 and the studio runs as the web version.
+	handle /api/* {
+		respond 404
+	}
+
+	# File names are not content-hashed, so browsers revalidate every file (ETag / Last-Modified) on each load.
+	header Cache-Control "no-cache"
+	header X-Content-Type-Options "nosniff"
+
+	# The studio is loaded as ES modules, which browsers only run with a JavaScript content type.
+	@scripts path *.mjs *.js
+	header @scripts Content-Type "text/javascript; charset=utf-8"
+
+	# No directory listings (browse is not enabled); dotfiles are never served.
+	file_server {
+		hide .*
+	}
+}
