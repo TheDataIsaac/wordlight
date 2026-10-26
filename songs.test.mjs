@@ -5,6 +5,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {freeShowToSong,cleanSong,songSlides,songCredit,searchSongs,foldText,SONG_LIMITS} from './dist/songs.mjs';
 import {DEFAULT,cleanDraft,makeDeck,deckFor,snapshot,validLive} from './dist/core.mjs';
 import {cleanLibrary,createShow,activeShow,copyShow,mergeShows,addScene,switchScene,sceneDraft,slideGroups,removeGroups,copyGroups,removeSlides,copySlides,moveGroups,groupKey} from './dist/library.mjs';
@@ -103,7 +104,7 @@ before(async()=>{
  await writeFile(path.join(dir,'shows.json'),JSON.stringify(index));
  await writeFile(path.join(dir,'Config','settings_synced.json'),JSON.stringify({categories:{cat1:{name:'Hymns'},cat2:{name:'Choir'}}}));
  await writeFile(path.join(shows,'Test Song.show'),JSON.stringify(fixture()));await writeFile(path.join(shows,'Mismatch.show'),JSON.stringify(['another-id',fixture()[1]]));
- server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1')),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:path.join(dir,'data'),WORDLIGHT_FREESHOW_INDEX:path.join(dir,'shows.json'),WORDLIGHT_FREESHOW_SHOWS:shows,WORDLIGHT_FREESHOW_DATA:dir},stdio:'ignore'});
+ server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(fileURLToPath(import.meta.url)),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:path.join(dir,'data'),WORDLIGHT_FREESHOW_INDEX:path.join(dir,'shows.json'),WORDLIGHT_FREESHOW_SHOWS:shows,WORDLIGHT_FREESHOW_DATA:dir},stdio:'ignore'});
  for(let i=0;i<50;i++){try{if((await fetch('http://127.0.0.1:'+port+'/api/songs/categories')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
 });
 after(async()=>{server.kill();await new Promise(r=>setTimeout(r,200));await rm(dir,{recursive:true,force:true});});

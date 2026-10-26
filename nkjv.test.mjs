@@ -7,6 +7,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm,readFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {cleanText,chapterVerses} from './apibible.mjs';
 import {adjacentVerse,cleanScriptureSource} from './dist/scripture.mjs';
 import {applyBiblePassage} from './dist/library.mjs';
@@ -53,7 +54,7 @@ before(async()=>{
 after(()=>mock.close());
 async function companion(port,env={}){
  const dir=await mkdtemp(path.join(tmpdir(),'wordlight-nkjv-test-')),output=[];
- const child=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1')),env:{...process.env,WORDLIGHT_API_BIBLE_KEY:'',...env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dir,WORDLIGHT_API_BIBLE_TEST_BASE:'http://127.0.0.1:'+mockPort,WORDLIGHT_FREESHOW_INDEX:path.join(dir,'none.json')}});
+ const child=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(fileURLToPath(import.meta.url)),env:{...process.env,WORDLIGHT_API_BIBLE_KEY:'',...env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dir,WORDLIGHT_API_BIBLE_TEST_BASE:'http://127.0.0.1:'+mockPort,WORDLIGHT_FREESHOW_INDEX:path.join(dir,'none.json')}});
  child.stdout.on('data',c=>output.push(String(c)));child.stderr.on('data',c=>output.push(String(c)));
  const base='http://127.0.0.1:'+port;
  for(let i=0;i<50;i++){try{if((await fetch(base+'/api/bible/status')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}

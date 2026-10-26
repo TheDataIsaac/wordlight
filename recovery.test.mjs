@@ -5,9 +5,10 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,writeFile,readdir,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {DEFAULT,cleanDraft} from './dist/core.mjs';
 import {cleanLibrary} from './dist/library.mjs';
-const port=18782,root=path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1'));
+const port=18782,root=path.dirname(fileURLToPath(import.meta.url));
 test('A damaged session is kept aside and the newest readable backup is loaded',async()=>{
  const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-')),backups=path.join(dataDir,'backups');
  await mkdir(backups);

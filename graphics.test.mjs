@@ -5,6 +5,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import http from 'node:http';
 import {deflateSync} from 'node:zlib';
 import {cleanGraphics,graphicsMarkup,graphicsTimerShown,placement,GRAPHICS_LIMITS} from './dist/graphics.mjs';
@@ -52,7 +53,7 @@ function webpX(w,h){const b=Buffer.alloc(30);b.write('RIFF',0);b.writeUInt32LE(2
 const upload=(buf,type,name='img')=>request('POST','/api/assets?name='+name,{headers:{'Content-Type':type},body:buf});
 before(async()=>{
  dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-graphics-test-'));
- server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1')),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dataDir,WORDLIGHT_BRIDGE_ORIGINS:'https://studio.example'},stdio:'ignore'});
+ server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(fileURLToPath(import.meta.url)),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dataDir,WORDLIGHT_BRIDGE_ORIGINS:'https://studio.example'},stdio:'ignore'});
  for(let i=0;i<50;i++){try{if((await request('GET','/api/assets')).status===200)break;}catch{}await new Promise(r=>setTimeout(r,100));}
 });
 after(async()=>{server.kill();await new Promise(r=>setTimeout(r,200));await rm(dataDir,{recursive:true,force:true});});

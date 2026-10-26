@@ -7,6 +7,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm,readdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {deflateRawSync,crc32} from 'node:zlib';
 import {BIBLE_BOOKS} from './dist/reference.mjs';
 import {zipEntries,readZipEntry} from './ziputil.mjs';
@@ -51,7 +52,7 @@ before(async()=>{
  mock=http.createServer((req,res)=>{const name=req.url.replace('/ebible/','');downloads++;if(!archives[name]){res.writeHead(404);res.end();return;}setTimeout(()=>{res.writeHead(200,{'Content-Type':'application/zip'});res.end(archives[name]);},50);});
  await new Promise(r=>mock.listen(0,'127.0.0.1',r));mockPort=mock.address().port;
  dir=await mkdtemp(path.join(tmpdir(),'wordlight-bibles-test-'));base='http://127.0.0.1:18791';
- companion=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1')),env:{...process.env,WORDLIGHT_PORT:'18791',WORDLIGHT_DATA_DIR:dir,WORDLIGHT_API_BIBLE_TEST_BASE:'http://127.0.0.1:'+mockPort,WORDLIGHT_FREESHOW_INDEX:path.join(dir,'none.json'),WORDLIGHT_BIBLE_SEEDS:path.join(dir,'no-seeds')},stdio:'ignore'});
+ companion=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(fileURLToPath(import.meta.url)),env:{...process.env,WORDLIGHT_PORT:'18791',WORDLIGHT_DATA_DIR:dir,WORDLIGHT_API_BIBLE_TEST_BASE:'http://127.0.0.1:'+mockPort,WORDLIGHT_FREESHOW_INDEX:path.join(dir,'none.json'),WORDLIGHT_BIBLE_SEEDS:path.join(dir,'no-seeds')},stdio:'ignore'});
  for(let i=0;i<50;i++){try{if((await fetch(base+'/api/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
 });
 after(async()=>{companion.kill();mock.close();await new Promise(r=>setTimeout(r,200));await rm(dir,{recursive:true,force:true});});

@@ -6,8 +6,9 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,rm,readFile,writeFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {newSong,editSong} from './dist/songs.mjs';
-const cwd=path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1'));
+const cwd=path.dirname(fileURLToPath(import.meta.url));
 const servers=[];let dir;
 async function start(port,env){
  const child=spawn(process.execPath,['server.mjs'],{cwd,env:{...process.env,WORDLIGHT_PORT:String(port),...env},stdio:'ignore'});servers.push(child);

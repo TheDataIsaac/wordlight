@@ -5,6 +5,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm,readFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import http from 'node:http';
 import {DEFAULT,snapshot} from './dist/core.mjs';
 import {describeViewers} from './dist/bridge.mjs';
@@ -24,7 +25,7 @@ function request(method,pathname,{headers={},body}={}){
 const live=(updated,text='Bridge slide')=>({...snapshot({...structuredClone(DEFAULT),passage:text}),blank:false,updated});
 before(async()=>{
  dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-bridge-test-'));
- server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1')),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dataDir,WORDLIGHT_BRIDGE_ORIGINS:hosted,WORDLIGHT_BIBLE_SEEDS:path.join(dataDir,'none'),WORDLIGHT_FREESHOW_DATA:path.join(dataDir,'none'),WORDLIGHT_FREESHOW_INDEX:path.join(dataDir,'none','index.json'),WORDLIGHT_FREESHOW_SHOWS:path.join(dataDir,'none')},stdio:'ignore'});
+ server=spawn(process.execPath,['server.mjs'],{cwd:path.dirname(fileURLToPath(import.meta.url)),env:{...process.env,WORDLIGHT_PORT:String(port),WORDLIGHT_DATA_DIR:dataDir,WORDLIGHT_BRIDGE_ORIGINS:hosted,WORDLIGHT_BIBLE_SEEDS:path.join(dataDir,'none'),WORDLIGHT_FREESHOW_DATA:path.join(dataDir,'none'),WORDLIGHT_FREESHOW_INDEX:path.join(dataDir,'none','index.json'),WORDLIGHT_FREESHOW_SHOWS:path.join(dataDir,'none')},stdio:'ignore'});
  for(let i=0;i<50;i++){try{const r=await request('GET','/api/bridge/code');if(r.status===200){code=r.body.code;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
  assert.match(code,/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
 });

@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm,readFile,writeFile,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import http from 'node:http';
 import {cleanTextSlide,snapshot,validLive} from './dist/core.mjs';
 import {createShow,addScene} from './dist/library.mjs';
@@ -14,7 +15,7 @@ import {createLoginLimiter,createCommandLog,lanAddresses,hostAllowed,liveSummary
 import {rsEcc,formatBits,qrMatrix,qrSvg} from './dist/qr.mjs';
 
 const port=18828,remotePort=18829,remoteHost='127.0.0.1:'+remotePort,remoteOrigin='http://'+remoteHost;
-const cwd=path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/,'$1'));
+const cwd=path.dirname(fileURLToPath(import.meta.url));
 let server,dataDir,password='sample pass 1';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
