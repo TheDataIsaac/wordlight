@@ -52,10 +52,12 @@ async function retryBusy(work){
 // The web-studio bridge is off unless WORDLIGHT_BRIDGE_ORIGINS names the https site allowed to send screens.
 const bridgeOrigins=new Set((process.env.WORDLIGHT_BRIDGE_ORIGINS||'').split(',').map(o=>o.trim()).filter(o=>/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(o)));
 const newCode=()=>randomBytes(9).toString('base64url').toUpperCase().replace(/[^A-Z0-9]/g,'X').match(/.{4}/g).join('-');
-let bridge={code:newCode()};
-try{const saved=JSON.parse(await readFile(path.join(dataDir,'bridge.json'),'utf8'));if(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){2}$/.test(saved.code))bridge=saved;}catch{}
-async function saveBridge(){await mkdir(dataDir,{recursive:true});await writeFile(path.join(dataDir,'bridge.json'),JSON.stringify(bridge),'utf8');}
-await saveBridge().catch(()=>{});
+let bridge=null;
+try{const saved=JSON.parse(await retryBusy(()=>readFile(path.join(dataDir,'bridge.json'),'utf8')));if(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){2}$/.test(saved.code))bridge=saved;}catch{}
+// bridge.json is written only when there is a new code, through a temporary file, so a crash or power cut while
+// writing it cannot lose the code a web studio is paired with.
+async function saveBridge(next){await mkdir(dataDir,{recursive:true});await writeAtomic(path.join(dataDir,'bridge.json'),JSON.stringify(next));}
+if(!bridge){bridge={code:newCode()};await saveBridge(bridge).catch(()=>{});}
 const sameCode=value=>{const a=Buffer.from(String(value||'')),b=Buffer.from(bridge.code);return a.length===b.length&&timingSafeEqual(a,b);};
 // Output pages that currently hold the live event stream open, by view. This counts connections to the
 // companion only; it cannot tell whether OBS or a TV is actually showing them.
@@ -400,7 +402,7 @@ async function handleBridge(req,res,url){
  // The pairing code itself is only ever given to the local studio.
  if(url.pathname==='/api/bridge/code'){
   if(!local){json(res,403,{error:'Open the local studio to see the pairing code.'},cors);return;}
-  if(req.method==='POST'){const next={code:newCode()};try{await mkdir(dataDir,{recursive:true});await writeFile(path.join(dataDir,'bridge.json'),JSON.stringify(next),'utf8');}catch{json(res,500,{error:'The new code could not be saved. The old code still works.'});return;}bridge=next;}
+  if(req.method==='POST'){const next={code:newCode()};try{await saveBridge(next);}catch{json(res,500,{error:'The new code could not be saved. The old code still works.'});return;}bridge=next;}
   else if(req.method!=='GET'){json(res,405,{error:'Method not allowed.'});return;}
   json(res,200,{code:bridge.code,origins:[...bridgeOrigins],viewers,liveUpdated:state.live.updated||0});return;
  }
