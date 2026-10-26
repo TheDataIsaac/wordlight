@@ -63,7 +63,7 @@ function remember(){
  const option=$('#showSwitcher option:checked');if(option)option.textContent=draft.title||'Untitled show';
 }
 function setSaveStatus(text){saveStatusText=text;const el=$('#saveStatus');if(el)el.textContent=text;}
-async function apiWrite(data){const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(5000)});if(!r.ok)throw new Error('Could not save to the local app.');return r.json();}
+async function apiWrite(data){const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(5000)});if(!r.ok)throw Object.assign(new Error('Could not save to the local app.'),{status:r.status});return r.json();}
 function cacheLive(){try{localStorage.setItem('wordlight-live',JSON.stringify(live));}catch{}}
 function receive(data){if(data?.type==='live'&&validLive(data.live)){live=data.live;cacheLive();if(isOutput)renderOutput();else renderLive();}}
 window.addEventListener('storage',ev=>{if(ev.key==='wordlight-live'&&ev.newValue){try{receive({type:'live',live:JSON.parse(ev.newValue)});}catch{}}});
@@ -1080,10 +1080,12 @@ let saveRevision=0,savedRevision=0,saveInFlight=false,events=null,connectTry=0;
 const unsaved=()=>saveRevision!==savedRevision;
 async function flushLocalSave(){
  if(!isLocal||!unsaved()||saveInFlight)return;
- const revision=saveRevision;saveInFlight=true;
+ const revision=saveRevision;saveInFlight=true;let retryLater=true;
  try{await apiWrite({library});savedRevision=Math.max(savedRevision,revision);localReachable=true;setSaveStatus(unsaved()?'Saving…':'Saved on this computer');}
- catch{localReachable=false;setSaveStatus('Not saved to this computer yet · kept in this browser');}
- finally{saveInFlight=false;if(unsaved()&&localReachable){clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,450);}}
+ catch(err){localReachable=false;retryLater=err.status!==413;setSaveStatus('Not saved to this computer yet · kept in this browser');}
+ // A failed save is tried again every 5 s while changes are still unsaved, even if the live stream stays connected,
+ // but not when the companion refused the library as too large (sending it again would only be refused again).
+ finally{saveInFlight=false;if(unsaved()&&(localReachable||retryLater)){clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,localReachable?450:5000);}}
 }
 async function reconcileWithCompanion(){
  try{
