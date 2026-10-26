@@ -72,8 +72,8 @@ with this line in the file (keep any origins and other settings already there):
 WORDLIGHT_BRIDGE_ORIGINS=https://wordlight.isaacjoresanya.com
 ```
 or, next to an existing one, `WORDLIGHT_BRIDGE_ORIGINS=https://old.example.org,https://wordlight.isaacjoresanya.com`.
-`Start Wordlight.cmd` and the portable package's **Start Wordlight** do not load this file, so start the companion
-with the command above (or set the variable in its environment another way).
+`Start Wordlight.cmd` loads this file itself. The portable package's **Start Wordlight** does not, so start that
+companion with the command above (or set the variable in its environment another way).
 
 Restart the companion, then on the hosted site open **OBS & screens** and enter the code shown in the local studio.
 The browser may ask to allow access to devices on the local network; allow it.
