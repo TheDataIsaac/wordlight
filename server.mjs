@@ -24,6 +24,14 @@ const APP_BUILD=await readFile(path.join(root,'build.json'),'utf8').then(t=>Stri
 const initialLibrary=cleanLibrary(null,DEFAULT);initialLibrary.shows.forEach(s=>s.updated=0);initialLibrary.savedAt=0;
 let state={app:'wordlight',library:initialLibrary,draft:activeShow(initialLibrary).draft,live:{...snapshot(DEFAULT),blank:true}};
 function loadSaved(saved){if(saved.library||saved.draft){state.library=cleanLibrary(saved.library,saved.draft);state.draft=activeShow(state.library).draft;}if(validLive(saved.live)){state.live=saved.live;try{state.live.graphics=cleanGraphics(saved.live.graphics);}catch(err){console.error('Saved graphics settings were not valid and were reset: '+err.message);state.live.graphics=cleanGraphics();}}}
+// Windows can refuse a read or rename for a moment while another program (OneDrive, antivirus, an indexer) holds
+// the file. This tries again a few times over about 1.5 s before giving up.
+async function retryBusy(work){
+ for(let attempt=0;;attempt++){
+  try{return await work();}
+  catch(err){if(attempt>=4||!['EPERM','EBUSY','EACCES'].includes(err.code))throw err;await new Promise(r=>setTimeout(r,150*(attempt+1)));}
+ }
+}
 // A damaged session.json is kept under a new name and the newest readable backup is loaded instead,
 // so a bad write never silently starts the companion with an empty library.
 {
@@ -64,7 +72,7 @@ async function backup(){
  lastBackup=Date.now();
  const old=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().slice(0,-20);for(const f of old)await unlink(path.join(dir,f)).catch(()=>{});
 }
-function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});await backup().catch(()=>{});const tmp=path.join(dataDir,'session.tmp');await writeFile(tmp,json,'utf8');await rename(tmp,path.join(dataDir,'session.json'));});return writes;}
+function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});await backup().catch(()=>{});const tmp=path.join(dataDir,'session.tmp');await writeFile(tmp,json,'utf8');await retryBusy(()=>rename(tmp,path.join(dataDir,'session.json')));});return writes;}
 function json(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));}
 const localOrigins=()=>['http://127.0.0.1:'+port,'http://localhost:'+port];
 const corsFor=origin=>({'Access-Control-Allow-Origin':origin,'Vary':'Origin'});
@@ -117,7 +125,7 @@ export function imageInfo(buf){
 }
 let assetQueue=Promise.resolve();
 const inAssetQueue=task=>{const run=assetQueue.then(task,task);assetQueue=run.catch(()=>{});return run;};
-async function writeAssetIndex(list){const tmp=assetIndexFile+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(tmp,JSON.stringify(list));await rename(tmp,assetIndexFile);}
+async function writeAssetIndex(list){const tmp=assetIndexFile+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(tmp,JSON.stringify(list));await retryBusy(()=>rename(tmp,assetIndexFile));}
 // A missing index is an empty store. A damaged one is kept as assets.json.damaged and reported, never replaced by
 // an empty list on the next upload. Rows are checked before any file path is built from them.
 async function readAssetIndex(){
@@ -195,7 +203,7 @@ async function readSongIndex(){
  return list.filter(e=>e&&nativeId(e.id)&&typeof e.title==='string');
 }
 // Writes a temporary file and renames it over the target; a failed write leaves no temporary file behind.
-async function writeAtomic(file,text){const tmp=file+'.'+process.pid+'.'+Date.now()+'.tmp';try{await writeFile(tmp,text,'utf8');await rename(tmp,file);}catch(err){await unlink(tmp).catch(()=>{});throw err;}}
+async function writeAtomic(file,text){const tmp=file+'.'+process.pid+'.'+Date.now()+'.tmp';try{await writeFile(tmp,text,'utf8');await retryBusy(()=>rename(tmp,file));}catch(err){await unlink(tmp).catch(()=>{});throw err;}}
 const indexEntry=(song,modified)=>({id:song.id,title:song.title,author:song.meta.author||song.meta.artist||'',ccli:song.meta.ccli||'',modified});
 const librarySong=(raw,id,modified)=>cleanSong({...raw,id,source:{app:'wordlight',id,name:raw?.title,modified},category:'Wordlight library'});
 async function saveNativeSong(raw,expectedModified){
