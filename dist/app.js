@@ -1104,12 +1104,15 @@ async function connectLocal(){
   if(!isOutput&&(s.library||s.draft)){const serverLibrary=cleanLibrary(s.library,s.draft);const chosen=chooseLocalLibrary(library,serverLibrary);const browserWasNewer=chosen===library;library=chosen;draft=activeShow(library).draft;libraryError='';try{saveLibrary(localStorage,library);}catch{}if(browserWasNewer){saveRevision++;setSaveStatus('Saving…');flushLocalSave();}else setSaveStatus('Saved on this computer');}
   if(validLive(s.live)){live=s.live;cacheLive();}render();
   if(events)events.close();
-  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output'):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(validLive(data.live)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');};
+  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output'):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(validLive(data.live)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
   // The first open follows the startup load; later opens are reconnects, which reconcile and retry saves.
   let opened=false;events.onopen=()=>{localReachable=true;if(opened)reconcileWithCompanion();opened=true;};
  }catch{
   // The companion may still be starting: retry with backoff (1 s, 2 s, 4 s … up to 30 s), and stop once connected.
-  if(isLocal)return;connectTry++;setTimeout(connectLocal,Math.min(30000,1000*2**Math.min(5,connectTry-1)));
+  // A connected page keeps its stream, which the browser reconnects by itself, unless the browser gave the stream up
+  // (CLOSED: the companion answered with an error while restarting). Then the page retries here. Output pages keep
+  // showing their last screen meanwhile.
+  if(isLocal&&events?.readyState!==EventSource.CLOSED)return;connectTry++;setTimeout(connectLocal,Math.min(30000,1000*2**Math.min(5,connectTry-1)));
  }
 }
 connectLocal();
