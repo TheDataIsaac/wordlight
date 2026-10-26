@@ -89,8 +89,14 @@ async function stop(){
   const answer=await askToQuit(cfg);
   if(answer.status!==200)return finish(2,'Wordlight ('+there.version+') did not accept the stop request. Nothing was force-closed. Stop it the way it was started.');
  }
- // Done when the Wordlight we asked has left the port and the supervisor has exited (up to 15 seconds).
- const settled=async()=>(there.kind!=='wordlight'||(await whoIsThere(cfg)).kind==='nothing')&&!await supervisorAlive(cfg);
+ // Done when no Wordlight answers on the port and the supervisor has exited (up to 15 seconds). A server that was
+ // still starting when Stop began does not see the stop request, so it is asked to quit as soon as it answers.
+ let asked=there.kind==='wordlight';
+ const settled=async()=>{
+  const now=await whoIsThere(cfg);
+  if(now.kind==='wordlight'&&!asked)asked=(await askToQuit(cfg)).status===200;
+  return now.kind!=='wordlight'&&!await supervisorAlive(cfg);
+ };
  for(let i=0;i<60&&!await settled();i++)await sleep(250);
  if(!await settled())return finish(2,'Wordlight was asked to stop but is still running. Details: '+cfg.logDir);
  await clearStop(cfg);
