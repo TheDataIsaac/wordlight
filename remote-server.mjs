@@ -7,10 +7,11 @@
 //
 // Contract with server.mjs:
 // - getState() returns the companion's current state ({library, live, ...}); it is only read here.
-// - commitLive(live) must make live current synchronously (before its first await), save it, then broadcast it,
-//   which calls liveChanged(). If saving fails it throws and undoes only its own change, never a newer write from
-//   the studio or the web bridge. Commands therefore read the live state and call commitLive in one synchronous
-//   step, and answer with getState().live afterwards.
+// - commitLive(change) runs change(state) in the companion's session queue, where no other change to the state can
+//   happen in between. change returns the new live screen, or nothing to leave the screen alone. commitLive then
+//   saves it and broadcasts it, which calls liveChanged(). If saving fails it puts the previous state back and
+//   throws. Commands therefore read the screen and decide the next one inside change, and answer with
+//   getState().live afterwards.
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -200,7 +201,15 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
  // ---- Commands ----
  function conflict(message,live){return {status:409,body:{error:message,live:liveSummary(live)}};}
  async function execute(body){
-  const state=getState(),live=state.live,now=Date.now();let next;
+  let answer;
+  try{await commitLive(state=>{answer=decide(body,state);return answer.next;});}
+  catch{return {status:500,body:{error:'The companion could not save the screen. Nothing changed.'}};}
+  if(!answer.next)return answer;
+  return {status:200,body:{ok:true,live:liveSummary(getState().live)}};
+ }
+ // The next screen for a command, as {next}, or the answer that refuses it. Runs inside commitLive.
+ function decide(body,state){
+  const live=state.live,now=Date.now();let next;
   if(body.action==='next'||body.action==='previous'){
    // The phone sends the screen it saw, so a repeated or late tap never moves past a change made elsewhere.
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
@@ -222,9 +231,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
   }else return {status:400,body:{error:'Unknown command.'}};
   next.updated=Math.max(now,Number(live.updated||0)+1);
   if(!validLive(next))return {status:500,body:{error:'The new screen was not valid, so nothing changed.'}};
-  try{await commitLive(next);}catch{return {status:500,body:{error:'The companion could not save the screen. Nothing changed.'}};}
-  // The studio may have sent a newer screen while this one was being saved; answer with whatever is live now.
-  return {status:200,body:{ok:true,live:liveSummary(getState().live)}};
+  return {next};
  }
  // Commands run one at a time, at most MAX_QUEUE waiting. A repeated id returns the first result.
  function command(session,body){

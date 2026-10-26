@@ -81,6 +81,10 @@ async function backup(){
  lastBackup=Date.now();
  const old=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().slice(0,-20);for(const f of old)await unlink(path.join(dir,f)).catch(()=>{});
 }
+// Changes to the session (studio saves, sends from the web studio and the phone remote) run one at a time, so each
+// starts from the last saved state and a failed save can simply put the previous state back.
+let stateQueue=Promise.resolve();
+const inStateQueue=task=>{const run=stateQueue.then(task,task);stateQueue=run.catch(()=>{});return run;};
 function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});await backup().catch(()=>{});const tmp=path.join(dataDir,'session.tmp');await writeFile(tmp,json,'utf8');await retryBusy(()=>rename(tmp,path.join(dataDir,'session.json')));});return writes;}
 function json(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));}
 const localOrigins=()=>['http://127.0.0.1:'+port,'http://localhost:'+port];
@@ -421,12 +425,14 @@ async function handleBridge(req,res,url){
   if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'},cors);return;}
   let update;try{update=await readJSON(req,10_000_000);}catch(err){json(res,err.status||400,{error:err.status?'Live state is too large.':'Invalid JSON.'},cors);return;}
   if(!validLive(update?.live)){json(res,400,{error:'Invalid live slide data.'},cors);return;}
-  // Never replace a newer screen (for example one sent from the local studio) with an older one.
-  if(!(Number(update.live.updated)>Number(state.live.updated||0))){json(res,409,{error:'The companion already has a newer screen.',liveUpdated:state.live.updated||0},cors);return;}
-  // Graphics belong to the local studio (they refer to images stored here), so a web studio screen keeps them.
-  const previous=state;state={...state,live:{...update.live,graphics:state.live.graphics}};
-  try{await persist();}catch{state=previous;json(res,500,{error:'The companion could not save the screen.'},cors);return;}
-  broadcast();json(res,200,{ok:true,liveUpdated:state.live.updated,viewers},cors);return;
+  await inStateQueue(async()=>{
+   // Never replace a newer screen (for example one sent from the local studio) with an older one.
+   if(!(Number(update.live.updated)>Number(state.live.updated||0))){json(res,409,{error:'The companion already has a newer screen.',liveUpdated:state.live.updated||0},cors);return;}
+   // Graphics belong to the local studio (they refer to images stored here), so a web studio screen keeps them.
+   const previous=state;state={...state,live:{...update.live,graphics:state.live.graphics}};
+   try{await persist();}catch{state=previous;json(res,500,{error:'The companion could not save the screen.'},cors);return;}
+   broadcast();json(res,200,{ok:true,liveUpdated:state.live.updated,viewers},cors);
+  });return;
  }
  // A paired web studio may also search and open songs, save one to the song library, read installed Bibles, look up
  // NKJV, and list and upload images. Only these routes pass; they run the local handlers with this site's CORS headers.
@@ -464,7 +470,7 @@ async function handle(req,res){
   const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'Only the local studio can quit Wordlight.'});return;}
   if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
   json(res,200,{ok:true});
-  server.close();await remote.close();await remote.idle();await Promise.allSettled([writes,assetQueue,songQueue]);setTimeout(()=>process.exit(0),100);return;
+  server.close();await remote.close();await remote.idle();await Promise.allSettled([stateQueue,writes,assetQueue,songQueue]);setTimeout(()=>process.exit(0),100);return;
  }
  if(url.pathname==='/api/assets'||url.pathname.startsWith('/api/assets/')){await handleAssets(req,res,url);return;}
  if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,state);return;}
@@ -480,13 +486,17 @@ async function handle(req,res){
   try{
    for await(const part of req){body+=part;if(Buffer.byteLength(body)>25_000_000){tooLarge=true;break;}}
    if(tooLarge){json(res,413,{error:'Session is too large.'});return;}
-   const update=JSON.parse(body);let nextLibrary=state.library,nextDraft=state.draft,nextLive=state.live;
-   if(update.library){nextLibrary=cleanLibrary(update.library);nextDraft=activeShow(nextLibrary).draft;}
-   else if(update.draft){nextDraft=cleanDraft(update.draft);nextLibrary=cleanLibrary(state.library);activeShow(nextLibrary).draft=nextDraft;}
-   if(update.live){if(!validLive(update.live))throw new Error('Invalid live slide data.');nextLive={...update.live,graphics:cleanGraphics(update.live.graphics)};}
-   const previous=state;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};
-   try{await persist();}catch(err){state=previous;throw new Error('Your session could not be saved to disk.');}
-   if(update.live)broadcast();json(res,200,{ok:true});return;
+   const update=JSON.parse(body);
+   await inStateQueue(async()=>{
+    let nextLibrary=state.library,nextDraft=state.draft,nextLive=state.live;
+    if(update.library){nextLibrary=cleanLibrary(update.library);nextDraft=activeShow(nextLibrary).draft;}
+    else if(update.draft){nextDraft=cleanDraft(update.draft);nextLibrary=cleanLibrary(state.library);activeShow(nextLibrary).draft=nextDraft;}
+    if(update.live){if(!validLive(update.live))throw new Error('Invalid live slide data.');nextLive={...update.live,graphics:cleanGraphics(update.live.graphics)};}
+    const previous=state;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};
+    try{await persist();}catch(err){state=previous;throw new Error('Your session could not be saved to disk.');}
+    if(update.live)broadcast();
+   });
+   json(res,200,{ok:true});return;
   }catch(err){json(res,400,{error:err.message||'Invalid session.'});return;}
  }
  if(req.method!=='GET'&&req.method!=='HEAD'){json(res,405,{error:'Method not allowed.'});return;}
@@ -496,8 +506,9 @@ async function handle(req,res){
 // Phone remote (opt-in, its own port). It reads shows and the live screen, and changes the screen only through
 // commitLive, so OBS outputs, studios and saved state stay in step. Its settings are changed through /api/remote/*.
 for(const file of ['remote-setup.mjs','qr.mjs'])allowed.set('/'+file,file);
-// A failed save puts the previous screen back only if nothing newer has been written meanwhile.
-async function commitLive(live){const previous=state.live;state={...state,live};try{await persist();}catch(err){if(state.live===live)state={...state,live:previous};throw err;}broadcast();}
+// The phone remote's screen changes: change(state) decides the new screen inside the session queue (or returns nothing
+// to leave it alone). A failed save puts the previous state back.
+function commitLive(change){return inStateQueue(async()=>{const live=change(state);if(!live)return;const previous=state;state={...state,live};try{await persist();}catch(err){state=previous;throw err;}broadcast();});}
 const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
