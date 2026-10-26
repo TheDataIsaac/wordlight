@@ -33,17 +33,24 @@ async function retryBusy(work){
  }
 }
 // A damaged session.json is kept under a new name and the newest readable backup is loaded instead,
-// so a bad write never silently starts the companion with an empty library.
+// so a bad write never silently starts the companion with an empty library. A missing or unreadable session.json
+// also falls back to the newest backup, if there is one.
 {
- const file=path.join(dataDir,'session.json');let text=null;
- try{text=await readFile(file,'utf8');}catch{}
- if(text!==null){
-  try{loadSaved(JSON.parse(text));}
-  catch{
-   const kept=path.join(dataDir,'session-damaged-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');
-   await rename(file,kept).catch(()=>{});console.error('session.json could not be read. It was kept as '+path.basename(kept)+'.');
-   const dir=path.join(dataDir,'backups');let names=[];try{names=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().reverse();}catch{}
-   for(const name of names){try{loadSaved(JSON.parse(await readFile(path.join(dir,name),'utf8')));console.error('Loaded the backup '+name+'.');await copyFile(path.join(dir,name),file);break;}catch{}}
+ const file=path.join(dataDir,'session.json');let text=null,readError=null,damaged=false;
+ try{text=await retryBusy(()=>readFile(file,'utf8'));}catch(err){readError=err;}
+ if(text!==null){try{loadSaved(JSON.parse(text));}catch{damaged=true;}}
+ if(damaged){
+  const kept=path.join(dataDir,'session-damaged-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');
+  await rename(file,kept).catch(()=>{});console.error('session.json could not be read. It was kept as '+path.basename(kept)+'.');
+ }
+ if(damaged||readError){
+  const dir=path.join(dataDir,'backups');let names=[];try{names=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().reverse();}catch{}
+  // A first start has no session.json and no backups: nothing to report.
+  if(readError&&names.length)console.error(readError.code==='ENOENT'?'session.json is missing.':'session.json could not be read ('+(readError.code||readError.message)+').');
+  for(const name of names){
+   try{loadSaved(JSON.parse(await readFile(path.join(dir,name),'utf8')));}catch{continue;}
+   // An unreadable (not missing) session.json is left in place: the next save keeps a copy in backups/ first.
+   console.error('Loaded the backup '+name+'.');if(damaged||readError?.code==='ENOENT')await copyFile(path.join(dir,name),file).catch(()=>{});break;
   }
  }
 }
