@@ -1,4 +1,5 @@
 // The companion must not start empty when session.json is damaged or missing: it loads the newest good backup.
+// It also keeps running when the phone remote cannot start.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -16,6 +17,7 @@ function startCompanion(dataDir,env={}){
 }
 async function readState(){for(let i=0;i<50;i++){try{return await (await fetch('http://127.0.0.1:'+port+'/api/state')).json();}catch{await wait(100);}}throw new Error('companion did not start');}
 async function stopCompanion(server){if(server.exitCode===null){server.kill();await new Promise(r=>server.once('exit',r));}}
+const post=(pathname,body)=>fetch('http://127.0.0.1:'+port+pathname,{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://127.0.0.1:'+port},body:JSON.stringify(body)});
 test('A damaged session is kept aside and the newest readable backup is loaded',async()=>{
  const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-')),backups=path.join(dataDir,'backups');
  await mkdir(backups);
@@ -46,5 +48,21 @@ test('A missing session.json loads the newest backup, and a valid pairing code i
   assert.equal(state.library.shows[0].draft.title,'Newest good backup');
   assert.equal(JSON.parse(await readFile(path.join(dataDir,'session.json'),'utf8')).library.shows[0].draft.title,'Newest good backup');
   assert.equal(await readFile(path.join(dataDir,'bridge.json'),'utf8'),bridgeText);
+ }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}
+});
+
+test('The studio and outputs keep running when the phone remote cannot start',async()=>{
+ const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-'));
+ let server=startCompanion(dataDir);
+ try{
+  await readState();
+  assert.equal((await post('/api/remote/password',{password:'sample pass 1'})).status,200);
+  assert.equal((await post('/api/remote/enabled',{enabled:true})).status,200);
+  await stopCompanion(server);
+  // Turned on, but with a port the remote cannot listen on.
+  server=startCompanion(dataDir,{WORDLIGHT_REMOTE_PORT:'18840.5'});
+  await readState();await wait(500);
+  assert.equal(server.exitCode,null,'companion still running');
+  assert.equal((await (await fetch('http://127.0.0.1:'+port+'/api/health')).json()).app,'wordlight');
  }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}
 });

@@ -504,8 +504,9 @@ server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
  const url='http://127.0.0.1:'+port;
  console.log('Wordlight is ready: '+url);console.log('OBS full screen: '+url+'/?view=output&obs=1');console.log('OBS lower third: '+url+'/?view=lower&obs=1');console.log('Keep this app running during projection. Press Ctrl+C to stop.');
- // The phone remote starts only after the companion itself is running, and only if it was turned on.
- remote.start();
+ // The phone remote starts only after the companion itself is running, and only if it was turned on. If it cannot
+ // start, the studio and OBS outputs keep running.
+ remote.start().catch(err=>console.error('The phone remote could not start: '+(err?.message||err)));
  if(process.argv.includes('--open')){
   if(process.platform==='win32')spawn('explorer.exe',[url],{stdio:'ignore',windowsHide:true}).unref();
   else spawn(process.platform==='darwin'?'open':'xdg-open',[url],{stdio:'ignore'}).unref();
