@@ -1,0 +1,7 @@
+{
+  "name": "wordlight",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "public" },
+  "workers_dev": true,
+  "routes": [ { "pattern": "wordlight.isaacjoresanya.com", "custom_domain": true } ]
+}
