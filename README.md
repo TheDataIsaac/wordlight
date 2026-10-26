@@ -3,14 +3,14 @@ Wordlight · Church Media: scripture, songs, slides and graphics for church serv
 
 ## Web studio
 
-Open [Wordlight](https://wordlight.2-31-15-0.sslip.io). To host your own copy, see [deploy/hetzner](deploy/hetzner/README.md).
+Open [Wordlight](https://wordlight.isaacjoresanya.com). To host your own copy, see [deploy/hetzner](deploy/hetzner/README.md).
 
 - No ChatGPT login and no account. Shows are saved in your browser on that computer; use **Export library** and
   **Import shows** to back them up or move them to another computer or browser.
 - The browser needs internet to open the site and for online Bible versions. For services without internet, use
   the portable package below, which runs on the computer itself.
 - OBS outputs, the FreeShow song library and installed Bibles need the Wordlight companion running on the
-  presentation laptop. To use them from the web studio, add `https://wordlight.2-31-15-0.sslip.io` to the
+  presentation laptop. To use them from the web studio, add `https://wordlight.isaacjoresanya.com` to the
   companion's `WORDLIGHT_BRIDGE_ORIGINS` (keep any origins already there), restart the companion, and enter the
   pairing code from the local studio under **OBS & screens** on the site. The browser may ask to allow access to
   devices on the local network; allow it. [deploy/hetzner](deploy/hetzner/README.md#pairing-the-companion-with-a-hosted-studio)

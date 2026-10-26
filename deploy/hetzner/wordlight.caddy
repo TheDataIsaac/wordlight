@@ -1,6 +1,6 @@
 # Edge proxy site for the Wordlight web studio. Goes in /opt/proxy/sites/ (imported by the existing proxy as *.caddy).
-# Only adds this host; the existing 2-31-15-0.sslip.io site is not touched.
-wordlight.2-31-15-0.sslip.io {
+# Only adds this host; other sites on the proxy are not touched. Replace the host name with your own.
+wordlight.example.com {
 	encode zstd gzip
 	reverse_proxy wordlight-web:8080
 }

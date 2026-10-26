@@ -1,8 +1,7 @@
 # Hosting the Wordlight web studio (Docker + Caddy)
 
-This is how the public studio at https://wordlight.2-31-15-0.sslip.io runs: the files in `dist/` served as static
-files by a small Caddy container behind an existing Caddy edge proxy. The host name in `wordlight.caddy` is that
-public address; if you host your own copy, change it to your own host name.
+One way to host your own copy: the files in `dist/` served as static files by a small Caddy container behind an
+existing Caddy edge proxy. Change the host name in `wordlight.caddy` to your own.
 
 The container serves files only. It holds no credentials and no user data: saved shows stay in each visitor's
 browser, and the companion API (songs, Bibles, OBS outputs, settings) only ever runs on the visitor's own computer.
@@ -70,9 +69,9 @@ node --env-file-if-exists=.wordlight-data/companion.env server.mjs --open
 ```
 with this line in the file (keep any origins and other settings already there):
 ```
-WORDLIGHT_BRIDGE_ORIGINS=https://wordlight.2-31-15-0.sslip.io
+WORDLIGHT_BRIDGE_ORIGINS=https://wordlight.isaacjoresanya.com
 ```
-or, next to an existing one, `WORDLIGHT_BRIDGE_ORIGINS=https://old.example.org,https://wordlight.2-31-15-0.sslip.io`.
+or, next to an existing one, `WORDLIGHT_BRIDGE_ORIGINS=https://old.example.org,https://wordlight.isaacjoresanya.com`.
 `Start Wordlight.cmd` and the portable package's **Start Wordlight** do not load this file, so start the companion
 with the command above (or set the variable in its environment another way).
 
