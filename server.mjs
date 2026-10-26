@@ -444,7 +444,9 @@ async function handleBridge(req,res,url){
  json(res,404,{error:'Not found'},cors);
 }
 const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library$/],['GET',/^\/api\/bibles(\/passage)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
-function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients)client.write(message);remote.liveChanged(state.live);}
+// A page that stopped reading its live stream (a frozen OBS, a sleeping computer) would make every screen pile up in
+// memory here. Past 16 MB unread, its stream is closed; the browser reconnects and gets the latest screen.
+function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients){if(client.writableLength>16e6){client.destroy();continue;}client.write(message);}remote.liveChanged(state.live);}
 const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){

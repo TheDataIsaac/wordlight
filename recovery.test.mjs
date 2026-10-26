@@ -1,13 +1,14 @@
 // The companion must not start empty when session.json is damaged or missing: it loads the newest good backup.
-// It also keeps running when the phone remote cannot start.
+// It also keeps running when the phone remote cannot start, and closes a live stream that stopped reading.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import http from 'node:http';
 import {mkdtemp,mkdir,writeFile,readdir,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {DEFAULT,cleanDraft} from './dist/core.mjs';
+import {DEFAULT,cleanDraft,snapshot} from './dist/core.mjs';
 import {cleanLibrary} from './dist/library.mjs';
 const port=18782,remotePort=18840,root=path.dirname(fileURLToPath(import.meta.url));
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -63,6 +64,27 @@ test('The studio and outputs keep running when the phone remote cannot start',as
   server=startCompanion(dataDir,{WORDLIGHT_REMOTE_PORT:'18840.5'});
   await readState();await wait(500);
   assert.equal(server.exitCode,null,'companion still running');
+  assert.equal((await (await fetch('http://127.0.0.1:'+port+'/api/health')).json()).app,'wordlight');
+ }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}
+});
+
+test('A live stream that stops reading is closed instead of filling memory, and a new one gets the latest screen',async()=>{
+ const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-'));
+ const server=startCompanion(dataDir);
+ try{
+  await readState();
+  let closed=false;
+  const stalled=await new Promise((resolve,reject)=>{const req=http.get('http://127.0.0.1:'+port+'/api/events?view=output',res=>{res.pause();res.on('error',()=>{});res.on('close',()=>closed=true);resolve({req,res});});req.on('error',()=>{});});
+  // About 4 MB per screen; the stalled page reads none of them.
+  const live=n=>({...snapshot(cleanDraft(DEFAULT)),slides:[{type:'text',text:'Screen '+n+' '+'x'.repeat(4e6)}],index:0,blank:false,updated:n});
+  for(let n=1;n<=12;n++){assert.equal((await post('/api/state',{live:live(n)})).status,200);await wait(50);}
+  // A paused page cannot notice its stream ending. Reading again drains what was already sent: a stream the companion
+  // closed then ends, while one it kept would stay open.
+  stalled.res.resume();
+  for(let i=0;i<100&&!closed;i++)await wait(50);
+  assert.ok(closed,'stalled stream closed');stalled.req.destroy();
+  const latest=await new Promise((resolve,reject)=>{const req=http.get('http://127.0.0.1:'+port+'/api/events?view=output',res=>{let text='';res.on('data',c=>{text+=c;const i=text.indexOf('\n\n');if(i>=0){req.destroy();resolve(JSON.parse(text.slice(6,i)).live);}});});req.on('error',reject);});
+  assert.match(latest.slides[0].text,/^Screen \d+ /);
   assert.equal((await (await fetch('http://127.0.0.1:'+port+'/api/health')).json()).app,'wordlight');
  }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}
 });
