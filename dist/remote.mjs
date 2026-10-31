@@ -196,17 +196,19 @@ async function searchSongs(){
  if(r.status!==200){say(r.data.error||'The song library could not be read.');return;}
  $('songDetail').hidden=true;$('songResults').hidden=false;
  const rows=r.data.songs.map(s=>{
-  const li=element('li'),b=listButton(s.name,s.category);li.append(b);
-  b.addEventListener('click',()=>openSong(s.id));return li;
+  const li=element('li'),b=listButton(s.name,s.line||s.category);li.append(b);
+  b.addEventListener('click',()=>openSong(s.id,s.position));return li;
  });
  $('songResults').replaceChildren(...(rows.length?rows:[element('li','muted','No songs found.')]));
 }
-async function openSong(id){
+async function openSong(id,matched){
  let r;try{r=await request('/remote/api/song?id='+encodeURIComponent(id));}catch{say('Could not open the song. Try again.');return;}
  if(r.status!==200){say(r.data.error||'Could not open the song.');return;}
  $('songTitle').textContent=r.data.title;$('songResults').hidden=true;$('songDetail').hidden=false;
  $('songParts').replaceChildren(...r.data.parts.map(part=>{
   const li=element('li'),b=listButton(part.section,part.text);b.dataset.id=String(part.position);li.append(b);
+  // The part the search matched is scrolled to, so the operator lands on the words being sung.
+  if(part.position===matched)setTimeout(()=>b.scrollIntoView({block:'center'}),0);
   b.addEventListener('click',()=>{pick(r.data.title+' · '+part.section,{action:'song',songId:id,position:part.position});for(const o of $('songParts').querySelectorAll('button'))o.setAttribute('aria-pressed',String(o===b));});
   return li;
  }));

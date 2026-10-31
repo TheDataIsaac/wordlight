@@ -2,6 +2,7 @@ import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat} from 'node:fs/promises';
 import os from 'node:os';
 import {freeShowToSong,searchSongs,foldText,cleanSong} from './dist/songs.mjs';
+import {searchEntry,findInSongbook,vocabulary} from './song-search.mjs';
 import {createHash} from 'node:crypto';
 import {cleanGraphics} from './dist/graphics.mjs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
@@ -200,11 +201,11 @@ async function handleAssetsInner(req,res,url,trusted=false){
  }
  json(res,405,{error:'Method not allowed.'});
 }
-// Native song library: one validated song per file in songs/, plus a metadata-only index. Every change goes through
+// Native song library, the church songbook: one validated song per file in songs/, plus a metadata-only index. Every change goes through
 // one queue with atomic writes; a damaged index is kept and reported, never replaced. Saving checks the modified time
 // the studio last saw, so an older copy cannot overwrite a newer one. Removed songs move to songs/removed/.
 // If the index cannot be written, the song files are put back as they were, so a failed change changes nothing.
-const SONG_LIBRARY_LIMIT=5000,SONG_FILE_BYTES=50_000_000,songDir=path.join(dataDir,'songs'),songIndexFile=path.join(songDir,'index.json');
+const SONG_LIBRARY_LIMIT=6000,SEARCH_BATCH=40,SONG_FILE_BYTES=50_000_000,songDir=path.join(dataDir,'songs'),songIndexFile=path.join(songDir,'index.json'),songUsageFile=path.join(songDir,'usage.json');
 const nativeId=id=>typeof id==='string'&&/^wl-[a-z0-9-]{8,60}$/.test(id);
 const songPath=id=>path.join(songDir,id+'.json');
 let songQueue=Promise.resolve();
@@ -218,7 +219,36 @@ async function readSongIndex(){
 }
 // Writes a temporary file and renames it over the target; a failed write leaves no temporary file behind.
 async function writeAtomic(file,text){const tmp=file+'.'+process.pid+'.'+Date.now()+'.tmp';try{await writeFile(tmp,text,'utf8');await retryBusy(()=>rename(tmp,file));}catch(err){await unlink(tmp).catch(()=>{});throw err;}}
-const indexEntry=(song,modified)=>({id:song.id,title:song.title,author:song.meta.author||song.meta.artist||'',ccli:song.meta.ccli||'',modified});
+const indexEntry=(song,modified)=>({id:song.id,title:song.title,author:song.meta.author||song.meta.artist||'',ccli:song.meta.ccli||'',collection:song.meta.collection||'',modified});
+const libraryCategory=entry=>entry.collection||'Wordlight library';
+// Line search keeps every song's lines in memory, built on first use from the song files. Each change to the library
+// updates it in place. A song file that cannot be read stays findable by title, with no lines.
+let songSearch=null,songWords=null;
+const readUsage=async()=>{try{return JSON.parse(await readFile(songUsageFile,'utf8'))||{};}catch{return {};}};
+function songbook(){
+ songSearch??=(async()=>{
+  const [list,usage]=await Promise.all([readSongIndex(),readUsage()]),entries=new Map();
+  const load=async entry=>{
+   const details={uses:Number(usage[entry.id])||0,modified:entry.modified};
+   try{entries.set(entry.id,searchEntry(JSON.parse(await readFile(songPath(entry.id),'utf8')),details));}
+   catch{entries.set(entry.id,searchEntry({id:entry.id,title:entry.title,meta:{author:entry.author,collection:entry.collection},sections:[],arrangements:[{id:'main',order:[]}]},details));}
+  };
+  for(let i=0;i<list.length;i+=SEARCH_BATCH)await Promise.all(list.slice(i,i+SEARCH_BATCH).map(load));
+  return entries;
+ })().catch(err=>{songSearch=null;throw err;});
+ return songSearch;
+}
+// Applied after any build in progress, so a build that read the old file cannot undo a change.
+function changeSongbook(change,{sameWords=false}={}){if(!sameWords)songWords=null;if(songSearch)songSearch=songSearch.then(entries=>{change(entries);return entries;});}
+const indexSong=(song,modified)=>changeSongbook(entries=>entries.set(song.id,searchEntry(song,{uses:entries.get(song.id)?.uses||0,modified})));
+// Counts how often a song went into a show, so the songs this church sings rank first.
+async function markSongUsed(id){
+ return inSongQueue(async()=>{
+  const usage=await readUsage();usage[id]=(Number(usage[id])||0)+1;
+  await mkdir(songDir,{recursive:true});await writeAtomic(songUsageFile,JSON.stringify(usage));
+  changeSongbook(entries=>{const entry=entries.get(id);if(entry)entry.uses=usage[id];},{sameWords:true});
+ });
+}
 const librarySong=(raw,id,modified)=>cleanSong({...raw,id,source:{app:'wordlight',id,name:raw?.title,modified},category:'Wordlight library'});
 async function saveNativeSong(raw,expectedModified){
  return inSongQueue(async()=>{
@@ -235,6 +265,7 @@ async function saveNativeSong(raw,expectedModified){
    if(previous!==null)await writeAtomic(songPath(id),previous).catch(()=>{});else await unlink(songPath(id)).catch(()=>{});
    throw libraryError('The song library index could not be written, so the song was not saved.');
   }
+  indexSong(song,modified);
   return {code:existing?200:201,body:{id,modified,song}};
  });
 }
@@ -262,6 +293,7 @@ async function importNativeSongs(rows){
    for(const id of written)await unlink(songPath(id)).catch(()=>{});
    throw libraryError('The song library could not be written, so nothing was imported.');
   }
+  for(const song of added)indexSong(song,modified);
   return {code:200,body:counts};
  });
 }
@@ -288,6 +320,7 @@ async function removeNativeSong(id){
   try{await rename(songPath(id),removed);}catch(err){if(err.code!=='ENOENT')throw libraryError('The song file could not be moved to songs/removed, so the song was kept.');moved=false;}
   try{await writeAtomic(songIndexFile,JSON.stringify(list.filter(e=>e.id!==id)));}
   catch{if(moved)await rename(removed,songPath(id)).catch(()=>{});throw libraryError('The song library index could not be written, so the song was kept.');}
+  changeSongbook(entries=>entries.delete(id));
   return true;
  });
 }
@@ -314,12 +347,23 @@ async function readSong(id){
  if(Array.isArray(raw)&&raw[0]!==entry.id)throw problem(409,'The song file does not match the library index. Reopen FreeShow to refresh it.');
  return {song:freeShowToSong(raw,{categoryName:entry.category})};
 }
-// The phone's song search: the same two sources as the studio.
-async function findSongs(query,offset){
- const native=(await readSongIndex()).map(e=>({id:e.id,name:e.title,category:'Wordlight library',modified:e.modified,source:'wordlight',folded:foldText(e.title+' '+e.author)}));
- const {library:freeshow}=await freeShowCatalogue();
- return searchSongs([...native,...(freeshow?.list||[]).map(e=>({...e,source:'freeshow'}))],{query,offset,limit:30});
+// Library songs by any lyric line, best first, then FreeShow songs by title. "Drafts" lists songs still to be checked.
+async function songResults({query='',source='all',category='',offset=0,limit=50}){
+ const size=Math.min(100,Math.max(1,limit));
+ let hits=[];
+ if(source!=='freeshow'){
+  const entries=[...(await songbook()).values()];
+  hits=findInSongbook(entries,query,()=>songWords??=vocabulary(entries));
+  if(category)hits=hits.filter(h=>h.category===category);
+  if(source==='drafts')hits=hits.filter(h=>h.status==='draft');
+ }
+ const items=hits.slice(offset,offset+size);
+ const catalogue=source==='wordlight'||source==='drafts'?null:await freeShowCatalogue(),list=catalogue?.library?.list||[];
+ const freeshow=catalogue?searchSongs(list.map(e=>({...e,source:'freeshow'})),{query,category,offset:Math.max(0,offset-hits.length),limit:size-items.length||1}):{total:0,items:[]};
+ return {total:hits.length+freeshow.total,offset,items:[...items,...(items.length<size?freeshow.items:[])],catalogue};
 }
+// The phone's song search: the same two sources as the studio.
+async function findSongs(query,offset){return songResults({query,offset,limit:30});}
 async function handleSongs(req,res,url,trusted=false){
  const origin=req.headers.origin;if(!trusted&&origin&&!localOrigins().includes(origin)){json(res,403,{error:'The song library is only available in the local studio.'});return;}
  try{
@@ -334,6 +378,11 @@ async function handleSongs(req,res,url,trusted=false){
    if(body?.format!=='wordlight-song-library'||body.version!==1||!Array.isArray(body.songs)){json(res,400,{error:'This is not a Wordlight song library file.'});return;}
    const result=await importNativeSongs(body.songs);json(res,result.code,result.body);return;
   }
+  if(url.pathname==='/api/songs/library/used'&&req.method==='POST'){
+   let body;try{body=await readJSON(req,1000);}catch(err){json(res,err.status||400,{error:'Invalid JSON.'});return;}
+   if(!nativeId(body?.id)||!(await songbook()).has(body.id)){json(res,404,{error:'That song is not in the library.'});return;}
+   await markSongUsed(body.id);json(res,200,{ok:true});return;
+  }
   if(url.pathname==='/api/songs/library/export'&&req.method==='GET'){json(res,200,await exportNativeSongs());return;}
   if(url.pathname.startsWith('/api/songs/library/')&&req.method==='DELETE'){
    const id=url.pathname.slice('/api/songs/library/'.length);if(!nativeId(id)){json(res,404,{error:'Not found'});return;}
@@ -342,18 +391,18 @@ async function handleSongs(req,res,url,trusted=false){
   }
   if(req.method!=='GET'){json(res,405,{error:'Method not allowed.'});return;}
   if(url.pathname==='/api/songs/item'){json(res,200,await readSong(q.get('id')||''));return;}
-  const source=q.get('source')||'all';
-  const native=(await readSongIndex()).map(e=>({id:e.id,name:e.title,category:'Wordlight library',modified:e.modified,source:'wordlight',folded:foldText(e.title+' '+e.author)}));
+  const source=q.get('source')||'all',native=await readSongIndex();
   // My library never reads FreeShow; its counts are then left out and the studio keeps the last ones it saw.
-  const catalogue=source==='wordlight'?null:await freeShowCatalogue(),freeshow=catalogue?.library;
-  const freeShowCounts=catalogue?{freeshow:freeshow?freeshow.list.length:null,freeshowError:catalogue.error}:{};
+  const counts=catalogue=>({library:native.length+(catalogue?.library?.list.length||0),native:native.length,...(catalogue?{freeshow:catalogue.library?catalogue.library.list.length:null,freeshowError:catalogue.error}:{})});
   if(url.pathname==='/api/songs'){
-   const list=[...(source!=='freeshow'?native:[]),...(freeshow?freeshow.list.map(e=>({...e,source:'freeshow'})):[])];
-   json(res,200,{...searchSongs(list,{query:q.get('q')||'',category:q.get('category')||'',offset:Math.max(0,Number(q.get('offset'))||0),limit:Number(q.get('limit'))||50}),library:native.length+(freeshow?.list.length||0),native:native.length,...freeShowCounts});return;
+   const {catalogue,...found}=await songResults({query:q.get('q')||'',source,category:q.get('category')||'',offset:Math.max(0,Number(q.get('offset'))||0),limit:Number(q.get('limit'))||50});
+   json(res,200,{...found,...counts(catalogue)});return;
   }
   if(url.pathname==='/api/songs/categories'){
-   const categories=[...(native.length?[{name:'Wordlight library',count:native.length}]:[]),...(freeshow?.categories||[])];
-   json(res,200,{categories,library:native.length+(freeshow?.list.length||0),native:native.length,...freeShowCounts});return;
+   const catalogue=source==='wordlight'||source==='drafts'?null:await freeShowCatalogue(),collections=new Map();
+   for(const entry of native)collections.set(libraryCategory(entry),(collections.get(libraryCategory(entry))||0)+1);
+   const categories=[...[...collections].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count),...(catalogue?.library?.categories||[])];
+   json(res,200,{categories,...counts(catalogue)});return;
   }
   json(res,404,{error:'Not found'});
  }catch(err){json(res,err.status||500,{error:err.status?err.message:'The song library could not be read.'});}
@@ -458,7 +507,7 @@ async function handleBridge(req,res,url){
  }
  json(res,404,{error:'Not found'},cors);
 }
-const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library$/],['GET',/^\/api\/bibles(\/passage)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
+const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library(\/used)?$/],['GET',/^\/api\/bibles(\/passage)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
 // A page that stopped reading its live stream (a frozen OBS, a sleeping computer) would make every screen pile up in
 // memory here. Past 16 MB unread, its stream is closed; the browser reconnects and gets the latest screen.
 function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients){if(client.writableLength>16e6){client.destroy();continue;}client.write(message);}remote.liveChanged(state.live);}
@@ -524,6 +573,8 @@ const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.e
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});
 server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
+ // Line search loads here, so the first song search during a service doesn't have to wait for it.
+ songbook().catch(err=>console.error('Song search: '+(err?.message||err)));
  const url='http://127.0.0.1:'+port;
  console.log('Wordlight is ready: '+url);console.log('OBS full screen: '+url+'/?view=output&obs=1');console.log('OBS lower third: '+url+'/?view=lower&obs=1');console.log('Keep this app running during projection. Press Ctrl+C to stop.');
  // The phone remote starts only after the companion itself is running, and only if it was turned on. If it cannot

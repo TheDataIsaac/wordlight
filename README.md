@@ -222,7 +222,7 @@ OBS setup, with the local companion running:
 Use the local companion for this. OBS cannot sign in to the private web version, and Window Capture does not keep transparency. **Open lower third window** opens the same page in a browser window for checking.
 
 ## Songs
-**Songs** (local studio, or a paired web studio) searches the FreeShow library on this computer by title and category. Wordlight reads FreeShow's index and opens a song's file only when you open the song; it never writes FreeShow files. Open a song to see its arrangement, then **Add to show**: the song is copied into the show (sections, the chosen arrangement, author, copyright and CCLI number as stored), so the show runs offline and is not changed if the library changes. Song slides follow the show's Design, are fitted to the screen and carry the song credit. The section bar under Live jumps to any section of the song on screen.
+**Songs** (local studio, or a paired web studio) searches your song library by any lyric line, and the FreeShow library on this computer by title and category. Wordlight reads FreeShow's index and opens a song's file only when you open the song; it never writes FreeShow files. Open a song to see its arrangement, then **Add to show**: the song is copied into the show (sections, the chosen arrangement, author, copyright and CCLI number as stored), so the show runs offline and is not changed if the library changes. Song slides follow the show's Design, are fitted to the screen and carry the song credit. The section bar under Live jumps to any section of the song on screen.
 
 **New song**, **Edit**, **Export** and **Import song file** work without FreeShow. Lyrics are plain text: a `[Verse 1]` line starts a section, a blank line starts a new slide, and a slide with only `(blank)` is a blank cue. The arrangement is the section labels in order, comma separated, with repeats allowed. Edits change the show's copy only. Import accepts Wordlight song files and FreeShow `.show` files.
 
@@ -235,7 +235,17 @@ In the song editor, **Save in this show** changes the show's copy only. **Save t
 
 **Remove from library** moves the song file to `songs/removed/`. **Export library** downloads every library song as one file (up to 50 MB, the size an import accepts). **Import library** adds the songs from such a file and keeps their library ids, so importing the same file again, or a song repeated within it, is skipped. Songs that fail checks are counted and named; an import that would pass the 5,000-song limit is refused whole. A damaged `index.json` is kept as `index.json.damaged` and reported; nothing is written until it is fixed. If the index cannot be written, a save, import or remove is undone and reported. A missing or unreadable FreeShow library never stops the song library, and **My library** does not read FreeShow at all.
 
-Not yet: FreeShow media and styling (listed when a song opens), and lyric search or CCLI services.
+Not yet: FreeShow media and styling (listed when a song opens), lyric search of FreeShow songs that aren't in the library, and CCLI services.
+
+### Finding the song being sung
+Type any line you hear. Tone marks, case, apostrophes, punctuation and word spacing don't matter, and a typo is forgiven when nothing matches exactly. Each result shows the artist and the line that matched. **Enter** adds the best match to the show and previews that part; **Alt+Enter** sends it. **Send** on a result does both. Songs put into shows rank higher next time (counts in `songs/usage.json`).
+
+**Quick capture** is for a song that isn't in the library. Enter sends the typed line to the screen, Shift+Enter adds a line to the same slide, and a number key in the empty box brings that line back. The song is saved to the library as a draft as you go. **Drafts to check**, in the source list, shows them; set the status to Checked in the song editor once someone fluent has read the words. **Setlist** takes pasted first lines, one per song, finds each one and adds them as separate items.
+
+Songs marked **Check first** are held for search only: read the words before sending them.
+
+### Building the songbook
+`tools/build-songbook.mjs` makes the library file for **Import library** from the FreeShow library and the July catalogue, keeping hand-typed shows, named hymn books and chorus collections, plus a reserve of core Nigerian worship songs. Hymns that appear in two books are kept once. It reads those sources and writes one file; lyrics never go into this repository. The library holds up to 6,000 songs.
 
 ## Graphics output
 `http://127.0.0.1:18765/?view=graphics&obs=1` is a transparent 1920 × 1080 page for an OBS Browser source above cameras and video. **Graphics** in the studio sets it up:

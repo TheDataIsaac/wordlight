@@ -154,7 +154,8 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .tip summary::-webkit-details-marker{display:none}.tip[open]{display:block}.tip p{margin:4px 0 0;max-width:46ch}
 
 .song-results{display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto;margin:6px 0;border:1px solid var(--border);border-radius:8px;padding:3px}
-.song-row{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border:0;border-radius:5px;background:none;text-align:left;font:13px 'DM Sans',Segoe UI,sans-serif;cursor:pointer}
+.song-hit{display:flex;align-items:center;gap:4px}.song-hit .song-row{flex:1;min-width:0}
+.song-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;padding:6px 8px;border:0;border-radius:5px;background:none;text-align:left;font:13px 'DM Sans',Segoe UI,sans-serif;cursor:pointer}.song-row em{flex-basis:100%;color:var(--muted);font-size:12px;font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .song-row:hover,.song-row.active{background:#e7eee2}.song-row small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
 .song-detail{border:1px solid var(--border);border-radius:8px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:6px}
 .song-order{display:flex;flex-wrap:wrap;gap:4px}.song-entry{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--border)}.song-entry strong{flex:1;min-width:140px}
@@ -171,7 +172,9 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .graphics-row legend{font-weight:600;font-size:12px;display:flex;align-items:center;gap:8px}.graphics-row legend .button{font-size:11px;padding:3px 9px}.graphics-row legend .button.active{background:#7a2b22;color:#fff}
 .graphics-on{font-size:10px;color:#b0412f;letter-spacing:.08em;text-transform:uppercase}.graphics-row .field-row{gap:6px;align-items:center}.graphics-row .input[type=number]{width:80px}
 .graphics-num,.graphics-text{display:inline-flex;align-items:center;gap:4px;font-size:11px}.graphics-text .input{min-width:200px}
-.song-badge{font-weight:600;color:var(--green);font-size:10px;letter-spacing:.04em}
+.song-badge{font-weight:600;color:var(--green);font-size:10px;letter-spacing:.04em}.song-badge.warn{color:#a35a00}
+.song-tool{border-top:1px solid var(--border);padding:8px 0}.song-tool summary{cursor:pointer;font-weight:600}.song-tool textarea{width:100%;margin:6px 0;font:14px 'DM Sans',Segoe UI,sans-serif}.capture-lines{display:flex;flex-wrap:wrap;gap:4px}
+.setlist-row{display:flex;flex-direction:column;gap:2px;padding:5px 0;border-top:1px solid var(--border);font-size:13px}.setlist-row small{color:var(--muted)}
 .versions-list{display:grid;gap:6px;max-height:55vh;overflow:auto;margin-top:8px}.version-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:10px}.version-row strong{display:block}.version-row .small-note{margin:2px 0 0}
 .remote-state{font-weight:600;margin:6px 0}.remote-section{margin-top:14px}.remote-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .remote-urls{display:flex;flex-wrap:wrap;gap:16px;margin-top:8px}.remote-url{margin:0;display:flex;flex-direction:column;align-items:center;gap:6px}.remote-url svg{width:170px;height:170px;stroke:none;border:1px solid #e3e6da;border-radius:6px}

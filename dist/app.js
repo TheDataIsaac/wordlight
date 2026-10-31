@@ -11,7 +11,7 @@ import {bollsPassage,bollsChapter} from './bolls.mjs';
 import {readPairing,savePairing,forgetPairing,companionStatus,sendToCompanion,needsResend,nextPending,isOlderSend,companionLive,describeViewers,COMPANION_URL} from './bridge.mjs';
 import {SECTIONS,pickerBooks,pickVerse,selectionReference,chapterReference,versesIn,readRecent,rememberRecent} from './picker.mjs';
 import {matchingBooks,completeBook} from './reference.mjs';
-import {newSong,editSong,songToText,arrangementText,readSongFile,songFile} from './songs.mjs';
+import {newSong,editSong,songToText,arrangementText,readSongFile,songFile,captureSong,addCapturedLine,setlistLines} from './songs.mjs';
 import {adjacentVerse,adjacentByChapter,rangeFromResponse,TRANSLATIONS,isLookupKey} from './scripture.mjs';
 import {readLimitedJSON} from './readlimit.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
@@ -38,7 +38,9 @@ let pendingLive=null,latestSend=null;
 let graphicsAssets=[],graphicsUpload='logo',graphicsDraft=null,previewBackground=false,designAssets=false;
 // Previous/Next verse clicks waiting to be applied, and whether a step is running.
 let verseSteps=0,verseStepping=false,verseIntent=0;
-const songState={source:'all',native:0,query:'',category:'',items:[],total:0,library:0,categories:null,selected:null,arrangementId:'',error:'',request:0,timer:0};
+const songState={source:'all',native:0,query:'',category:'',items:[],total:0,library:0,categories:null,selected:null,hit:null,arrangementId:'',error:'',request:0,timer:0,captureOpen:false,setlistOpen:false,setlistText:'',setlist:[]};
+// The song being captured, and the chain of library saves so they reach the laptop in order.
+const capture={entryId:'',saving:Promise.resolve()};
 // Rundown state: the last item action that can be undone, whether Item actions is open, and item summaries.
 let itemUndo=null,itemMenuOpen=false,summaryCache=new WeakMap();
 // The app's name, and the companion's version and build (from /api/health); a review copy is labelled in every render.
@@ -1432,7 +1434,7 @@ function handlePickerAction(action,t,ev){
  if(action==='picker-recent'){const r=readRecent(localStorage)[Number(t.dataset.pickerRecent)];if(r)loadPickedReference(r.reference,r.translation);}
 }
 
-// Songs: search the FreeShow library through the local companion (read-only), copy a song into the show.
+// Songs: search the song library by any lyric line and FreeShow by title, through the local companion, and copy a song into the show.
 let removedSong=null,replacedSong=null;
 async function songApi(path){const r=await localFetch(path,{cache:'no-store',signal:AbortSignal.timeout(8000)});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'The song library could not be read.');return data;}
 function songCreditLine(song){return [song.meta.author||song.meta.artist,song.meta.copyright,song.meta.ccli?'CCLI '+song.meta.ccli:''].filter(Boolean).join(' · ');}
@@ -1443,10 +1445,12 @@ function songsInShow(){
 function renderSongs(){
  const panel=$('#panel');
  if(!companionReady()){panel.innerHTML='<h3 class="section-title">Songs</h3><p class="hint">Connect OBS to search the song library on this computer. Songs already in this item still play here.</p>'+button('Connect OBS','help','screen')+songsInShow();bindSongEntries();return;}
- panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Search songs" maxlength="100" autocomplete="off" aria-label="Search songs"')+'</div>'+
-  '<select id="songSource" aria-label="Song source">'+[['all','All songs'],['wordlight','My library'],['freeshow','FreeShow']].map(([v,n])=>'<option value="'+v+'" '+(songState.source===v?'selected':'')+'>'+n+'</option>').join('')+'</select><select id="songCategory" aria-label="Song category"><option value="">All categories</option>'+(songState.categories||[]).map(c=>'<option value="'+e(c.name)+'" '+(c.name===songState.category?'selected':'')+'>'+e(c.name)+' ('+c.count+')</option>').join('')+'</select>'+
-  '<p id="songStatus" class="small-note" aria-live="polite"></p><div id="songResults" class="song-results"></div><div id="songDetail"></div>'+songsInShow();
+ panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Type any line you hear" maxlength="100" autocomplete="off" aria-label="Search songs by any line"')+'</div>'+tip('Enter adds the best match and previews the part that matched. Alt+Enter then sends it. Send on a result does both.')+
+  '<select id="songSource" aria-label="Song source">'+[['all','All songs'],['wordlight','My library'],['drafts','Drafts to check'],['freeshow','FreeShow']].map(([v,n])=>'<option value="'+v+'" '+(songState.source===v?'selected':'')+'>'+n+'</option>').join('')+'</select><select id="songCategory" aria-label="Song category"><option value="">All categories</option>'+(songState.categories||[]).map(c=>'<option value="'+e(c.name)+'" '+(c.name===songState.category?'selected':'')+'>'+e(c.name)+' ('+c.count+')</option>').join('')+'</select>'+
+  '<p id="songStatus" class="small-note" aria-live="polite"></p><div id="songResults" class="song-results"></div><div id="songDetail"></div>'+captureTools()+songsInShow();
  $('#songQuery').addEventListener('input',ev=>{songState.query=ev.target.value;clearTimeout(songState.timer);songState.timer=setTimeout(()=>searchSongLibrary(false),200);});
+ $('#songQuery').addEventListener('keydown',ev=>{if(ev.key==='Enter'&&!ev.altKey){ev.preventDefault();clearTimeout(songState.timer);addTopResult();}});
+ bindCaptureTools();
  $('#songCategory').addEventListener('change',ev=>{songState.category=ev.target.value;searchSongLibrary(false);});
  $('#songSource').addEventListener('change',ev=>{songState.source=ev.target.value;songState.category='';searchSongLibrary(false);});
  bindSongEntries();paintSongResults();paintSongDetail();
@@ -1464,12 +1468,86 @@ async function searchSongLibrary(append){
   songState.items=append?[...songState.items,...d.items]:d.items;songState.total=d.total;songState.library=d.library;songState.error='';
  }catch(err){if(request===songState.request){songState.error=err.message;songState.items=[];}}
  paintSongResults();
+ return request===songState.request;
 }
 function paintSongResults(){
  const list=$('#songResults'),status=$('#songStatus');if(!list)return;
  if(status)status.textContent=songState.error||(songState.freeshow===undefined?'Loading the song library…':songState.total+' found · '+songState.native+' in your library · '+(songState.freeshow===null?songState.freeshowError||'FreeShow library not found':songState.freeshow+' in FreeShow'));
  if(songState.error){list.innerHTML=button('Retry','song-retry');return;}
- list.innerHTML=songState.items.map(s=>'<button class="song-row'+(songState.selected?.source.id===s.id?' active':'')+'" data-action="song-open" data-song-id="'+e(s.id)+'"><span>'+e(s.name)+'</span><small>'+(s.source==='wordlight'?'<b class="song-badge">Library</b> ':'')+e(s.category)+'</small></button>').join('')+(songState.items.length<songState.total?button('Show more','song-more'):'');
+ list.innerHTML=songState.items.map((s,i)=>'<div class="song-hit"><button class="song-row'+(songState.selected?.source.id===s.id?' active':'')+'" data-action="song-open" data-song-index="'+i+'"><span>'+e(s.name)+'</span><small>'+songBadge(s)+e(s.artist||s.category)+'</small>'+(s.line?'<em>'+e(s.section?s.section+': ':'')+e(s.line)+'</em>':'')+'</button><button class="button" data-action="song-send" data-song-index="'+i+'" title="Add to the show and send this part to the screen">Send</button></div>').join('')+(songState.items.length<songState.total?button('Show more','song-more'):'');
+ // Nothing found: the words can still go up, and the song is kept for next time.
+ if(!songState.items.length&&songState.query.trim()&&songState.freeshow!==undefined)list.innerHTML='<p class="small-note">Not in the library.</p>'+button('Put these words on screen','song-capture-query','arrow','gold');
+}
+const songBadge=s=>s.source!=='wordlight'?'':s.status==='reserve'?'<b class="song-badge warn">Check first</b> ':s.status==='draft'?'<b class="song-badge warn">Draft</b> ':'<b class="song-badge">Library</b> ';
+const songHit=t=>songState.items[Number(t.dataset.songIndex)];
+function markSongUsed(id){if(/^wl-/.test(id))localFetch('/api/songs/library/used',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>{});}
+// Enter in the search box: the best match goes into the show, previewed at the part that matched.
+async function addTopResult(){
+ if(!songState.query.trim())return;
+ // Typing again while this search runs makes its answer old, and an old list must not choose the song.
+ try{
+  if(!await searchSongLibrary(false))return;
+  const hit=songState.items[0];if(!hit)return;
+  const {song}=await songApi('/api/songs/item?id='+encodeURIComponent(hit.id));
+  addSongEntry(song,false,hit);markSongUsed(hit.id);$('#songQuery')?.focus();
+ }catch(err){toast(err.message);}
+}
+function captureTools(){
+ const lines=capturedSong()?.sections||[];
+ return '<details class="song-tool" id="captureTool" '+(songState.captureOpen?'open':'')+'><summary>Quick capture</summary><p class="small-note">For a song that is not in the library. Enter sends the line to the screen. Shift+Enter starts a new line on the same slide. In an empty box, a number key brings that line back.</p><textarea id="captureLine" rows="2" aria-label="Line being sung" placeholder="Type the line being sung" spellcheck="false"></textarea><div id="captureLines" class="capture-lines">'+captureButtons(lines)+'</div></details>'+
+  '<details class="song-tool" id="setlistTool" '+(songState.setlistOpen?'open':'')+'><summary>Setlist</summary><p class="small-note">Paste the first line of each song, one per line, from the praise team.</p><textarea id="setlistText" rows="4" aria-label="Setlist" spellcheck="false">'+e(songState.setlistText)+'</textarea>'+button('Find songs','song-setlist-find')+'<div id="setlistResults"></div></details>';
+}
+const captureButtons=sections=>sections.map((s,i)=>'<button class="button" data-action="song-capture-again" data-capture-index="'+i+'" title="Send this line again"><b>'+(i+1)+'</b> '+e(s.slides[0].split('\n')[0].slice(0,40))+'</button>').join('')+(sections.length?button('Finish song','song-capture-finish'):'');
+function capturedEntry(){return (draft.songs||[]).find(x=>x.entryId===capture.entryId);}
+function capturedSong(){return capturedEntry()?.song;}
+function paintCapture(){const el=$('#captureLines');if(el)el.innerHTML=captureButtons(capturedSong()?.sections||[]);}
+function bindCaptureTools(){
+ $('#captureTool').addEventListener('toggle',ev=>{songState.captureOpen=ev.target.open;if(ev.target.open)$('#captureLine').focus();});
+ $('#setlistTool').addEventListener('toggle',ev=>{songState.setlistOpen=ev.target.open;});
+ $('#setlistText').addEventListener('input',ev=>{songState.setlistText=ev.target.value;});
+ $('#captureLine').addEventListener('keydown',ev=>{
+  const box=ev.target;if(ev.isComposing||ev.keyCode===229)return;
+  if(ev.key==='Enter'&&!ev.shiftKey){ev.preventDefault();const text=box.value;box.value='';captureSend(text);return;}
+  if(!box.value&&/^[1-9]$/.test(ev.key)&&capturedSong()?.sections[Number(ev.key)-1]){ev.preventDefault();captureAgain(Number(ev.key)-1);}
+ });
+ paintSetlist();
+}
+// The first line starts a new song in its own item. A later line joins it while that item is the one open.
+async function captureSend(text){
+ if(!text.trim())return;
+ try{
+  const show=activeShow(library),entry=capturedEntry();
+  if(entry){entry.song=addCapturedLine(entry.song,text);cleanDraft(draft);}
+  else{
+   const song=captureSong(text),added={entryId:crypto.randomUUID(),song};
+   draft=addContent(show,song.title,d=>{d.songs=[...(d.songs||[]),added];});summaryCache=new WeakMap();capture.entryId=added.entryId;songState.captureOpen=true;
+  }
+  const line=capturedSong().sections.length-1;
+  draft.previewId=deckFor(draft).find(x=>x.song?.entryId===capture.entryId&&x.song.position===line)?.id||draft.previewId;
+  remember();
+  if(entry){renderPreview();renderDeck();paintCapture();}else{render();$('#captureLine')?.focus();}
+  await publish(currentSnapshot());saveCapture();
+ }catch(err){toast(err.message);}
+}
+async function captureAgain(index){
+ const slide=deckFor(draft).find(x=>x.song?.entryId===capture.entryId&&x.song.position===index);if(!slide)return;
+ draft.previewId=slide.id;remember();renderPreview();renderDeck();await publish(currentSnapshot());
+}
+// The song is safe in the show at once. The library copy follows, one save at a time, and the first save gives it its id.
+function saveCapture(){
+ capture.saving=capture.saving.then(async()=>{
+  const entry=capturedEntry();if(!entry||!companionReady())return;
+  const song=entry.song,saved=song.source.app==='wordlight';
+  const r=await localFetch('/api/songs/library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song:{...song,id:saved?song.id:undefined},expectedModified:saved?song.source.modified:null})});
+  const data=await r.json();if(!r.ok)throw new Error(data.error);
+  const current=capturedEntry();if(current){current.song={...current.song,id:data.song.id,source:data.song.source};remember();}
+ }).catch(()=>toast('This song is safe in the show, but the library copy has not been saved yet.'));
+}
+function paintSetlist(){
+ const el=$('#setlistResults');if(!el)return;
+ const rows=songState.setlist;
+ el.innerHTML=rows.map((row,i)=>'<div class="setlist-row"><span>'+e(row.line)+'</span>'+(row.hits.length?'<select data-setlist-row="'+i+'" aria-label="Song for '+e(row.line)+'">'+row.hits.map((h,j)=>'<option value="'+j+'" '+(j===row.pick?'selected':'')+'>'+e(h.name)+(h.artist?' · '+e(h.artist):'')+(h.status==='reserve'?' (check first)':'')+'</option>').join('')+'</select>':'<small>Not found: capture it live or type it first</small>')+'</div>').join('')+(rows.some(r=>r.hits.length)?button('Add these songs to the show','song-setlist-add','plus','primary'):'');
+ el.querySelectorAll('[data-setlist-row]').forEach(s=>s.addEventListener('change',()=>{rows[Number(s.dataset.setlistRow)].pick=Number(s.value);}));
 }
 function paintSongDetail(){
  const el=$('#songDetail'),song=songState.selected;if(!el)return;
@@ -1486,7 +1564,38 @@ async function handleSongAction(action,t){
   if(action==='song-live-jump'){const i=Number(t.dataset.liveIndex);if(live.slides[i]?.song)await publish({...clone(live),index:i,blank:false});return;}
   if(action==='song-more'){await searchSongLibrary(true);return;}
   if(action==='song-retry'){forgetCompanionSongs();renderSongs();return;}
-  if(action==='song-open'){const d=await songApi('/api/songs/item?id='+encodeURIComponent(t.dataset.songId));songState.selected=d.song;songState.arrangementId=d.song.arrangementId;paintSongResults();paintSongDetail();return;}
+  if(action==='song-open'){const hit=songHit(t),d=await songApi('/api/songs/item?id='+encodeURIComponent(hit.id));songState.selected=d.song;songState.hit=hit;songState.arrangementId=d.song.arrangementId;paintSongResults();paintSongDetail();return;}
+  if(action==='song-send'){
+   const hit=songHit(t),{song}=await songApi('/api/songs/item?id='+encodeURIComponent(hit.id));
+   addSongEntry(song,false,hit);markSongUsed(hit.id);
+   // Reserve songs are unchecked blog copies, so they stop at the preview for the operator to read.
+   if(hit.status==='reserve'){toast('Read these words first, then send them. This song has not been checked.');return;}
+   const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(song.title,sent));return;
+  }
+  if(action==='song-capture-query'){const text=songState.query;songState.query='';await captureSend(text);if(tab==='songs')renderSongs();return;}
+  if(action==='song-capture-again'){await captureAgain(Number(t.dataset.captureIndex));return;}
+  if(action==='song-capture-finish'){
+   await capture.saving;const song=capturedSong();capture.entryId='';paintCapture();
+   if(song)toast(song.source.app==='wordlight'?'“'+song.title+'” is saved as a draft. Find it under Drafts to check.':'“'+song.title+'” is in this show but not in the library yet. Use Save to song library in the editor.');
+   return;
+  }
+  if(action==='song-setlist-find'){
+   songState.setlist=[];
+   for(const line of setlistLines(songState.setlistText)){
+    const d=await songApi('/api/songs?source=wordlight&limit=3&q='+encodeURIComponent(line.slice(0,100)));
+    songState.setlist.push({line,hits:d.items,pick:0});
+   }
+   paintSetlist();return;
+  }
+  if(action==='song-setlist-add'){
+   let added=0;
+   for(const row of songState.setlist){
+    const hit=row.hits[row.pick];if(!hit)continue;
+    const {song}=await songApi('/api/songs/item?id='+encodeURIComponent(hit.id));
+    addSongEntry(song,false,null,true);markSongUsed(hit.id);added++;
+   }
+   songState.setlist=[];songState.setlistText='';render();toast(added+' song'+(added===1?'':'s')+' added, each as its own item.');return;
+  }
   // Replace song: the current Song item gets the chosen song instead; Undo puts the previous one back.
   if(action==='song-replace'){
    const song=songState.selected,show=activeShow(library);if(!song||draft.songs.length!==1)return;
@@ -1507,7 +1616,7 @@ async function handleSongAction(action,t){
    const song=songState.selected;if(!song)return;
    if((draft.songs||[]).length>=60)throw new Error('A show can hold up to 60 songs.');
    cleanDraft({...draft,songs:[...(draft.songs||[]),{entryId:'check',song}]});
-   addSongEntry({...clone(song),arrangementId:songState.arrangementId||song.arrangementId});return;
+   addSongEntry({...clone(song),arrangementId:songState.arrangementId||song.arrangementId},false,songState.hit?.id===song.id?songState.hit:null);markSongUsed(song.id);return;
   }
   const entryId=t?.dataset.songEntry,index=(draft.songs||[]).findIndex(x=>x.entryId===entryId);
   if(action==='song-preview'&&index>=0){draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entryId)?.id||draft.previewId;remember();renderPreview();renderDeck();return;}
@@ -1546,14 +1655,16 @@ function paintLiveSongBar(){
 }
 
 // Adds a song snapshot to the show (checked against the show's limits first) and previews it.
-function addSongEntry(song,edit=false){
+function addSongEntry(song,edit=false,hit=null,quiet=false){
  // Each song gets its own item (an empty current item is reused). The complete item is checked before anything
  // changes, so a song that cannot be added leaves the show as it was. The screen is unchanged.
  const show=activeShow(library),entry={entryId:crypto.randomUUID(),song};
  draft=addContent(show,song.title,d=>{d.songs=[...(d.songs||[]),entry];});summaryCache=new WeakMap();
- draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entry.entryId)?.id||draft.previewId;
+ // With a search match, the preview opens at the part that matched.
+ const deck=deckFor(draft),matched=hit?.position===undefined?'':'song-'+entry.entryId+'-'+hit.position+'-'+(hit.page||0);
+ draft.previewId=deck.find(x=>x.id===matched)?.id||deck.find(x=>x.song?.entryId===entry.entryId)?.id||draft.previewId;
  remember();render();
- if(edit)openSongEditor(entry.entryId);else toast(song.title+' added as its own item. Send to screen when ready.');
+ if(edit)openSongEditor(entry.entryId);else if(!quiet)toast(song.title+' added as its own item. Send to screen when ready.');
 }
 $('#songFile')?.addEventListener('change',async ev=>{
  const file=ev.target.files[0];ev.target.value='';if(!file)return;
@@ -1568,6 +1679,7 @@ function openSongEditor(entryId){
   '<p class="small-note">'+(song.source.app==='freeshow'?'The FreeShow file is never changed. ':'')+(companionReady()?'Save to song library also updates your library copy.':'Changes apply to this show’s copy.')+'</p>'+
   '<div class="field-row"><div>'+label('Title','songTitle')+input('songTitle',song.title,'maxlength="200"')+'</div><div>'+label('Author','songAuthor')+input('songAuthor',song.meta.author||song.meta.artist||'','maxlength="300"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Copyright','songCopyright')+input('songCopyright',song.meta.copyright||'','maxlength="300"')+'</div><div>'+label('CCLI song number','songCcli')+input('songCcli',song.meta.ccli||'','maxlength="30"')+'</div></div>'+
+  '<div class="field-row"><div>'+label('Other names or spellings','songAliases')+input('songAliases',song.meta.aliases||'','maxlength="500"')+'</div><div>'+label('Status','songStatus')+'<select id="songStatus">'+[['','Not set'],['checked','Checked'],['book','From a songbook'],['draft','Draft'],['reserve','Check first']].map(([v,n])=>'<option value="'+v+'" '+(v===(song.meta.status||'')?'selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
   label('Lyrics','songLyrics')+'<textarea id="songLyrics" rows="16" spellcheck="false">'+e(songToText(song))+'</textarea>'+
   tip('Start each section with a label line such as [Verse 1] or [Chorus]. A blank line starts a new slide; a slide with only (blank) is a blank cue.')+
   label('Arrangement'+(song.arrangements.length>1?' · '+e(arrangement.name):''),'songArrangementText')+input('songArrangementText',arrangementText(song),'maxlength="4000"')+
@@ -1581,7 +1693,7 @@ document.addEventListener('click',async ev=>{
  if(t.dataset.action==='song-editor-close'){$('#songDialog').close();return;}
  const entry=(draft.songs||[]).find(x=>x.entryId===t.dataset.songEntry);if(!entry)return;
  try{
-  let song=editSong(entry.song,{title:$('#songTitle').value,meta:{author:$('#songAuthor').value,copyright:$('#songCopyright').value,ccli:$('#songCcli').value},lyrics:$('#songLyrics').value,arrangement:$('#songArrangementText').value});
+  let song=editSong(entry.song,{title:$('#songTitle').value,meta:{author:$('#songAuthor').value,copyright:$('#songCopyright').value,ccli:$('#songCcli').value,aliases:$('#songAliases').value,status:$('#songStatus').value},lyrics:$('#songLyrics').value,arrangement:$('#songArrangementText').value});
   cleanDraft({...draft,songs:draft.songs.map(x=>x===entry?{entryId:entry.entryId,song}:x)});
   let note='saved in this show';
   if(t.dataset.action!=='song-editor-save'){

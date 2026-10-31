@@ -135,7 +135,9 @@ export function songSlides(song,entryId){
  return slides;
 }
 // Search over the song index (names only). Accent- and case-insensitive; every word must appear.
-export const foldText=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+export const foldText=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/['‘’ʼ`]/g,'').toLowerCase();
+// The same, for matching lyric lines: anything that is not a letter or a number separates words.
+export const foldWords=s=>foldText(s).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 export function searchSongs(index,{query='',category='',offset=0,limit=50}={}){
  const words=foldText(query).split(/\s+/).filter(Boolean);
  const hits=index.filter(s=>(!category||s.category===category)&&words.every(w=>s.folded.includes(w)));
@@ -188,6 +190,19 @@ export function editSong(song,{title,meta={},lyrics,arrangement}){
 export function newSong(title='New song'){
  return cleanSong({format:'wordlight-song',version:1,id:'native-'+(globalThis.crypto?.randomUUID?.()||Date.now()),title,meta:{},category:'',source:{app:'wordlight'},sections:[{id:'s1',label:'Verse 1',slides:['']}],arrangements:[{id:'main',name:'Default',order:['s1'],hidden:{}}],arrangementId:'main',skipped:[]});
 }
+// Quick capture: the operator types a line while it is sung and it goes straight to screen. Each line is its own
+// verse, so the number keys can bring it back. The song is a draft until someone fluent has checked the words.
+export function captureSong(line,day=new Date().toISOString().slice(0,10)){
+ const text=String(line).trim();
+ return cleanSong({format:'wordlight-song',version:1,id:'capture-'+(globalThis.crypto?.randomUUID?.()||Date.now()),title:text.split('\n')[0].slice(0,80)||'Captured song',meta:{status:'draft',origin:'Quick capture '+day},category:'',source:{app:'capture'},
+  sections:[{id:'s1',label:'Verse 1',slides:[text]}],arrangements:[{id:'main',name:'Default',order:['s1'],hidden:{}}],arrangementId:'main',skipped:[]});
+}
+export function addCapturedLine(song,line){
+ const n=song.sections.length+1,id='s'+n,main=song.arrangements[0];
+ return cleanSong({...song,sections:[...song.sections,{id,label:'Verse '+n,slides:[String(line).trim()]}],arrangements:[{...main,order:[...main.order,id]}]});
+}
+// Pasted setlist lines to search text: numbers and bullets at the start are dropped, and blank lines ignored.
+export function setlistLines(text){return String(text||'').split(/\r?\n/).map(line=>line.replace(/^\s*(?:\d+[.)]|[-*•])\s*/,'').trim()).filter(Boolean).slice(0,30);}
 // Song files for export/import without FreeShow.
 export function songFile(song){return {format:'wordlight-song-file',version:1,song};}
 export function readSongFile(raw){

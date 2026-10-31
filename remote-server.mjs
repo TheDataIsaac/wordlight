@@ -390,7 +390,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    }
    if(p==='/remote/api/songs'){
     const found=await findSongs(String(url.searchParams.get('q')||'').slice(0,100),Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)));
-    send(res,200,{total:found.total,offset:found.offset,songs:found.items.map(s=>({id:s.id,name:clip(s.name,100),category:clip(s.category,60)}))});return;
+    send(res,200,{total:found.total,offset:found.offset,songs:found.items.map(s=>({id:s.id,name:clip(s.name,100),category:clip(s.artist||s.category,60),...(s.line?{line:clip(s.line,90),position:s.position}:{})}))});return;
    }
    if(p==='/remote/api/song'){
     const {song}=await readSong(url.searchParams.get('id')||'');
