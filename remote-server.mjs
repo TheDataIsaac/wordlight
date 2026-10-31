@@ -1,9 +1,10 @@
 // Phone remote: a second, opt-in web server for phones on the same Wi-Fi or Ethernet network.
 // It is off until the operator sets a password and turns it on in the local studio. It serves only the remote page
-// and a few remote APIs: read the live screen, browse show/scene/slide titles, and change the screen through
-// commitLive (the same save-and-broadcast path the studio uses). Everything else (shows, files, songs, keys,
-// settings, OBS) stays on the loopback-only companion. Settings live in <data>/remote.json and can only be changed
-// from the loopback companion through handleAdmin.
+// and the remote APIs: read the live screen, browse shows, look up Bibles and songs, and change the screen through
+// commitLive (the same save-and-broadcast path the studio uses). Lookups run here on the laptop (remote-content.mjs);
+// the phone receives short summaries. Editing shows, files, keys, settings and OBS stay on the loopback-only
+// companion. Settings live in <data>/remote.json and can only be changed from the loopback companion through
+// handleAdmin.
 //
 // Contract with server.mjs:
 // - getState() returns the companion's current state ({library, live, ...}); it is only read here.
@@ -21,9 +22,12 @@ import {snapshot,deckFor,validLive} from './dist/core.mjs';
 import {sceneDraft,MAIN_SCENE} from './dist/library.mjs';
 import {cleanTimer,changeTimer} from './dist/timer.mjs';
 import {cleanLowerThird} from './dist/lowerthird.mjs';
+import {cleanGraphics} from './dist/graphics.mjs';
+import {songSlides} from './dist/songs.mjs';
+import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion} from './remote-content.mjs';
 
 export const REMOTE_PORT=18766;
-const SESSION_MS=12*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,PAGE=100;
+const SESSION_MS=12*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
 const SCRYPT={N:16384,r:8,p:1,keylen:32};
 const COOKIE='wordlight_remote';
 
@@ -123,13 +127,19 @@ export function createCommandLog(limit=200){
 // ---- What the phone receives: only the live slide, its neighbours' titles and the timer ----
 const clip=(v,n)=>{const s=typeof v==='string'?v:'';return s.length>n?s.slice(0,n-1)+'…':s;};
 const brief=(slide,chars)=>slide?{id:String(slide.id||''),title:clip(slide.title,120),text:clip(slide.text,chars)}:null;
+function graphicsSummary(raw){
+ let g;try{g=cleanGraphics(raw);}catch{g=cleanGraphics();}
+ return {logo:{visible:g.logo.visible,ready:!!g.logo.assetId},timer:{visible:g.timer.visible,ready:true},background:{visible:g.background.visible,ready:g.background.kind==='color'||!!g.background.assetId},card:{visible:g.card.visible,ready:true,title:g.card.title,subtitle:g.card.subtitle}};
+}
 export function liveSummary(live){
  const slides=Array.isArray(live?.slides)?live.slides:[],index=Number.isInteger(live?.index)?live.index:0,t=cleanTimer(live?.timer);
+ const slide=slides[index],version=slide?.versePoint?slideVersion(live,slide):'';
  return {
   updated:Number(live?.updated)||0,blank:!!live?.blank,showId:live?.showId||'',showTitle:clip(live?.showTitle,100),
   sceneId:live?.showId?live.sceneId||MAIN_SCENE:'',sceneName:clip(live?.sceneName,80),index,count:slides.length,
   current:brief(slides[index],600),previous:brief(slides[index-1],140),next:brief(slides[index+1],140),
   timer:{mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,visible:t.visible},
+  version,verseSteps:!!version,graphics:graphicsSummary(live?.graphics),
   serverNow:Date.now()
  };
 }
@@ -138,11 +148,14 @@ function showList(library){
  return {activeShowId:library?.activeShowId||'',shows};
 }
 
-export function createRemote({getState,commitLive,dataDir,root,localOrigins,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
+export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
  const configFile=path.join(dataDir,'remote.json');
  let config={version:1,enabled:false,password:null};
  let server=null,error='',configProblem='',generation=0;
  const sessions=new Map(),streams=new Set(),limiter=createLoginLimiter(),commands=createCommandLog();
+ // Screens that phone content replaced, newest last, so Back returns to the sermon slide after a called verse.
+ const screensBefore=[];
+ function summary(live){const before=screensBefore.at(-1);return {...liveSummary(live),backTo:before?clip(before.showTitle||before.slides[before.index]?.title,60)||'the last screen':''};}
  let checking=0,queue=Promise.resolve(),queued=0;
 
  // A missing file means "never set up". An unreadable file or a malformed password leaves the remote off with no
@@ -185,8 +198,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
 
  const baseHeaders={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Cache-Control':'no-store'};
  function send(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8',...baseHeaders,...extra});res.end(JSON.stringify(data));}
- async function readBody(req){
-  let body='';for await(const part of req){body+=part;if(body.length>2048)throw Object.assign(new Error('The request is too large.'),{status:413});}
+ async function readBody(req,limit=2048){
+  // A multi-byte letter can arrive split across two chunks; setEncoding joins it again.
+  req.setEncoding('utf8');
+  let body='';for await(const part of req){body+=part;if(body.length>limit)throw Object.assign(new Error('The request is too large.'),{status:413});}
   try{return JSON.parse(body);}catch{throw Object.assign(new Error('Invalid JSON.'),{status:400});}
  }
  // Changes must be JSON from the remote page itself: same origin, and not from another site.
@@ -199,38 +214,90 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
  }
 
  // ---- Commands ----
- function conflict(message,live){return {status:409,body:{error:message,live:liveSummary(live)}};}
- async function execute(body){
-  let answer;
-  try{await commitLive(state=>{answer=decide(body,state);return answer.next;});}
-  catch{return {status:500,body:{error:'The companion could not save the screen. Nothing changed.'}};}
+ function conflict(message,live){return {status:409,body:{error:message,live:summary(live)}};}
+ async function execute(body,ready={}){
+  let answer;const before=[...screensBefore];
+  try{await commitLive(state=>{answer=decide(body,state,ready);return answer.next;});}
+  catch{screensBefore.splice(0,Infinity,...before);return {status:500,body:{error:'The companion could not save the screen. Nothing changed.'}};}
   if(!answer.next)return answer;
-  return {status:200,body:{ok:true,live:liveSummary(getState().live)}};
+  return {status:200,body:{ok:true,live:summary(getState().live)}};
  }
+ // Slow work happens here, before a command joins the line: the Bible text, a song, or the neighbouring verse when
+ // Next or Previous runs off the end of the verses on screen. decide() then only builds the screen.
+ async function prepare(body){
+  const live=getState().live,slide=live.slides[live.index];
+  if(body.action==='bible'){
+   const version=String(body.version||'');
+   return {version,data:await bible.passage(version,phoneReference(body.reference,slide?.versePoint))};
+  }
+  if(body.action==='song')return {song:(await readSong(String(body.songId||''))).song};
+  if(body.action==='next'||body.action==='previous'){
+   const delta=body.action==='next'?1:-1,edge=delta>0?live.index>=live.slides.length-1:live.index===0,version=slideVersion(live,slide);
+   if(edge&&slide?.versePoint&&version&&Number(body.base)===Number(live.updated||0))return {version,verse:await bible.adjacent(version,slide.versePoint,delta)};
+  }
+  return {};
+ }
+ // New content keeps the timer, lower third and graphics that are on air.
+ function onAir(screen,live){return {...screen,timer:cleanTimer(live.timer),lowerThird:cleanLowerThird(live.lowerThird),graphics:live.graphics};}
  // The next screen for a command, as {next}, or the answer that refuses it. Runs inside commitLive.
- function decide(body,state){
-  const live=state.live,now=Date.now();let next;
+ function decide(body,state,ready){
+  const live=state.live,now=Date.now();let next,remember=false;
   if(body.action==='next'||body.action==='previous'){
    // The phone sends the screen it saw, so a repeated or late tap never moves past a change made elsewhere.
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
    if(!live.slides.length)return conflict('Nothing is on screen yet.',live);
    const index=Math.max(0,Math.min(live.slides.length-1,live.index+(body.action==='next'?1:-1)));
-   next={...live,index,blank:false};
+   if(ready.verse){
+    next=onAir(bibleScreen(live,ready.verse,ready.version),live);
+    // Stepping out of a deck from the studio keeps a way back to it; stepping verse by verse does not add up.
+    remember=!live.bibleVersion;
+   }else next={...live,index,blank:false};
+  }else if(body.action==='goto'){
+   if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
+   if(!Number.isInteger(body.index)||!live.slides[body.index])return conflict('That slide is no longer on screen.',live);
+   next={...live,index:body.index,blank:false};
+  }else if(body.action==='bible'){
+   next=onAir(bibleScreen(live,ready.data,ready.version),live);remember=true;
+  }else if(body.action==='song'){
+   if(!Number.isInteger(body.position)||body.position<0)return {status:400,body:{error:'Choose a part of the song.'}};
+   try{next=onAir(songScreen(live,ready.song,body.position),live);}catch(err){return {status:err.status||400,body:{error:err.message}};}
+   remember=true;
+  }else if(body.action==='text'){
+   const heading=typeof body.heading==='string'?body.heading.trim().slice(0,400):'',text=typeof body.body==='string'?body.body.trim().slice(0,5000):'';
+   if(!heading&&!text)return {status:400,body:{error:'Type something to put on screen.'}};
+   next=onAir(textScreen(live,heading,text),live);remember=true;
+  }else if(body.action==='back'){
+   if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
+   const screen=screensBefore.at(-1);if(!screen)return conflict('There is no earlier screen to go back to.',live);
+   next={...onAir(screen,live),blank:false};
   }else if(body.action==='blank'){
    if(typeof body.blank!=='boolean')return {status:400,body:{error:'Choose hide or show.'}};
    next={...live,blank:body.blank};
   }else if(body.action==='timer'){
-   if(!['start','pause','reset'].includes(body.timer))return {status:400,body:{error:'Unknown timer action.'}};
+   if(!['start','pause','reset','show','hide'].includes(body.timer))return {status:400,body:{error:'Unknown timer action.'}};
    next={...live,timer:changeTimer(cleanTimer(live.timer),body.timer,now)};
+  }else if(body.action==='timer-set'){
+   const minutes=Number(body.minutes),mode=body.mode==='stopwatch'?'stopwatch':'countdown';
+   if(!Number.isFinite(minutes)||minutes<1/60||minutes>1440)return {status:400,body:{error:'Enter from 1 second to 1,440 minutes.'}};
+   next={...live,timer:changeTimer({...cleanTimer(live.timer),mode,durationMs:Math.round(minutes*60000)},'reset',now)};
+  }else if(body.action==='graphics'){
+   const element=body.element;
+   if(!['logo','timer','background','card'].includes(element)||typeof body.visible!=='boolean')return {status:400,body:{error:'Unknown graphics action.'}};
+   const air=cleanGraphics(live.graphics),words=element==='card'&&body.visible?{title:String(body.title??''),subtitle:String(body.subtitle??'')}:{};
+   let graphics;try{graphics=cleanGraphics({...air,[element]:{...air[element],...words,visible:body.visible}});}catch(err){return {status:400,body:{error:err.message}};}
+   if(body.visible&&!graphics[element].visible)return {status:400,body:{error:element==='card'?'Type a title or subtitle first.':'Choose the image in the local studio first.'}};
+   next={...live,graphics};
   }else if(body.action==='send'){
    const show=state.library.shows.find(s=>s.id===body.showId),draft=show&&sceneDraft(show,String(body.sceneId||''));
    if(!draft)return {status:404,body:{error:'That show or scene is no longer there.'}};
    if(!deckFor(draft).some(s=>s.id===body.slideId))return {status:404,body:{error:'That slide is no longer in this scene.'}};
    const scene=show.scenes.find(s=>s.id===body.sceneId);
-   next={...snapshot(draft,body.slideId),timer:cleanTimer(live.timer),lowerThird:cleanLowerThird(live.lowerThird),graphics:live.graphics,showId:show.id,showTitle:show.draft.title,sceneId:scene.id,sceneName:scene.name};
+   next=onAir({...snapshot(draft,body.slideId),showId:show.id,showTitle:show.draft.title,sceneId:scene.id,sceneName:scene.name},live);remember=true;
   }else return {status:400,body:{error:'Unknown command.'}};
   next.updated=Math.max(now,Number(live.updated||0)+1);
   if(!validLive(next))return {status:500,body:{error:'The new screen was not valid, so nothing changed.'}};
+  if(body.action==='back')screensBefore.pop();
+  if(remember){screensBefore.push(live);if(screensBefore.length>MAX_BACK)screensBefore.shift();}
   return {next};
  }
  // Commands run one at a time, at most MAX_QUEUE waiting. A repeated id returns the first result.
@@ -239,13 +306,20 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
   const key=session.key+':'+body.id,seen=commands.get(key);if(seen)return seen;
   if(queued>=MAX_QUEUE)return Promise.resolve({status:429,body:{error:'Too many commands at once. Wait a moment.'}});
   queued++;
-  const run=queue.then(()=>execute(body)).catch(()=>({status:500,body:{error:'The command failed. Nothing changed.'}})).then(result=>{
+  // A lookup finishes before the command joins the line, so a slow online Bible never holds up Next or Hide.
+  const started=Date.now();
+  const run=prepare(body).then(ready=>{
+   // The phone has given up by now, so a late verse must not appear on screen out of nowhere.
+   if(Date.now()-started>LOOKUP_LIMIT_MS)return {status:504,body:{error:'That took too long, so nothing changed.'}};
+   queue=queue.then(()=>execute(body,ready)).catch(()=>({status:500,body:{error:'The command failed. Nothing changed.'}}));
+   return queue;
+  }).catch(err=>({status:err.status||400,body:{error:err.message||'That did not work.'}})).then(result=>{
    queued--;
-   // A failed save may be retried with the same id.
+   // A failed save or lookup may be retried with the same id.
    if(result.status>=500)commands.delete(key);
    return result;
   });
-  queue=run;commands.set(key,run);return run;
+  commands.set(key,run);return run;
  }
 
  // ---- Remote server (LAN) ----
@@ -289,12 +363,12 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
   }
   if(p==='/remote/api/command'){
    const problem=mutationProblem(req);if(problem){send(res,problem[0],{error:problem[1]});return;}
-   let body;try{body=await readBody(req);}catch(err){send(res,err.status,{error:err.message});return;}
+   let body;try{body=await readBody(req,8000);}catch(err){send(res,err.status,{error:err.message});return;}
    const result=await command(session,body);send(res,result.status,result.body);return;
   }
   if(req.method!=='GET'){send(res,405,{error:'Method not allowed.'});return;}
   const state=getState();
-  if(p==='/remote/api/live'){send(res,200,liveSummary(state.live));return;}
+  if(p==='/remote/api/live'){send(res,200,summary(state.live));return;}
   if(p==='/remote/api/shows'){send(res,200,showList(state.library));return;}
   if(p==='/remote/api/slides'){
    const show=state.library.shows.find(s=>s.id===url.searchParams.get('show')),sceneId=url.searchParams.get('scene')||show?.activeSceneId,draft=show&&sceneDraft(show,sceneId);
@@ -302,10 +376,31 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
    const deck=deckFor(draft),offset=Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0));
    send(res,200,{showId:show.id,sceneId,total:deck.length,offset,slides:deck.slice(offset,offset+PAGE).map(s=>({id:s.id,title:clip(s.title,80),text:clip(s.text,120)}))});return;
   }
+  // Every slide of the deck on screen, including a deck the hosted studio sent.
+  if(p==='/remote/api/screen'){
+   const offset=Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)),slides=state.live.slides;
+   send(res,200,{total:slides.length,offset,slides:slides.slice(offset,offset+PAGE).map(s=>({title:clip(s.title,80),text:clip(s.text,120)}))});return;
+  }
+  if(p==='/remote/api/bible/books'){send(res,200,{books:bibleBooks()});return;}
+  try{
+   if(p==='/remote/api/bible/versions'){send(res,200,{versions:await bible.versions()});return;}
+   if(p==='/remote/api/bible/look'){
+    const version=url.searchParams.get('version')||'',found=phoneReference(url.searchParams.get('q'),state.live.slides[state.live.index]?.versePoint),data=await bible.passage(version,found);
+    send(res,200,{reference:found.reference,version:version.toUpperCase(),total:data.verses.length,verses:data.verses.slice(0,20).map(v=>({chapter:v.chapter,verse:v.verse,text:clip(v.text,300)}))});return;
+   }
+   if(p==='/remote/api/songs'){
+    const found=await findSongs(String(url.searchParams.get('q')||'').slice(0,100),Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)));
+    send(res,200,{total:found.total,offset:found.offset,songs:found.items.map(s=>({id:s.id,name:clip(s.name,100),category:clip(s.category,60)}))});return;
+   }
+   if(p==='/remote/api/song'){
+    const {song}=await readSong(url.searchParams.get('id')||'');
+    send(res,200,{title:clip(song.title,100),parts:songSlides(song,'phone').filter(s=>s.page===0).map(s=>({position:s.position,section:clip(s.section,60),text:clip(s.text,90)}))});return;
+   }
+  }catch(err){send(res,err.status||400,{error:err.message||'That did not work.'});return;}
   if(p==='/remote/api/events'){
    if(streams.size>=MAX_STREAMS){send(res,503,{error:'Too many phones are connected.'});return;}
    res.writeHead(200,{'Content-Type':'text/event-stream',...baseHeaders,'Cache-Control':'no-cache','Connection':'keep-alive'});
-   res.write('retry: 3000\n\ndata: '+JSON.stringify(liveSummary(state.live))+'\n\n');
+   res.write('retry: 3000\n\ndata: '+JSON.stringify(summary(state.live))+'\n\n');
    const stream={res,key:session.key,generation};streams.add(stream);
    // The keepalive also ends the stream once its session has expired or been revoked.
    const heartbeat=setInterval(()=>{if(!streamValid(stream)){endStream(stream);return;}res.write(': keepalive\n\n');},25000);
@@ -361,7 +456,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,port
  }
  function liveChanged(live){
   if(!streams.size)return;
-  const message='data: '+JSON.stringify(liveSummary(live))+'\n\n';
+  const message='data: '+JSON.stringify(summary(live))+'\n\n';
   for(const s of streams){if(streamValid(s))s.res.write(message);else endStream(s);}
  }
  return {

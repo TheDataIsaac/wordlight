@@ -31,7 +31,7 @@ function render(){
  dialog.innerHTML='<div class="dialog-top"><span class="eyebrow">PHONE REMOTE</span><button class="icon-button" data-remote="close" aria-label="Close phone remote">×</button></div>'+
  '<h2 id="remoteTitle">Phone remote</h2>'+
  '<p class="remote-state" role="status">'+e(stateText())+'</p>'+
- '<p class="small-note">A phone on the same Wi-Fi can move slides, hide the screen, run the countdown and send a chosen slide. No account or internet is needed. Anyone with the address and the password can control the screen.</p>'+
+ '<p class="small-note">A phone on the same Wi-Fi can look up Bible verses and songs, move slides, hide the screen and run the timer. No account is needed. Anyone with the address and the password can control the screen.</p>'+
  (status?'<div class="remote-section"><label class="label" for="remotePassword">'+(status.hasPassword?'New password':'Password')+'</label><div class="field-row"><input class="input" id="remotePassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters"><input class="input" id="remotePassword2" type="password" autocomplete="new-password" maxlength="128" placeholder="Type it again" aria-label="Type the password again"></div>'+
  '<div class="remote-actions"><button class="button" data-remote="password">'+(status.hasPassword?'Change password':'Set password')+'</button>'+
  (status.hasPassword?'<button class="button '+(status.enabled?'':'primary')+'" data-remote="'+(status.enabled?'off':'on')+'">'+(status.enabled?'Turn off':'Turn on')+'</button>':'')+

@@ -20,27 +20,93 @@
   <h2 id="liveTitle"></h2>
   <p id="liveText" class="live-text"></p>
   <p id="liveNext" class="muted small"></p>
+  <button id="back" class="wide back" type="button" hidden></button>
  </section>
- <div class="steps">
-  <button id="previous" class="step" type="button" aria-label="Previous slide on screen">‹ Previous</button>
-  <button id="next" class="step" type="button" aria-label="Next slide on screen">Next ›</button>
- </div>
- <button id="blank" class="wide" type="button">Hide screen</button>
- <section class="card timer" aria-label="Countdown">
-  <span id="timerValue" class="timer-value">--:--</span>
-  <div class="timer-buttons"><button type="button" data-timer="start">Start</button><button type="button" data-timer="pause">Pause</button><button type="button" data-timer="reset">Reset</button></div>
+ <nav class="tabs" role="tablist" aria-label="Remote sections">
+  <button id="tab-bible" role="tab" type="button" data-tab="bible">Bible</button>
+  <button id="tab-songs" role="tab" type="button" data-tab="songs">Songs</button>
+  <button id="tab-screen" role="tab" type="button" data-tab="screen">Slides</button>
+  <button id="tab-shows" role="tab" type="button" data-tab="shows">Shows</button>
+  <button id="tab-more" role="tab" type="button" data-tab="more">More</button>
+ </nav>
+
+ <section id="panel-bible" class="card" role="tabpanel" aria-labelledby="tab-bible">
+  <form id="bibleForm">
+   <div class="bible-row">
+    <input id="reference" type="text" aria-label="Bible reference" placeholder="John 3 16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" maxlength="100">
+    <select id="version" aria-label="Bible version"></select>
+   </div>
+  </form>
+  <div id="bookHints" class="chips"></div>
+  <div id="preview" class="preview" aria-live="polite"></div>
+  <div id="recent" class="chips"></div>
+  <button id="pickToggle" class="wide" type="button" aria-expanded="false">Pick book, chapter and verse</button>
+  <div id="picker" hidden>
+   <div class="picker-top"><button id="pickUp" class="link" type="button" hidden>‹ Back</button><span id="pickTitle" class="muted"></span></div>
+   <div id="pickGrid" class="grid"></div>
+  </div>
  </section>
- <section class="card browse" aria-labelledby="browseTitle">
-  <h2 id="browseTitle">Choose a slide</h2>
-  <p class="muted small">Browsing here does not change the screen. Pick a slide, then Send to live.</p>
+
+ <section id="panel-songs" class="card" role="tabpanel" aria-labelledby="tab-songs" hidden>
+  <input id="songSearch" type="search" aria-label="Search songs" placeholder="Search songs" autocomplete="off" enterkeyhint="search" maxlength="100">
+  <ol id="songResults" class="slides"></ol>
+  <div id="songDetail" hidden>
+   <div class="picker-top"><button id="songBack" class="link" type="button">‹ Songs</button><span id="songTitle" class="muted"></span></div>
+   <ol id="songParts" class="slides"></ol>
+  </div>
+ </section>
+
+ <section id="panel-screen" class="card" role="tabpanel" aria-labelledby="tab-screen" hidden>
+  <p class="muted small">The slides on screen now. Tap one to show it straight away.</p>
+  <ol id="screenSlides" class="slides"></ol>
+  <button id="screenMore" class="wide" type="button" hidden>Show more slides</button>
+ </section>
+
+ <section id="panel-shows" class="card browse" role="tabpanel" aria-labelledby="tab-shows" hidden>
+  <p class="muted small">Shows saved in Wordlight on this laptop. Pick a slide, then Send to live.</p>
   <label for="showPick">Show</label><select id="showPick"></select>
   <label for="scenePick">Item</label><select id="scenePick"></select>
   <ol id="slides" class="slides"></ol>
-  <button id="more" type="button" hidden>Show more slides</button>
+  <button id="more" class="wide" type="button" hidden>Show more slides</button>
  </section>
+
+ <div id="panel-more" role="tabpanel" aria-labelledby="tab-more" hidden>
+  <section class="card" aria-labelledby="textTitle">
+   <h2 id="textTitle">Text on screen</h2>
+   <form id="textForm">
+    <label for="textHeading">Heading</label><input id="textHeading" type="text" maxlength="400" autocomplete="off">
+    <label for="textBody">Text</label><textarea id="textBody" rows="3" maxlength="5000"></textarea>
+    <button class="primary wide" type="submit">Send to live</button>
+   </form>
+  </section>
+  <section class="card" aria-labelledby="timerTitle">
+   <h2 id="timerTitle">Timer</h2>
+   <div class="timer"><span id="timerValue" class="timer-value">--:--</span>
+    <div class="timer-buttons"><button type="button" data-timer="start">Start</button><button type="button" data-timer="pause">Pause</button><button type="button" data-timer="reset">Reset</button></div></div>
+   <button id="timerShow" class="wide" type="button">Show on screen</button>
+   <form id="timerForm" class="field-row">
+    <div><label for="timerMinutes">Minutes</label><input id="timerMinutes" type="number" min="0.02" max="1440" step="any" inputmode="decimal"></div>
+    <div><label for="timerMode">Mode</label><select id="timerMode"><option value="countdown">Countdown</option><option value="stopwatch">Stopwatch</option></select></div>
+    <button type="submit">Set</button>
+   </form>
+  </section>
+  <section class="card" aria-labelledby="graphicsTitle">
+   <h2 id="graphicsTitle">OBS graphics</h2>
+   <p class="muted small">These change the graphics source in OBS, not the projector.</p>
+   <div class="toggles"><button type="button" data-graphics="logo">Logo</button><button type="button" data-graphics="timer">Timer</button><button type="button" data-graphics="background">Background</button></div>
+   <label for="cardTitle">Title card</label><input id="cardTitle" type="text" maxlength="120" placeholder="Title" autocomplete="off">
+   <label for="cardSubtitle" class="sr-only">Title card subtitle</label><input id="cardSubtitle" type="text" maxlength="160" placeholder="Subtitle" autocomplete="off">
+   <button class="wide" type="button" data-graphics="card">Show title card</button>
+  </section>
+ </div>
 </div>
 <p id="message" class="message" role="status" aria-live="polite"></p>
 </main>
 <div id="sendBar" class="send-bar" hidden><span id="sendWhat"></span><button id="send" class="primary" type="button">Send to live</button></div>
+<div id="controls" class="controls" hidden>
+ <button id="previous" class="step" type="button" aria-label="Previous slide on screen">‹ Previous</button>
+ <button id="blank" class="step hide" type="button">Hide screen</button>
+ <button id="next" class="step" type="button" aria-label="Next slide on screen">Next ›</button>
+</div>
 <script type="module" src="remote.mjs"></script>
 </body></html>

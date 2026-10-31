@@ -1,15 +1,20 @@
-// Phone remote page. It shows the live slide, moves it, hides it, runs the countdown, and sends a chosen slide.
-// Browsing shows and scenes only reads; nothing changes the screen until Send to live. Live updates arrive over one
-// event stream that reconnects on its own; closing the phone or losing Wi-Fi never changes the screen.
+// Phone remote page. It is a controller: it sends what was typed or tapped, and Wordlight on the laptop finds the text,
+// builds the screen and sends it out. Live updates arrive over one event stream that reconnects on its own; closing the
+// phone or losing Wi-Fi never changes the screen. Browsing never changes the screen; only Send, Go, a tap in Slides and
+// the controls at the bottom do.
 const $=id=>document.getElementById(id);
-let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer;
+let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer,books=[],versionsLoaded=false,tab='bible',deckShown='';
 const browse={showId:'',sceneId:'',offset:0,total:0};
+const pickState={bookId:'',chapter:0};
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const saved=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}};
+const save=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{}};
 // crypto.randomUUID needs HTTPS; getRandomValues works on a plain LAN address.
 function commandId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');}
 function say(text){$('message').textContent=text;clearTimeout(messageTimer);messageTimer=setTimeout(()=>{$('message').textContent='';},4000);}
 function setConnection(ok,text){const el=$('connection');el.textContent=text||(ok?'Connected':'Reconnecting…');el.className='connection '+(ok?'ok':'bad');}
+function element(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;}
 
 // Every request gives up after 6 s, so a stalled Wi-Fi connection never leaves the buttons waiting forever.
 async function request(path,body){
@@ -26,10 +31,19 @@ async function request(path,body){
 // ---- Views ----
 function showLogin(){
  events?.close();events=null;live=null;
- $('remote').hidden=true;$('signOut').hidden=true;$('sendBar').hidden=true;$('login').hidden=false;
+ $('remote').hidden=true;$('signOut').hidden=true;$('sendBar').hidden=true;$('controls').hidden=true;$('login').hidden=false;
  setConnection(false,'Signed out');
 }
-function showRemote(){$('login').hidden=true;$('remote').hidden=false;$('signOut').hidden=false;}
+function showRemote(){$('login').hidden=true;$('remote').hidden=false;$('signOut').hidden=false;$('controls').hidden=false;}
+const TABS=['bible','songs','screen','shows','more'];
+function showTab(name){
+ tab=name;save('wordlight-remote-tab',name);clearPicked();
+ for(const t of TABS){$('panel-'+t).hidden=t!==name;$('tab-'+t).setAttribute('aria-selected',String(t===name));}
+ if(name==='shows')loadShows();
+ if(name==='screen')loadScreen(0);
+ if(name==='songs'&&!$('songResults').children.length)searchSongs();
+}
+for(const b of document.querySelectorAll('[data-tab]'))b.addEventListener('click',()=>showTab(b.dataset.tab));
 
 // ---- Live slide ----
 function applyLive(summary){
@@ -43,18 +57,21 @@ function applyLive(summary){
  $('livePosition').textContent=live.count?(live.index+1)+' of '+live.count:'';
  $('liveTitle').textContent=live.current?.title||'Nothing on screen yet';
  $('liveText').textContent=live.current?.text||'';
- $('liveNext').textContent=live.next?'Next: '+live.next.title:live.count?'This is the last slide.':'';
+ $('liveNext').textContent=live.next?'Next: '+live.next.title:live.verseSteps?'Next goes to the next verse.':live.count?'This is the last slide.':'';
  $('blank').textContent=live.blank?'Show screen':'Hide screen';$('blank').classList.toggle('restore',live.blank);
- updateButtons();markOnAir();paintTimer();
+ $('back').hidden=!live.backTo;$('back').textContent='‹ Back to '+live.backTo;
+ updateButtons();markOnAir();paintTimer();paintGraphics();
  if(live.showId&&shows.length&&!shows.some(s=>s.id===live.showId))loadShows();
+ if(tab==='screen'){if(deckKey()!==deckShown)loadScreen(0);else markScreen();}
 }
 function updateButtons(){
- const none=!live||!live.count;
- $('previous').disabled=busy||none||live.index===0;$('next').disabled=busy||none||live.index>=live.count-1;
- for(const b of document.querySelectorAll('#blank,[data-timer],#send'))b.disabled=busy||!live;
+ const none=!live||!live.count,first=live?.index===0,last=live?.index>=live?.count-1;
+ $('previous').disabled=busy||none||(first&&!live.verseSteps);$('next').disabled=busy||none||(last&&!live.verseSteps);
+ $('next').textContent=last&&live?.verseSteps?'Next verse ›':'Next ›';$('previous').textContent=first&&live?.verseSteps?'‹ Prev verse':'‹ Previous';
+ for(const b of document.querySelectorAll('#blank,#back,[data-timer],#timerShow,#send,[data-graphics]'))b.disabled=busy||!live;
 }
 
-// ---- Countdown: shown from the last timer state; the ticking itself needs no network ----
+// ---- Timer: shown from the last timer state; the ticking itself needs no network ----
 function timerValue(t){
  const elapsed=t.running?Math.max(0,Date.now()+clockOffset-t.startedAt):0;
  return Math.max(0,t.mode==='stopwatch'?t.valueMs+elapsed:t.valueMs-elapsed);
@@ -63,8 +80,11 @@ function formatTimer(ms){
  const seconds=Math.ceil(ms/1000),h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;
  return (h?h+':':'')+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
 }
-function paintTimer(){$('timerValue').textContent=live?formatTimer(timerValue(live.timer)):'--:--';}
-setInterval(()=>{if(live?.timer.running&&!document.hidden)paintTimer();},250);
+function paintTimer(){
+ $('timerValue').textContent=live?formatTimer(timerValue(live.timer)):'--:--';
+ if(live){$('timerShow').textContent=live.timer.visible?'Hide from screen':'Show on screen';$('timerShow').classList.toggle('on',live.timer.visible);if(document.activeElement!==$('timerMinutes')&&!$('timerMinutes').value)$('timerMinutes').value=live.timer.durationMs/60000;$('timerMode').value=live.timer.mode;}
+}
+setInterval(()=>{if(live?.timer.running&&!document.hidden)$('timerValue').textContent=formatTimer(timerValue(live.timer));},250);
 
 // ---- Commands: one at a time. A retry after a timeout or network error sends the same id, so the companion
 // applies the command at most once and answers a retry with the first result. ----
@@ -88,15 +108,142 @@ async function command(body){
 $('previous').addEventListener('click',()=>live&&command({action:'previous',base:live.updated}));
 $('next').addEventListener('click',()=>live&&command({action:'next',base:live.updated}));
 $('blank').addEventListener('click',()=>live&&command({action:'blank',blank:!live.blank}));
-for(const b of document.querySelectorAll('[data-timer]'))b.addEventListener('click',()=>command({action:'timer',timer:b.dataset.timer}));
+$('back').addEventListener('click',()=>live&&command({action:'back',base:live.updated}));
+
+// ---- Send to live: everything that is picked first waits here ----
+function pick(title,send){picked={title,send};$('sendWhat').textContent=title;$('sendBar').hidden=false;}
+function clearPicked(){picked=null;$('sendBar').hidden=true;markPicked();}
 $('send').addEventListener('click',async()=>{
  if(!picked)return;
  // "Sent", not "on screen": the studio may have sent something newer meanwhile; the live card shows what is on.
- const title=picked.title;
- if(await command({action:'send',...picked})){say('Sent: '+title);picked=null;$('sendBar').hidden=true;markPicked();}
+ const {title,send}=picked;
+ if(await command({...send})){say('Sent: '+title);if(send.action==='bible')bibleSent();clearPicked();}
 });
 
-// ---- Browsing shows, scenes and slides (read only) ----
+// ---- Bible ----
+function bibleCommand(){return {action:'bible',reference:$('reference').value,version:$('version').value};}
+async function loadBible(){
+ if(versionsLoaded)return;
+ try{
+  const [v,b]=await Promise.all([request('/remote/api/bible/versions'),request('/remote/api/bible/books')]);
+  if(v.status!==200||b.status!==200)return;
+  books=b.data.books;
+  const choice=saved('wordlight-remote-version',live?.version||'')||v.data.versions[0]?.id;
+  $('version').replaceChildren(...v.data.versions.map(x=>option(x.id,x.id.toUpperCase()+(x.installed?'':' (online)'),x.id===choice)));
+  versionsLoaded=true;paintPicker();
+ }catch{}
+}
+$('version').addEventListener('change',()=>{save('wordlight-remote-version',$('version').value);lookSoon();});
+let lookRequest=0,lookTimer;
+function note(text){$('preview').replaceChildren(element('p','note',text));}
+function lookSoon(){
+ clearTimeout(lookTimer);lookRequest++;clearPicked();
+ const text=$('reference').value.trim();paintHints(text);
+ if(!text){$('preview').replaceChildren();return;}
+ // A book name with no number yet is still being typed.
+ if(/\d/.test(text))lookTimer=setTimeout(()=>look(text),180);
+}
+async function look(text){
+ const mine=++lookRequest;
+ let r;try{r=await request('/remote/api/bible/look?q='+encodeURIComponent(text)+'&version='+encodeURIComponent($('version').value));}catch{if(mine===lookRequest)note('Could not reach Wordlight.');return;}
+ if(mine!==lookRequest)return;
+ if(r.status!==200){note(r.data.error||'That passage was not found.');return;}
+ const shown=r.data.verses.map(v=>element('p','',v.verse+'  '+v.text));
+ if(r.data.total>shown.length)shown.push(element('p','muted','and '+(r.data.total-shown.length)+' more verses'));
+ $('preview').replaceChildren(element('h3','',r.data.reference+' · '+r.data.version),...shown);
+ pick(r.data.reference+' · '+r.data.version,{...bibleCommand(),reference:r.data.reference});
+}
+function paintHints(text){
+ const name=text.toLowerCase(),found=text&&!/\d\s/.test(text)&&!/\d$/.test(text)?books.filter(b=>b.name.toLowerCase().startsWith(name)||b.name.toLowerCase().replace(/^\d /,'').startsWith(name)).slice(0,6):[];
+ $('bookHints').replaceChildren(...found.map(b=>{const c=element('button','',b.name);c.type='button';c.addEventListener('click',()=>{$('reference').value=b.name+' ';$('reference').focus();lookSoon();});return c;}));
+}
+function bibleSent(){
+ const recent=saved('wordlight-remote-recent',[]).filter(r=>r.reference!==live?.showTitle);
+ if(live?.showTitle)save('wordlight-remote-recent',[{reference:live.showTitle,version:$('version').value},...recent].slice(0,8));
+ $('reference').value='';$('preview').replaceChildren();paintHints('');paintRecent();
+}
+function paintRecent(){
+ $('recent').replaceChildren(...saved('wordlight-remote-recent',[]).map(r=>{const c=element('button','',r.reference);c.type='button';c.addEventListener('click',()=>{$('reference').value=r.reference;if([...$('version').options].some(o=>o.value===r.version))$('version').value=r.version;look(r.reference);});return c;}));
+}
+$('reference').addEventListener('input',lookSoon);
+// Go on the phone keyboard sends straight away; the laptop finds the verse itself if the preview has not finished.
+$('bibleForm').addEventListener('submit',async ev=>{
+ ev.preventDefault();clearTimeout(lookTimer);lookRequest++;
+ if(!$('reference').value.trim())return;
+ $('reference').blur();
+ if(await command(bibleCommand())){say('Sent: '+live.showTitle);bibleSent();clearPicked();}
+});
+
+// Book, chapter and verse picker. The tap on a verse fills in the reference and shows it, ready to send.
+function gridButton(text,tap){const b=element('button','',text);b.type='button';b.addEventListener('click',tap);return b;}
+function paintPicker(){
+ const book=books.find(b=>b.id===pickState.bookId);
+ $('pickUp').hidden=!book;$('pickGrid').classList.toggle('names',!book);
+ if(!book){$('pickTitle').textContent='Book';$('pickGrid').replaceChildren(...books.map(b=>gridButton(b.name,()=>{pickState.bookId=b.id;pickState.chapter=0;paintPicker();})));return;}
+ if(!pickState.chapter){$('pickTitle').textContent=book.name+': chapter';$('pickGrid').replaceChildren(...book.verses.map((n,i)=>gridButton(String(i+1),()=>{pickState.chapter=i+1;paintPicker();})));return;}
+ $('pickTitle').textContent=book.name+' '+pickState.chapter+': verse';
+ $('pickGrid').replaceChildren(...Array.from({length:book.verses[pickState.chapter-1]||0},(_,i)=>gridButton(String(i+1),()=>{$('reference').value=book.name+' '+pickState.chapter+':'+(i+1);look($('reference').value);})));
+}
+$('pickUp').addEventListener('click',()=>{if(pickState.chapter)pickState.chapter=0;else pickState.bookId='';paintPicker();});
+$('pickToggle').addEventListener('click',()=>{const open=$('picker').hidden;$('picker').hidden=!open;$('pickToggle').setAttribute('aria-expanded',String(open));$('pickToggle').textContent=open?'Close the picker':'Pick book, chapter and verse';});
+
+// ---- Songs ----
+let songRequest=0,songTimer;
+async function searchSongs(){
+ const mine=++songRequest;
+ let r;try{r=await request('/remote/api/songs?q='+encodeURIComponent($('songSearch').value.trim()));}catch{if(mine===songRequest)say('Could not load the songs. Try again.');return;}
+ if(mine!==songRequest)return;
+ if(r.status!==200){say(r.data.error||'The song library could not be read.');return;}
+ $('songDetail').hidden=true;$('songResults').hidden=false;
+ const rows=r.data.songs.map(s=>{
+  const li=element('li'),b=listButton(s.name,s.category);li.append(b);
+  b.addEventListener('click',()=>openSong(s.id));return li;
+ });
+ $('songResults').replaceChildren(...(rows.length?rows:[element('li','muted','No songs found.')]));
+}
+async function openSong(id){
+ let r;try{r=await request('/remote/api/song?id='+encodeURIComponent(id));}catch{say('Could not open the song. Try again.');return;}
+ if(r.status!==200){say(r.data.error||'Could not open the song.');return;}
+ $('songTitle').textContent=r.data.title;$('songResults').hidden=true;$('songDetail').hidden=false;
+ $('songParts').replaceChildren(...r.data.parts.map(part=>{
+  const li=element('li'),b=listButton(part.section,part.text);b.dataset.id=String(part.position);li.append(b);
+  b.addEventListener('click',()=>{pick(r.data.title+' · '+part.section,{action:'song',songId:id,position:part.position});for(const o of $('songParts').querySelectorAll('button'))o.setAttribute('aria-pressed',String(o===b));});
+  return li;
+ }));
+}
+function listButton(title,text){
+ const b=element('button');b.type='button';b.setAttribute('aria-pressed','false');
+ b.append(element('span','title',title),element('span','text',text));return b;
+}
+$('songSearch').addEventListener('input',()=>{clearTimeout(songTimer);songTimer=setTimeout(searchSongs,200);});
+$('songBack').addEventListener('click',()=>{clearPicked();$('songDetail').hidden=true;$('songResults').hidden=false;});
+
+// ---- Slides on screen: a tap goes straight to that slide ----
+const deckKey=()=>live?live.count+'|'+live.showTitle+'|'+live.sceneName:'';
+let screenRequest=0,screenOffset=0;
+async function loadScreen(offset){
+ const mine=++screenRequest;
+ let r;try{r=await request('/remote/api/screen?offset='+offset);}catch{return;}
+ if(mine!==screenRequest||r.status!==200)return;
+ screenOffset=offset;deckShown=deckKey();
+ const rows=r.data.slides.map((s,i)=>{
+  const li=element('li'),position=offset+i,b=listButton((position+1)+'. '+s.title,s.text);b.dataset.index=String(position);li.append(b);
+  b.addEventListener('click',()=>live&&command({action:'goto',index:position,base:live.updated}));return li;
+ });
+ if(offset===0)$('screenSlides').replaceChildren(...rows);else $('screenSlides').append(...rows);
+ $('screenMore').hidden=offset+r.data.slides.length>=r.data.total;
+ markScreen();
+}
+function markScreen(){
+ for(const b of $('screenSlides').querySelectorAll('button')){
+  const on=!!live&&Number(b.dataset.index)===live.index;let badge=b.querySelector('.on-air');
+  if(on&&!badge){badge=element('span','on-air');b.prepend(badge);}
+  if(on)badge.textContent=live.blank?'HIDDEN':'LIVE';else badge?.remove();
+ }
+}
+$('screenMore').addEventListener('click',()=>loadScreen(screenOffset+100));
+
+// ---- Shows saved on the laptop (read only until Send to live) ----
 function option(value,text,selected){const o=document.createElement('option');o.value=value;o.textContent=text;o.selected=selected;return o;}
 // Only the newest show or slide request may fill the lists; an older reply after a quick change is dropped.
 let showsRequest=0,slidesRequest=0;
@@ -121,31 +268,51 @@ async function loadSlides(offset){
  if(r.status!==200){if(r.status===404)say(r.data.error);return;}
  browse.offset=offset;browse.total=r.data.total;
  const items=r.data.slides.map((slide,i)=>{
-  const li=document.createElement('li'),b=document.createElement('button'),title=document.createElement('span'),text=document.createElement('span');
-  b.type='button';b.dataset.id=slide.id;b.setAttribute('aria-pressed','false');
-  title.className='title';title.textContent=(offset+i+1)+'. '+slide.title;text.className='text';text.textContent=slide.text;
-  b.append(title,text);li.append(b);
-  b.addEventListener('click',()=>{picked={showId:browse.showId,sceneId:browse.sceneId,slideId:slide.id,title:slide.title};$('sendWhat').textContent=slide.title;$('sendBar').hidden=false;markPicked();});
+  const li=element('li'),b=listButton((offset+i+1)+'. '+slide.title,slide.text);b.dataset.id=slide.id;li.append(b);
+  b.addEventListener('click',()=>{pick(slide.title,{action:'send',showId:browse.showId,sceneId:browse.sceneId,slideId:slide.id});markPicked();});
   return li;
  });
  if(offset===0)$('slides').replaceChildren(...items);else $('slides').append(...items);
- if(!browse.total)$('slides').replaceChildren(Object.assign(document.createElement('li'),{className:'muted',textContent:'This item has no slides.'}));
+ if(!browse.total)$('slides').replaceChildren(element('li','muted','This item has no slides.'));
  $('more').hidden=offset+r.data.slides.length>=browse.total;
  markOnAir();markPicked();
 }
-function markPicked(){for(const b of $('slides').querySelectorAll('button'))b.setAttribute('aria-pressed',String(!!picked&&picked.slideId===b.dataset.id&&picked.sceneId===browse.sceneId&&picked.showId===browse.showId));}
+function markPicked(){
+ const send=picked?.send;
+ for(const b of $('slides').querySelectorAll('button'))b.setAttribute('aria-pressed',String(send?.action==='send'&&send.slideId===b.dataset.id&&send.sceneId===browse.sceneId&&send.showId===browse.showId));
+ if(!picked)for(const b of $('songParts').querySelectorAll('button'))b.setAttribute('aria-pressed','false');
+}
 function markOnAir(){
  const here=live&&live.showId===browse.showId&&live.sceneId===browse.sceneId;
  for(const b of $('slides').querySelectorAll('button')){
   const on=here&&live.current?.id===b.dataset.id;let badge=b.querySelector('.on-air');
-  if(on&&!badge){badge=document.createElement('span');badge.className='on-air';badge.textContent=live.blank?'HIDDEN':'LIVE';b.prepend(badge);}
+  if(on&&!badge){badge=element('span','on-air',live.blank?'HIDDEN':'LIVE');b.prepend(badge);}
   else if(on)badge.textContent=live.blank?'HIDDEN':'LIVE';
   else badge?.remove();
  }
 }
-$('showPick').addEventListener('change',ev=>{browse.showId=ev.target.value;browse.sceneId='';picked=null;$('sendBar').hidden=true;loadShows();});
-$('scenePick').addEventListener('change',ev=>{browse.sceneId=ev.target.value;picked=null;$('sendBar').hidden=true;loadSlides(0);});
+$('showPick').addEventListener('change',ev=>{browse.showId=ev.target.value;browse.sceneId='';clearPicked();loadShows();});
+$('scenePick').addEventListener('change',ev=>{browse.sceneId=ev.target.value;clearPicked();loadSlides(0);});
 $('more').addEventListener('click',()=>loadSlides(browse.offset+100));
+
+// ---- More: text, timer and OBS graphics ----
+$('textForm').addEventListener('submit',async ev=>{
+ ev.preventDefault();
+ if(await command({action:'text',heading:$('textHeading').value,body:$('textBody').value})){say('Sent to live.');$('textHeading').value='';$('textBody').value='';}
+});
+for(const b of document.querySelectorAll('[data-timer]'))b.addEventListener('click',()=>command({action:'timer',timer:b.dataset.timer}));
+$('timerShow').addEventListener('click',()=>live&&command({action:'timer',timer:live.timer.visible?'hide':'show'}));
+$('timerForm').addEventListener('submit',ev=>{ev.preventDefault();command({action:'timer-set',minutes:$('timerMinutes').value,mode:$('timerMode').value});});
+for(const b of document.querySelectorAll('[data-graphics]'))b.addEventListener('click',()=>{
+ const element=b.dataset.graphics,shown=!!live?.graphics[element].visible;
+ command({action:'graphics',element,visible:!shown,title:$('cardTitle').value,subtitle:$('cardSubtitle').value});
+});
+function paintGraphics(){
+ if(!live)return;
+ for(const b of document.querySelectorAll('[data-graphics]')){const shown=live.graphics[b.dataset.graphics].visible;b.classList.toggle('on',shown);if(b.dataset.graphics==='card')b.textContent=shown?'Hide title card':'Show title card';}
+ if(document.activeElement!==$('cardTitle')&&!$('cardTitle').value)$('cardTitle').value=live.graphics.card.title;
+ if(document.activeElement!==$('cardSubtitle')&&!$('cardSubtitle').value)$('cardSubtitle').value=live.graphics.card.subtitle;
+}
 
 // ---- Connection ----
 function connectEvents(){
@@ -162,7 +329,7 @@ function connectEvents(){
 async function checkSession(){
  try{
   const r=await request('/remote/api/live');
-  if(r.status===200){showRemote();applyLive(r.data);connectEvents();loadShows();return;}
+  if(r.status===200){showRemote();applyLive(r.data);connectEvents();await loadBible();paintRecent();showTab(TABS.includes(tab)?tab:'bible');return;}
   if(r.status!==401){setConnection(false);retryTimer=setTimeout(checkSession,5000);}
  }catch{setConnection(false);clearTimeout(retryTimer);retryTimer=setTimeout(checkSession,5000);}
 }
@@ -179,4 +346,5 @@ $('login').addEventListener('submit',async ev=>{
  finally{button.disabled=false;}
 });
 $('signOut').addEventListener('click',async()=>{try{await request('/remote/api/logout',{});}catch{}showLogin();});
+tab=saved('wordlight-remote-tab','bible');
 checkSession().then(()=>{if($('remote').hidden&&$('login').hidden)showLogin();});

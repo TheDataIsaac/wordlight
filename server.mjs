@@ -13,6 +13,7 @@ import {cleanLibrary,activeShow,backgroundAssetIds} from './dist/library.mjs';
 import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
 import {createRemote} from './remote-server.mjs';
+import {createBibleLookup} from './remote-content.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const port=Number(process.env.WORDLIGHT_PORT)||18765;
 const dataDir=process.env.WORDLIGHT_DATA_DIR||path.join(root,'.wordlight-data');
@@ -300,6 +301,25 @@ async function freeShowCatalogue(){
  try{return {library:await loadSongLibrary(),error:''};}
  catch(err){return {library:null,error:err.status===404?'':'The FreeShow library could not be read.'};}
 }
+// One song by id, from the Wordlight library or FreeShow. A problem carries the status and message to show.
+async function readSong(id){
+ const problem=(status,message)=>Object.assign(new Error(message),{status});
+ if(nativeId(id)){const item=await readNativeSong(id);if(!item)throw problem(404,'That song is not in the library.');return item;}
+ const {library:lib,error}=await freeShowCatalogue();if(!lib)throw problem(error?500:404,error||'No FreeShow song library was found on this computer.');
+ const entry=lib.byId.get(id);if(!entry)throw problem(404,'That song is not in the FreeShow library.');
+ // FreeShow names each file after the show. Refuse names that would leave the Shows folder.
+ const file=path.resolve(lib.paths.shows,entry.name+'.show');
+ if(path.dirname(file)!==lib.paths.shows||/[\\/]/.test(entry.name))throw problem(400,'This song name cannot be opened safely.');
+ let raw;try{raw=JSON.parse(await readFile(file,'utf8'));}catch{throw problem(404,'The song file could not be read.');}
+ if(Array.isArray(raw)&&raw[0]!==entry.id)throw problem(409,'The song file does not match the library index. Reopen FreeShow to refresh it.');
+ return {song:freeShowToSong(raw,{categoryName:entry.category})};
+}
+// The phone's song search: the same two sources as the studio.
+async function findSongs(query,offset){
+ const native=(await readSongIndex()).map(e=>({id:e.id,name:e.title,category:'Wordlight library',modified:e.modified,source:'wordlight',folded:foldText(e.title+' '+e.author)}));
+ const {library:freeshow}=await freeShowCatalogue();
+ return searchSongs([...native,...(freeshow?.list||[]).map(e=>({...e,source:'freeshow'}))],{query,offset,limit:30});
+}
 async function handleSongs(req,res,url,trusted=false){
  const origin=req.headers.origin;if(!trusted&&origin&&!localOrigins().includes(origin)){json(res,403,{error:'The song library is only available in the local studio.'});return;}
  try{
@@ -321,18 +341,7 @@ async function handleSongs(req,res,url,trusted=false){
    json(res,done?200:404,done?{ok:true}:{error:'That song is not in the library.'});return;
   }
   if(req.method!=='GET'){json(res,405,{error:'Method not allowed.'});return;}
-  if(url.pathname==='/api/songs/item'){
-   const id=q.get('id')||'';
-   if(nativeId(id)){const item=await readNativeSong(id);if(!item){json(res,404,{error:'That song is not in the library.'});return;}json(res,200,item);return;}
-   const {library:lib,error}=await freeShowCatalogue();if(!lib){json(res,error?500:404,{error:error||'No FreeShow song library was found on this computer.'});return;}
-   const entry=lib.byId.get(id);if(!entry){json(res,404,{error:'That song is not in the FreeShow library.'});return;}
-   // FreeShow names each file after the show. Refuse names that would leave the Shows folder.
-   const file=path.resolve(lib.paths.shows,entry.name+'.show');
-   if(path.dirname(file)!==lib.paths.shows||/[\\/]/.test(entry.name)){json(res,400,{error:'This song name cannot be opened safely.'});return;}
-   let raw;try{raw=JSON.parse(await readFile(file,'utf8'));}catch{json(res,404,{error:'The song file could not be read.'});return;}
-   if(Array.isArray(raw)&&raw[0]!==entry.id){json(res,409,{error:'The song file does not match the library index. Reopen FreeShow to refresh it.'});return;}
-   json(res,200,{song:freeShowToSong(raw,{categoryName:entry.category})});return;
-  }
+  if(url.pathname==='/api/songs/item'){json(res,200,await readSong(q.get('id')||''));return;}
   const source=q.get('source')||'all';
   const native=(await readSongIndex()).map(e=>({id:e.id,name:e.title,category:'Wordlight library',modified:e.modified,source:'wordlight',folded:foldText(e.title+' '+e.author)}));
   // My library never reads FreeShow; its counts are then left out and the studio keeps the last ones it saw.
@@ -509,7 +518,7 @@ for(const file of ['remote-setup.mjs','qr.mjs'])allowed.set('/'+file,file);
 // The phone remote's screen changes: change(state) decides the new screen inside the session queue (or returns nothing
 // to leave it alone). A failed save puts the previous state back.
 function commitLive(change){return inStateQueue(async()=>{const live=change(state);if(!live)return;const previous=state;state={...state,live};try{await persist();}catch(err){state=previous;throw err;}broadcast();});}
-const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins});
+const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible}),findSongs,readSong});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});

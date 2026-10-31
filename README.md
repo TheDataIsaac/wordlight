@@ -95,11 +95,22 @@ Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser so
 Set `WORDLIGHT_PORT` and `WORDLIGHT_DATA_DIR` to run a separate test copy with its own data. `WORDLIGHT_REMOTE_PORT` moves the phone remote (default 18766); `WORDLIGHT_REMOTE_BIND=127.0.0.1` keeps it off the network for tests.
 
 ### Phone remote
-A phone on the same Wi-Fi can drive the screen from its browser: Previous/Next, Hide/Show screen, the countdown (start, pause, reset), and choosing a show, scene and slide to **Send to live**. Browsing on the phone never changes the screen or the studio's preview until Send. Every change goes through the same live state as the studio, so OBS full screen, lower third, graphics and timer stay in step. The phone cannot start OBS streaming or recording, edit shows, open files or settings, or reach anything else on the companion.
+A phone on the same Wi-Fi can run the whole service from its browser. The phone is only a controller: Wordlight on the laptop finds the text and builds the screen, and the phone receives short summaries.
 
-Turn it on in the local studio: **Phone remote**, set a password (8+ characters), then **Turn on**. The dialog shows this computer's Wi-Fi/Ethernet addresses with a QR code each (the code holds only the address, never the password). Open the address on the phone, for example `http://192.168.1.23:18766/remote`, and enter the password. Nothing to install, no account, no internet: the phone talks only to this computer.
+- **Bible:** type a reference and tap Go, or pick the book, chapter and verse. The colon is optional (`John 3 16`, `1 Cor 13 4 7`), and with a verse on screen a bare `17` or `14-16` means that chapter. Installed Bibles work with no internet; the others use the laptop's connection, and a failed lookup never swaps in another version. Next and Previous carry on to the following or earlier verse past the end of what is on screen.
+- **Songs:** search the Wordlight and FreeShow libraries, then send any part of a song.
+- **Slides:** every slide of the deck on screen, including a deck the web studio sent. A tap shows it straight away.
+- **Shows:** choose a show, item and slide saved on this computer, then **Send to live**.
+- **Back:** after anything sent from the phone, returns to the slide that was on screen before.
+- **More:** text on screen, the timer (start, pause, reset, duration, show on screen), and the logo, timer, background and title card on the OBS graphics source.
 
-- The remote is off until you turn it on, and has no default password. It runs on its own port (18766); the studio, files, songs, NKJV key and settings stay on 127.0.0.1:18765.
+New content keeps the look of what is on screen and the timer, lower third and graphics that are on air. Browsing and previews never change the screen. Every change goes through the same live state as the studio, so OBS full screen, lower third, graphics and timer stay in step. The phone cannot start OBS streaming or recording, edit shows, design, import files, change settings or keys, or reach anything else on the companion.
+
+**Put the local output on the projector when a phone is driving.** In the local studio, click Present, move the window to the projector and click Full screen. It follows every change at once. The web studio's presentation window only hears about phone changes through the studio tab's status check, every 5 seconds, and Chrome slows that check to once a minute when the tab is hidden or covered.
+
+Turn it on in the local studio: **Phone remote**, set a password (8+ characters), then **Turn on**. The dialog shows this computer's Wi-Fi/Ethernet addresses with a QR code each (the code holds only the address, never the password). Open the address on the phone, for example `http://192.168.1.23:18766/remote`, and enter the password. Nothing to install and no account: the phone talks only to this computer.
+
+- The remote is off until you turn it on, and has no default password. It runs on its own port (18766); the studio, files, NKJV key and settings stay on 127.0.0.1:18765.
 - The password is kept only as a salted scrypt hash in `.wordlight-data/remote.json` (not in exports, `dist/` or git). A damaged file leaves the remote off until a new password is set.
 - A phone stays signed in for 12 hours. Changing the password, **Sign out all phones** or **Turn off** signs out every phone at once. Five wrong passwords lock that phone's address for 10 minutes.
 - Closing the phone or losing Wi-Fi never changes the screen. The phone reconnects by itself and shows the current screen. Next/Previous carry the screen the phone saw, so a late or repeated tap is refused instead of skipping a slide.
