@@ -257,7 +257,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    if(!live.slides.length)return conflict('Nothing is on screen yet.',live);
    const index=Math.max(0,Math.min(live.slides.length-1,live.index+(body.action==='next'?1:-1)));
    if(ready.verse){
-    next={...onAir(bibleScreen(live,ready.verse,ready.version),live),blank:live.blank};
+    next={...onAir(bibleScreen(live,ready.verse,ready.version,state.draft?.notes),live),blank:live.blank};
     // Stepping out of a deck from the studio keeps a way back to it; stepping verse by verse does not add up.
     remember=!live.bibleVersion;
    }else next={...live,index};
@@ -266,7 +266,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    if(!Number.isInteger(body.index)||!live.slides[body.index]||(body.slideId&&slideTag(live.slides[body.index])!==body.slideId))return conflict('That slide is no longer on screen.',live);
    next={...live,index:body.index,blank:false};
   }else if(body.action==='bible'){
-   next=onAir(bibleScreen(live,ready.data,ready.version),live);remember=true;
+   next=onAir(bibleScreen(live,ready.data,ready.version,state.draft?.notes),live);remember=true;
   }else if(body.action==='song'){
    if(!Number.isInteger(body.position)||body.position<0)return {status:400,body:{error:'Choose a part of the song.'}};
    try{next=onAir(songScreen(live,ready.song,body.position,typeof body.line==='string'?body.line.slice(0,300):''),live);}catch(err){return {status:err.status||400,body:{error:err.message}};}

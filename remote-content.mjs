@@ -2,7 +2,7 @@
 // song id; this file finds the text and builds the screen, so the phone only ever receives short summaries.
 // Bibles work as in the studio: an installed Bible first, then NKJV through the API.Bible key or bolls.life, then the
 // public online sources. A failed lookup is reported; another version is never used instead.
-import {cleanDraft,snapshot,cleanTextSlide} from './dist/core.mjs';
+import {cleanDraft,snapshot,cleanTextSlide,getHighlights} from './dist/core.mjs';
 import {songSlides,matchedSlide,songSlideId} from './dist/songs.mjs';
 import {applyBiblePassage} from './dist/library.mjs';
 import {BIBLE_BOOKS,parseReference} from './dist/reference.mjs';
@@ -101,10 +101,13 @@ function draftWithLook(live,fields){
  const s=live?.style||{};
  return cleanDraft({schema:1,passage:'',reference:'',translation:'',includePassage:false,theme:s.theme,font:s.font,fontSize:s.fontSize,bold:s.bold,italic:s.italic,brand:s.brand,accent:s.accent,fit:s.fit,fitPadding:s.fitPadding,backgroundAssetId:s.backgroundAssetId,backgroundDim:s.backgroundDim,...fields});
 }
-export function bibleScreen(live,data,version){
+// Words highlighted in the studio stay highlighted on a verse from the phone. They go on the look, not the draft, so
+// no word-study slides join the verse. Formatting set for one text slide stays with that slide.
+export function bibleScreen(live,data,version,notes=[]){
  const draft=draftWithLook(live,{title:data.reference});
  applyBiblePassage(draft,data,version);
- return {...snapshot(draft),bibleVersion:version,showTitle:data.reference};
+ const screen=snapshot(draft),highlights=getHighlights({...draft,notes}).filter(h=>!h.slideId);
+ return {...screen,style:{...screen.style,highlights,highlightWords:highlights.map(h=>h.word)},bibleVersion:version,showTitle:data.reference};
 }
 export function songScreen(live,song,position,line=''){
  // A search match opens at the slide holding that line, however the song is split on screen.
