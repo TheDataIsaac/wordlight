@@ -1,10 +1,11 @@
 // Phone remote page. It is a controller: it sends what was typed or tapped, and Wordlight on the laptop finds the text,
 // builds the screen and sends it out. Live updates arrive over one event stream that reconnects on its own; closing the
 // phone or losing Wi-Fi never changes the screen. Browsing never changes the screen; only Send, Go, a tap in Slides and
-// the controls at the bottom do.
+// the controls at the bottom do. A double tap on a song part or a show's slide sends it at once.
 const $=id=>document.getElementById(id);
 let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer,books=[],versionsLoaded=false,tab='bible',deckShown='';
 const browse={showId:'',sceneId:'',offset:0,total:0};
+let songSettings={phoneTap:'select',checkFirst:true},lastTap={button:null,at:0};
 const pickState={bookId:'',chapter:0};
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -34,22 +35,41 @@ function showLogin(){
  $('remote').hidden=true;$('signOut').hidden=true;$('sendBar').hidden=true;$('controls').hidden=true;$('login').hidden=false;
  setConnection(false,'Signed out');
 }
-function showRemote(){$('login').hidden=true;$('remote').hidden=false;$('signOut').hidden=false;$('controls').hidden=false;}
+function showRemote(){$('login').hidden=true;$('remote').hidden=false;$('signOut').hidden=false;$('controls').hidden=false;loadSettings();}
 const TABS=['bible','songs','screen','shows','more'];
+// Song settings live on the laptop, so the studio and the phone always show the same ones.
+async function loadSettings(){
+ let r;try{r=await request('/remote/api/settings');}catch{return;}
+ if(r.status!==200)return;
+ songSettings=r.data;
+ if(!$('setLines').options.length)$('setLines').replaceChildren(...[[0,'As typed'],[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[6,'6'],[8,'8']].map(([value,name])=>{const o=element('option','',name);o.value=String(value);return o;}));
+ $('setLines').value=String(r.data.linesPerSlide);$('setRepeat').checked=r.data.hideRepeatMarks;$('setCaps').checked=r.data.allCaps;$('setFooter').checked=r.data.songFooter;$('setTap').checked=r.data.phoneTap==='send';
+}
+async function changeSettings(change){
+ let r;try{r=await request('/remote/api/settings',change);}catch{r=null;}
+ if(r?.status===200){songSettings=r.data;say('Saved.');}else{say('The setting was not saved. Try again.');await loadSettings();}
+}
+$('setLines').addEventListener('change',ev=>changeSettings({linesPerSlide:Number(ev.target.value)}));
+$('setRepeat').addEventListener('change',ev=>changeSettings({hideRepeatMarks:ev.target.checked}));
+$('setCaps').addEventListener('change',ev=>changeSettings({allCaps:ev.target.checked}));
+$('setFooter').addEventListener('change',ev=>changeSettings({songFooter:ev.target.checked}));
+$('setTap').addEventListener('change',ev=>changeSettings({phoneTap:ev.target.checked?'send':'select'}));
 function showTab(name){
  tab=name;save('wordlight-remote-tab',name);clearPicked();
  for(const t of TABS){$('panel-'+t).hidden=t!==name;$('tab-'+t).setAttribute('aria-selected',String(t===name));}
  if(name==='shows')loadShows();
  if(name==='screen')loadScreen(0);
  if(name==='songs'&&!$('songResults').children.length)searchSongs();
+ if(name==='more')loadSettings();
 }
 for(const b of document.querySelectorAll('[data-tab]'))b.addEventListener('click',()=>showTab(b.dataset.tab));
 
 // ---- Live slide ----
-function applyLive(summary){
+function applyLive(summary,trust=false){
  if(!summary||typeof summary.updated!=='number')return;
- // A slow command reply must not replace a newer screen that already arrived on the live stream.
- if(live&&summary.updated<live.updated)return;
+ // A slow command reply must not replace a newer screen that already arrived on the live stream. A new stream and a
+ // refusal are the companion's word, even if older: it may have restarted from the last save.
+ if(live&&!trust&&summary.updated<live.updated)return;
  live=summary;clockOffset=summary.serverNow-Date.now();
  $('liveLabel').textContent=live.blank?'HIDDEN':'LIVE';$('liveLabel').classList.toggle('hidden-screen',live.blank);
  document.querySelector('.live').classList.toggle('blanked',live.blank);
@@ -66,9 +86,10 @@ function applyLive(summary){
 }
 function updateButtons(){
  const none=!live||!live.count,first=live?.index===0,last=live?.index>=live?.count-1;
- $('previous').disabled=busy||none||(first&&!live.verseSteps);$('next').disabled=busy||none||(last&&!live.verseSteps);
+ $('previous').disabled=none||(first&&!live.verseSteps);$('next').disabled=none||(last&&!live.verseSteps);
  $('next').textContent=last&&live?.verseSteps?'Next verse ›':'Next ›';$('previous').textContent=first&&live?.verseSteps?'‹ Prev verse':'‹ Previous';
- for(const b of document.querySelectorAll('#blank,#back,[data-timer],#timerShow,#send,[data-graphics]'))b.disabled=busy||!live;
+ $('blank').disabled=!live;
+ for(const b of document.querySelectorAll('#back,[data-timer],#timerShow,#send,[data-graphics]'))b.disabled=busy||!live;
 }
 
 // ---- Timer: shown from the last timer state; the ticking itself needs no network ----
@@ -88,14 +109,17 @@ setInterval(()=>{if(live?.timer.running&&!document.hidden)$('timerValue').textCo
 
 // ---- Commands: one at a time. A retry after a timeout or network error sends the same id, so the companion
 // applies the command at most once and answers a retry with the first result. ----
+// Next, Previous, Hide and a tap on a slide never wait for a verse or song still loading: Hide has to work at once.
 async function command(body){
- if(busy)return false;
- busy=true;updateButtons();body.id=commandId();
+ const urgent=['next','previous','goto','blank'].includes(body.action);
+ if(busy&&!urgent)return false;
+ if(!urgent){busy=true;updateButtons();}
+ body.id=commandId();
  try{
   for(let attempt=0;;attempt++){
    try{
     const r=await request('/remote/api/command',body);
-    if(r.data.live)applyLive(r.data.live);
+    if(r.data.live)applyLive(r.data.live,r.status===409);
     if(r.status!==200&&r.status!==401)say(r.data.error||'That did not work.');
     return r.status===200;
    }catch{
@@ -103,7 +127,7 @@ async function command(body){
     await sleep(500*2**attempt);
    }
   }
- }finally{busy=false;updateButtons();}
+ }finally{if(!urgent){busy=false;updateButtons();}}
 }
 $('previous').addEventListener('click',()=>live&&command({action:'previous',base:live.updated}));
 $('next').addEventListener('click',()=>live&&command({action:'next',base:live.updated}));
@@ -113,6 +137,14 @@ $('back').addEventListener('click',()=>live&&command({action:'back',base:live.up
 // ---- Send to live: everything that is picked first waits here ----
 function pick(title,send){picked={title,send};$('sendWhat').textContent=title;$('sendBar').hidden=false;}
 function clearPicked(){picked=null;$('sendBar').hidden=true;markPicked();}
+// One tap picks. A second tap on the same button sends, or the first does when the setting says so. Songs that have not
+// been checked always wait for the Send button, so the words get read first.
+function tapped(button,title,send,unchecked=false){
+ pick(title,send);
+ const now=Date.now(),twice=lastTap.button===button&&now-lastTap.at<400;lastTap=twice?{button:null,at:0}:{button,at:now};
+ if(unchecked&&songSettings.checkFirst){if(twice)say('Read the words first, then tap Send to live.');return;}
+ if(twice||songSettings.phoneTap==='send')$('send').click();
+}
 $('send').addEventListener('click',async()=>{
  if(!picked)return;
  // "Sent", not "on screen": the studio may have sent something newer meanwhile; the live card shows what is on.
@@ -196,12 +228,12 @@ async function searchSongs(){
  if(r.status!==200){say(r.data.error||'The song library could not be read.');return;}
  $('songDetail').hidden=true;$('songResults').hidden=false;
  const rows=r.data.songs.map(s=>{
-  const li=element('li'),b=listButton(s.name,s.line||s.category);li.append(b);
-  b.addEventListener('click',()=>openSong(s.id,s.position));return li;
+  const li=element('li'),b=listButton((s.status==='reserve'?'Check first: ':'')+s.name,s.line||s.category);li.append(b);
+  b.addEventListener('click',()=>openSong(s));return li;
  });
  $('songResults').replaceChildren(...(rows.length?rows:[element('li','muted','No songs found.')]));
 }
-async function openSong(id,matched){
+async function openSong({id,position:matched,fullLine,status}){
  let r;try{r=await request('/remote/api/song?id='+encodeURIComponent(id));}catch{say('Could not open the song. Try again.');return;}
  if(r.status!==200){say(r.data.error||'Could not open the song.');return;}
  $('songTitle').textContent=r.data.title;$('songResults').hidden=true;$('songDetail').hidden=false;
@@ -209,7 +241,7 @@ async function openSong(id,matched){
   const li=element('li'),b=listButton(part.section,part.text);b.dataset.id=String(part.position);li.append(b);
   // The part the search matched is scrolled to, so the operator lands on the words being sung.
   if(part.position===matched)setTimeout(()=>b.scrollIntoView({block:'center'}),0);
-  b.addEventListener('click',()=>{pick(r.data.title+' · '+part.section,{action:'song',songId:id,position:part.position});for(const o of $('songParts').querySelectorAll('button'))o.setAttribute('aria-pressed',String(o===b));});
+  b.addEventListener('click',()=>{for(const o of $('songParts').querySelectorAll('button'))o.setAttribute('aria-pressed',String(o===b));tapped(b,r.data.title+' · '+part.section,{action:'song',songId:id,position:part.position,...(part.position===matched&&fullLine?{line:fullLine}:{})},status==='reserve');});
   return li;
  }));
 }
@@ -217,11 +249,11 @@ function listButton(title,text){
  const b=element('button');b.type='button';b.setAttribute('aria-pressed','false');
  b.append(element('span','title',title),element('span','text',text));return b;
 }
-$('songSearch').addEventListener('input',()=>{clearTimeout(songTimer);songTimer=setTimeout(searchSongs,200);});
+$('songSearch').addEventListener('input',()=>{clearTimeout(songTimer);songTimer=setTimeout(searchSongs,150);});
 $('songBack').addEventListener('click',()=>{clearPicked();$('songDetail').hidden=true;$('songResults').hidden=false;});
 
 // ---- Slides on screen: a tap goes straight to that slide ----
-const deckKey=()=>live?live.count+'|'+live.showTitle+'|'+live.sceneName:'';
+const deckKey=()=>live?live.count+'|'+live.deck+'|'+live.showTitle+'|'+live.sceneName:'';
 let screenRequest=0,screenOffset=0;
 async function loadScreen(offset){
  const mine=++screenRequest;
@@ -230,7 +262,7 @@ async function loadScreen(offset){
  screenOffset=offset;deckShown=deckKey();
  const rows=r.data.slides.map((s,i)=>{
   const li=element('li'),position=offset+i,b=listButton((position+1)+'. '+s.title,s.text);b.dataset.index=String(position);li.append(b);
-  b.addEventListener('click',()=>live&&command({action:'goto',index:position,base:live.updated}));return li;
+  b.addEventListener('click',()=>live&&command({action:'goto',index:position,slideId:s.id,base:live.updated}));return li;
  });
  if(offset===0)$('screenSlides').replaceChildren(...rows);else $('screenSlides').append(...rows);
  $('screenMore').hidden=offset+r.data.slides.length>=r.data.total;
@@ -271,7 +303,7 @@ async function loadSlides(offset){
  browse.offset=offset;browse.total=r.data.total;
  const items=r.data.slides.map((slide,i)=>{
   const li=element('li'),b=listButton((offset+i+1)+'. '+slide.title,slide.text);b.dataset.id=slide.id;li.append(b);
-  b.addEventListener('click',()=>{pick(slide.title,{action:'send',showId:browse.showId,sceneId:browse.sceneId,slideId:slide.id});markPicked();});
+  b.addEventListener('click',()=>{tapped(b,slide.title,{action:'send',showId:browse.showId,sceneId:browse.sceneId,slideId:slide.id});markPicked();});
   return li;
  });
  if(offset===0)$('slides').replaceChildren(...items);else $('slides').append(...items);
@@ -320,8 +352,9 @@ function paintGraphics(){
 function connectEvents(){
  events?.close();
  events=new EventSource('/remote/api/events');
- events.onopen=()=>setConnection(true);
- events.onmessage=ev=>{try{applyLive(JSON.parse(ev.data));}catch{}};
+ let fresh=true;
+ events.onopen=()=>{setConnection(true);fresh=true;};
+ events.onmessage=ev=>{try{applyLive(JSON.parse(ev.data),fresh);fresh=false;}catch{}};
  events.onerror=()=>{
   setConnection(false);
   // The browser retries a dropped stream by itself. A refused stream (signed out) is checked here instead.

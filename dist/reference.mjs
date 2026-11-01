@@ -54,7 +54,9 @@ export function parseReference(input){
  if(!parts.tail)throw new Error('Add a chapter, such as '+book.english+' 1.');
  // Accept "10;18", "10 : 18", "18 to 20" and Unicode dashes, but nothing that changes what was meant.
  const tail=parts.tail.replace(/(\d)\s*to\s*(\d)/gi,'$1-$2').replace(/\s*([:;-])\s*/g,'$1');
- const m=tail.match(/^(\d+)(?:[:;](\d+))?(?:-(?:(\d+)[:;])?(\d+))?$/);
+ // One-chapter books have only verses, so "Jude 5" and "Jude 3-5" are verses. "Jude 1" stays the whole book.
+ const single=book.chapters===1&&!/[:;]/.test(tail)&&tail!=='1';
+ const m=(single?'1:'+tail:tail).match(/^(\d+)(?:[:;](\d+))?(?:-(?:(\d+)[:;])?(\d+))?$/);
  if(!m)throw new Error('Check the reference format. Separate chapter and verse with “:” and ranges with “-”. '+EXAMPLE);
  const [chapter,verse,toChapter,toNumber]=m.slice(1).map(v=>v===undefined?null:Number(v));
  if(verse===null&&toChapter!==null)throw new Error('Check the range: “'+parts.tail+'” is ambiguous. Write it as '+book.english+' '+chapter+':1-'+toChapter+':'+toNumber+'.');

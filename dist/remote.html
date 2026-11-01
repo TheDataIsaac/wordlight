@@ -79,6 +79,17 @@
     <button class="primary wide" type="submit">Send to live</button>
    </form>
   </section>
+  <section class="card" aria-labelledby="settingsTitle">
+   <h2 id="settingsTitle">Song settings</h2>
+   <p class="muted small">Shared with the studio. Songs change the next time they are sent.</p>
+   <label for="setLines">Lines per slide</label><select id="setLines"></select>
+   <div class="settings-list">
+    <label><input id="setRepeat" type="checkbox"> Hide repeat marks like (2x)</label>
+    <label><input id="setCaps" type="checkbox"> All capitals</label>
+    <label><input id="setFooter" type="checkbox"> Show song name at the bottom</label>
+    <label><input id="setTap" type="checkbox"> One tap sends a song part or slide</label>
+   </div>
+  </section>
   <section class="card" aria-labelledby="timerTitle">
    <h2 id="timerTitle">Timer</h2>
    <div class="timer"><span id="timerValue" class="timer-value">--:--</span>

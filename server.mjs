@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat} from 'node:fs/promises';
 import os from 'node:os';
-import {freeShowToSong,searchSongs,foldText,cleanSong} from './dist/songs.mjs';
+import {freeShowToSong,searchSongs,foldText,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
 import {searchEntry,findInSongbook,vocabulary} from './song-search.mjs';
 import {createHash} from 'node:crypto';
 import {cleanGraphics} from './dist/graphics.mjs';
@@ -91,7 +91,9 @@ function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).
 function json(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));}
 const localOrigins=()=>['http://127.0.0.1:'+port,'http://localhost:'+port];
 const corsFor=origin=>({'Access-Control-Allow-Origin':origin,'Vary':'Origin'});
-async function readJSON(req,limit){let body='';for await(const part of req){body+=part;if(Buffer.byteLength(body)>limit)throw Object.assign(new Error('Too large.'),{status:413});}return JSON.parse(body);}
+// Bytes are joined before they are decoded: a letter split across two network chunks would otherwise be destroyed.
+async function readBytes(req,limit){const parts=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Object.assign(new Error('Too large.'),{status:413});parts.push(part);}return Buffer.concat(parts).toString('utf8');}
+async function readJSON(req,limit){return JSON.parse(await readBytes(req,limit));}
 // Read-only FreeShow song library for the local studio. Locations come from FreeShow's own settings
 // (overridable for tests). The metadata index is kept in memory and reloaded when shows.json changes; a song's
 // .show file is read only when that song is opened. Nothing is ever written to FreeShow.
@@ -108,9 +110,23 @@ async function loadSongLibrary(){
  if(songLibrary&&songLibrary.paths.index===paths.index&&songLibrary.mtime===info.mtimeMs)return songLibrary;
  const raw=JSON.parse(await readFile(paths.index,'utf8'));let names={};
  try{const c=JSON.parse(await readFile(paths.categories,'utf8')).categories||{};names=Object.fromEntries(Object.entries(c).map(([id,v])=>[id,typeof v?.name==='string'?v.name:id]));}catch{}
- const list=Object.entries(raw&&typeof raw==='object'?raw:{}).filter(([,e])=>typeof e?.name==='string').map(([id,e])=>({id,name:e.name,category:names[e.category]||String(e.category||''),modified:Number(e.timestamps?.modified)||0,folded:foldText(e.name)})).sort((a,b)=>a.name.localeCompare(b.name));
+ const list=Object.entries(raw&&typeof raw==='object'?raw:{}).filter(([,e])=>typeof e?.name==='string').map(([id,e])=>({id,name:e.name,category:names[e.category]||String(e.category||''),modified:Number(e.timestamps?.modified)||0,source:'freeshow',folded:foldText(e.name)})).sort((a,b)=>a.name.localeCompare(b.name));
  const categories=[...list.reduce((m,s)=>m.set(s.category,(m.get(s.category)||0)+1),new Map())].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
  songLibrary={paths,mtime:info.mtimeMs,list,categories,byId:new Map(list.map(s=>[s.id,s]))};return songLibrary;
+}
+// Settings shared by the studio and the phone. A change is saved first, then used, then announced to open studios.
+const settingsFile=path.join(dataDir,'settings.json');
+async function loadSettings(){try{applySettings(JSON.parse(await readFile(settingsFile,'utf8')));}catch(err){applySettings({});if(err.code!=='ENOENT')console.error('settings.json could not be read, so the default settings are in use.');}}
+let settingsQueue=Promise.resolve();
+function changeSettings(change){
+ const run=settingsQueue.then(async()=>{
+  const next=cleanSettings({...settings(),...(change&&typeof change==='object'?change:{})});
+  await mkdir(dataDir,{recursive:true});await writeAtomic(settingsFile,JSON.stringify(next));
+  applySettings(next);
+  const message='data: '+JSON.stringify({settings:next})+'\n\n';for(const client of clients)client.write(message);
+  return next;
+ });
+ settingsQueue=run.catch(()=>{});return run;
 }
 // Graphics images: stored once in the data folder, named by the hash of their bytes, and served with immutable
 // caching so OBS Browser sources (which do not share the studio's browser storage) can load them.
@@ -211,7 +227,14 @@ const songPath=id=>path.join(songDir,id+'.json');
 let songQueue=Promise.resolve();
 const inSongQueue=task=>{const run=songQueue.then(task,task);songQueue=run.catch(()=>{});return run;};
 const libraryError=message=>Object.assign(new Error(message),{status:500});
+const indexStamp=()=>stat(songIndexFile).then(s=>s.mtimeMs+':'+s.size,()=>'');
+// Every search asks for the index, so it is only read again when the file has changed.
+let indexRead=null;
 async function readSongIndex(){
+ const stamp=await indexStamp();if(stamp&&indexRead?.stamp===stamp)return indexRead.list;
+ const list=await readIndexFile();indexRead={stamp,list};return list;
+}
+async function readIndexFile(){
  let text;try{text=await readFile(songIndexFile,'utf8');}catch(err){if(err.code==='ENOENT')return [];throw libraryError('The song library index could not be read.');}
  let list=null;try{list=JSON.parse(text);}catch{}
  if(!Array.isArray(list)){await copyFile(songIndexFile,songIndexFile+'.damaged').catch(()=>{});throw libraryError('The song library index (songs/index.json) is damaged. A copy was kept as index.json.damaged; restore it from a backup or move it away to start a new one.');}
@@ -223,30 +246,45 @@ const indexEntry=(song,modified)=>({id:song.id,title:song.title,author:song.meta
 const libraryCategory=entry=>entry.collection||'Wordlight library';
 // Line search keeps every song's lines in memory, built on first use from the song files. Each change to the library
 // updates it in place. A song file that cannot be read stays findable by title, with no lines.
-let songSearch=null,songWords=null;
+let songSearch=null,songList=null,songWords=null;
+const cachedSongs=new Map(),CACHE_DELAY_MS=20000;
+const searchCacheFile=path.join(dataDir,'song-search-cache.json');
 const readUsage=async()=>{try{return JSON.parse(await readFile(songUsageFile,'utf8'))||{};}catch{return {};}};
 function songbook(){
  songSearch??=(async()=>{
-  const [list,usage]=await Promise.all([readSongIndex(),readUsage()]),entries=new Map();
+  const [list,usage,stamp]=await Promise.all([readSongIndex(),readUsage(),indexStamp()]),entries=new Map();
+  // One file holds a copy of every song, so a restart reads one file, not thousands. It is only trusted while the
+  // library index is the one it was made from.
+  let cached=null;try{const saved=JSON.parse(await readFile(searchCacheFile,'utf8'));if(stamp&&saved.stamp===stamp)cached=new Map(saved.songs.map(s=>[s.id,s]));}catch{}
   const load=async entry=>{
    const details={uses:Number(usage[entry.id])||0,modified:entry.modified};
-   try{entries.set(entry.id,searchEntry(JSON.parse(await readFile(songPath(entry.id),'utf8')),details));}
+   try{const song=cached?.get(entry.id)||JSON.parse(await readFile(songPath(entry.id),'utf8'));entries.set(entry.id,searchEntry(song,details));cachedSongs.set(entry.id,song);}
    catch{entries.set(entry.id,searchEntry({id:entry.id,title:entry.title,meta:{author:entry.author,collection:entry.collection},sections:[],arrangements:[{id:'main',order:[]}]},details));}
   };
-  for(let i=0;i<list.length;i+=SEARCH_BATCH)await Promise.all(list.slice(i,i+SEARCH_BATCH).map(load));
+  // A pause between batches keeps the live screen and the phone answering while this loads.
+  for(let i=0;i<list.length;i+=SEARCH_BATCH){await Promise.all(list.slice(i,i+SEARCH_BATCH).map(load));await new Promise(setImmediate);}
+  if(!cached&&stamp&&stamp===await indexStamp())writeSearchCache();
   return entries;
  })().catch(err=>{songSearch=null;throw err;});
  return songSearch;
 }
 // Applied after any build in progress, so a build that read the old file cannot undo a change.
-function changeSongbook(change,{sameWords=false}={}){if(!sameWords)songWords=null;if(songSearch)songSearch=songSearch.then(entries=>{change(entries);return entries;});}
-const indexSong=(song,modified)=>changeSongbook(entries=>entries.set(song.id,searchEntry(song,{uses:entries.get(song.id)?.uses||0,modified})));
+function changeSongbook(change,{sameSongs=false}={}){if(!songSearch)return;songSearch=songSearch.then(entries=>{change(entries);songList=null;return entries;});songSearch.catch(()=>{});if(!sameSongs)writeCacheSoon();}
+// Quick capture saves songs during a service, so the cache is rewritten soon after a change, not at the next start.
+let cacheTimer=null;
+function writeCacheSoon(){clearTimeout(cacheTimer);cacheTimer=setTimeout(writeSearchCache,CACHE_DELAY_MS);cacheTimer.unref?.();}
+async function writeSearchCache(){const stamp=await indexStamp();if(stamp)await writeAtomic(searchCacheFile,JSON.stringify({stamp,songs:[...cachedSongs.values()]})).catch(()=>{});}
+// The typo word list only ever gains words, so a save never makes the next search rebuild it.
+const indexSong=(song,modified)=>changeSongbook(entries=>{
+ const entry=searchEntry(song,{uses:entries.get(song.id)?.uses||0,modified});entries.set(song.id,entry);cachedSongs.set(song.id,song);
+ if(songWords)for(const word of vocabulary([entry]))songWords.add(word);
+});
 // Counts how often a song went into a show, so the songs this church sings rank first.
 async function markSongUsed(id){
  return inSongQueue(async()=>{
   const usage=await readUsage();usage[id]=(Number(usage[id])||0)+1;
   await mkdir(songDir,{recursive:true});await writeAtomic(songUsageFile,JSON.stringify(usage));
-  changeSongbook(entries=>{const entry=entries.get(id);if(entry)entry.uses=usage[id];},{sameWords:true});
+  changeSongbook(entries=>{const entry=entries.get(id);if(entry)entry.uses=usage[id];},{sameSongs:true});
  });
 }
 const librarySong=(raw,id,modified)=>cleanSong({...raw,id,source:{app:'wordlight',id,name:raw?.title,modified},category:'Wordlight library'});
@@ -320,7 +358,7 @@ async function removeNativeSong(id){
   try{await rename(songPath(id),removed);}catch(err){if(err.code!=='ENOENT')throw libraryError('The song file could not be moved to songs/removed, so the song was kept.');moved=false;}
   try{await writeAtomic(songIndexFile,JSON.stringify(list.filter(e=>e.id!==id)));}
   catch{if(moved)await rename(removed,songPath(id)).catch(()=>{});throw libraryError('The song library index could not be written, so the song was kept.');}
-  changeSongbook(entries=>entries.delete(id));
+  changeSongbook(entries=>{entries.delete(id);cachedSongs.delete(id);});
   return true;
  });
 }
@@ -351,15 +389,18 @@ async function readSong(id){
 async function songResults({query='',source='all',category='',offset=0,limit=50}){
  const size=Math.min(100,Math.max(1,limit));
  let hits=[];
+ const {searchFreeShow,searchReserve}=settings();
  if(source!=='freeshow'){
-  const entries=[...(await songbook()).values()];
+  const entries=songList??=[...(await songbook()).values()];
   hits=findInSongbook(entries,query,()=>songWords??=vocabulary(entries));
   if(category)hits=hits.filter(h=>h.category===category);
   if(source==='drafts')hits=hits.filter(h=>h.status==='draft');
+  if(!searchReserve&&source==='all')hits=hits.filter(h=>h.status!=='reserve');
  }
  const items=hits.slice(offset,offset+size);
- const catalogue=source==='wordlight'||source==='drafts'?null:await freeShowCatalogue(),list=catalogue?.library?.list||[];
- const freeshow=catalogue?searchSongs(list.map(e=>({...e,source:'freeshow'})),{query,category,offset:Math.max(0,offset-hits.length),limit:size-items.length||1}):{total:0,items:[]};
+ const wanted=source==='freeshow'||(source==='all'&&searchFreeShow);
+ const catalogue=source==='wordlight'||source==='drafts'||!wanted?null:await freeShowCatalogue(),list=catalogue?.library?.list||[];
+ const freeshow=catalogue?searchSongs(list,{query,category,offset:Math.max(0,offset-hits.length),limit:size-items.length||1}):{total:0,items:[]};
  return {total:hits.length+freeshow.total,offset,items:[...items,...(items.length<size?freeshow.items:[])],catalogue};
 }
 // The phone's song search: the same two sources as the studio.
@@ -391,9 +432,9 @@ async function handleSongs(req,res,url,trusted=false){
   }
   if(req.method!=='GET'){json(res,405,{error:'Method not allowed.'});return;}
   if(url.pathname==='/api/songs/item'){json(res,200,await readSong(q.get('id')||''));return;}
-  const source=q.get('source')||'all',native=await readSongIndex();
+  const source=q.get('source')||'all',native=await readSongIndex(),total=native.length;
   // My library never reads FreeShow; its counts are then left out and the studio keeps the last ones it saw.
-  const counts=catalogue=>({library:native.length+(catalogue?.library?.list.length||0),native:native.length,...(catalogue?{freeshow:catalogue.library?catalogue.library.list.length:null,freeshowError:catalogue.error}:{})});
+  const counts=catalogue=>({library:total+(catalogue?.library?.list.length||0),native:total,...(catalogue?{freeshow:catalogue.library?catalogue.library.list.length:null,freeshowError:catalogue.error}:{})});
   if(url.pathname==='/api/songs'){
    const {catalogue,...found}=await songResults({query:q.get('q')||'',source,category:q.get('category')||'',offset:Math.max(0,Number(q.get('offset'))||0),limit:Number(q.get('limit'))||50});
    json(res,200,{...found,...counts(catalogue)});return;
@@ -533,28 +574,46 @@ async function handle(req,res){
  if(url.pathname==='/api/assets'||url.pathname.startsWith('/api/assets/')){await handleAssets(req,res,url);return;}
  if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,state);return;}
  if(req.method==='GET'&&url.pathname==='/api/events'){
-  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});res.write('data: '+JSON.stringify({live:state.live})+'\n\n');clients.add(res);
+  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});res.write('data: '+JSON.stringify({live:state.live,settings:settings()})+'\n\n');clients.add(res);
   const view=['output','lower','graphics'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'studio';viewers[view]++;
   const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);clients.delete(res);viewers[view]--;});return;
+ }
+ if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}
+ if(url.pathname==='/api/settings'&&req.method==='POST'){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
+  if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+  let body;try{body=await readJSON(req,2000);}catch(err){json(res,err.status||400,{error:err.status?'Too large.':'Invalid JSON.'});return;}
+  try{json(res,200,await changeSettings(body));}catch{json(res,500,{error:'The settings could not be saved.'});}return;
  }
  if(req.method==='POST'&&url.pathname==='/api/state'){
   const origin=req.headers.origin;if(origin&&!['http://127.0.0.1:'+port,'http://localhost:'+port].includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
   if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
-  let body='';let tooLarge=false;
   try{
-   for await(const part of req){body+=part;if(Buffer.byteLength(body)>25_000_000){tooLarge=true;break;}}
-   if(tooLarge){json(res,413,{error:'Session is too large.'});return;}
+   let body;try{body=await readBytes(req,25_000_000);}catch(err){if(err.status!==413)throw err;json(res,413,{error:'Session is too large.'});return;}
    const update=JSON.parse(body);
+   let answer={ok:true};
    await inStateQueue(async()=>{
+    // A tab that has not seen the newest library must not replace it. Its base is the save it last knew about.
+    if(update.library&&Number(update.baseSavedAt)!==Number(state.library?.savedAt||0)){answer={stale:true};return;}
+    // A slide change made from an older screen, or arriving after a newer one, must not move the screen back.
+    const current=Number(state.live?.updated||0),incoming=Number(update.live?.updated);
+    if(update.live&&((update.base!==undefined&&Number(update.base)!==current)||(Number.isFinite(incoming)&&incoming<=current))){
+     if(!update.library&&!update.draft){answer={ok:true,superseded:true};return;}
+     delete update.live;
+    }
     let nextLibrary=state.library,nextDraft=state.draft,nextLive=state.live;
     if(update.library){nextLibrary=cleanLibrary(update.library);nextDraft=activeShow(nextLibrary).draft;}
     else if(update.draft){nextDraft=cleanDraft(update.draft);nextLibrary=cleanLibrary(state.library);activeShow(nextLibrary).draft=nextDraft;}
     if(update.live){if(!validLive(update.live))throw new Error('Invalid live slide data.');nextLive={...update.live,graphics:cleanGraphics(update.live.graphics)};}
     const previous=state;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};
+    // A screen change goes out first: a locked or full disk must never stop the projector. Shows are saved first,
+    // because a library that could not be written must not be reported as saved.
+    if(update.live&&!update.library&&!update.draft){broadcast();answer={ok:true,saveFailed:!await keepScreen()};return;}
     try{await persist();}catch(err){state=previous;throw new Error('Your session could not be saved to disk.');}
     if(update.live)broadcast();
    });
-   json(res,200,{ok:true});return;
+   if(answer.stale){json(res,409,{error:'Another tab saved newer changes.',stale:true,savedAt:Number(state.library?.savedAt||0)});return;}
+   json(res,200,answer);return;
   }catch(err){json(res,400,{error:err.message||'Invalid session.'});return;}
  }
  if(req.method!=='GET'&&req.method!=='HEAD'){json(res,405,{error:'Method not allowed.'});return;}
@@ -566,15 +625,33 @@ async function handle(req,res){
 for(const file of ['remote-setup.mjs','qr.mjs'])allowed.set('/'+file,file);
 // The phone remote's screen changes: change(state) decides the new screen inside the session queue (or returns nothing
 // to leave it alone). A failed save puts the previous state back.
-function commitLive(change){return inStateQueue(async()=>{const live=change(state);if(!live)return;const previous=state;state={...state,live};try{await persist();}catch(err){state=previous;throw err;}broadcast();});}
-const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible}),findSongs,readSong});
+function commitLive(change){return inStateQueue(async()=>{const live=change(state);if(!live)return;state={...state,live};broadcast();await keepScreen();});}
+// The screen has already changed when this runs. A failed save keeps trying, and open studios are told.
+let saveRetry=null,saveProblem=false;
+const SAVE_WAIT_MS=2000;
+function announceSave(problem){if(problem===saveProblem)return;saveProblem=problem;const message='data: '+JSON.stringify({saveProblem:problem})+'\n\n';for(const client of clients)client.write(message);}
+let saving=null,saveAgain=false;
+function saveNewest(){
+ if(saving){saveAgain=true;return saving;}
+ saving=persist().then(()=>{announceSave(false);return true;},err=>{
+  console.error('The screen changed but could not be saved: '+(err?.message||err));announceSave(true);
+  if(!saveRetry)saveRetry=setTimeout(()=>{saveRetry=null;saveNewest();},5000);
+  return false;
+ }).then(saved=>{saving=null;if(!saveAgain)return saved;saveAgain=false;return saveNewest();});
+ return saving;
+}
+// A slide is answered once it is safely on disk. While saves are known to be failing, nothing waits for them, so a
+// locked or full disk never holds up the next slide.
+const keepScreen=()=>{const saved=saveNewest();return saveProblem?true:Promise.race([saved,new Promise(resolve=>setTimeout(resolve,SAVE_WAIT_MS,true))]);};
+const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible}),findSongs,readSong,settings:{get:settings,change:changeSettings}});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});
+await loadSettings();
 server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
  // Line search loads here, so the first song search during a service doesn't have to wait for it.
- songbook().catch(err=>console.error('Song search: '+(err?.message||err)));
+ songbook().then(entries=>{songList??=[...entries.values()];songWords??=vocabulary(songList);}).catch(err=>console.error('Song search: '+(err?.message||err)));
  const url='http://127.0.0.1:'+port;
  console.log('Wordlight is ready: '+url);console.log('OBS full screen: '+url+'/?view=output&obs=1');console.log('OBS lower third: '+url+'/?view=lower&obs=1');console.log('Keep this app running during projection. Press Ctrl+C to stop.');
  // The phone remote starts only after the companion itself is running, and only if it was turned on. If it cannot

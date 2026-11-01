@@ -1,5 +1,5 @@
 import {cleanVerseRange,cleanBibleVerses,cleanScriptureSource} from './scripture.mjs';
-import {cleanSong,songSlides,songCredit,songTextLength,expandedSize,SONG_LIMITS} from './songs.mjs';
+import {cleanSong,songSlides,songCredit,songTextLength,expandedSize,SONG_LIMITS,settings,songSlideId} from './songs.mjs';
 export const FONTS={serif:{name:'Georgia',css:"Georgia,serif"},sans:{name:'Segoe UI',css:"'Segoe UI',sans-serif"},arial:{name:'Arial',css:"Arial,sans-serif"},verdana:{name:'Verdana',css:"Verdana,sans-serif"},trebuchet:{name:'Trebuchet MS',css:"'Trebuchet MS',sans-serif"},times:{name:'Times New Roman',css:"'Times New Roman',serif"},palatino:{name:'Palatino',css:"'Palatino Linotype',Palatino,serif"},mono:{name:'Courier New',css:"'Courier New',monospace"}};
 export const THEMES = {
  midnight:{name:'Midnight',bg:'#141e29',fg:'#f4eedf',accent:'#e6c68a',glow:'#4e596c66',line:'#e5d4ab33',line2:'#e5d4ab08',line3:'#e5d4ab04'},
@@ -19,7 +19,7 @@ export function cleanDraft(v){
  const d={...DEFAULT,...v};
  delete d.library;delete d.shows;d.verseRange=cleanVerseRange(v.verseRange);d.bibleVerses=cleanBibleVerses(v.bibleVerses);d.passageLayout=v.passageLayout==='flow'?'flow':'verses';d.excludedSlides=(Array.isArray(v.excludedSlides)?v.excludedSlides:[]).filter(x=>typeof x==='string').slice(0,25000);
  d.scriptureAttribution=str(v.scriptureAttribution,1000);d.scriptureSource=cleanScriptureSource(v.scriptureSource);
- d.title=str(v.title,100)||'Bible study'; d.reference=str(v.reference,100);
+ d.title=str(v.title,100)||'Sunday Service'; d.reference=str(v.reference,100);
  d.translation=str(v.translation,30); d.passage=str(v.passage,500000);
  d.theme=THEMES[v.theme]?v.theme:'midnight';d.font=FONTS[v.font]?v.font:'serif';d.bold=!!v.bold;d.italic=!!v.italic;
  d.fontSize=Math.max(52,Math.min(112,Number(v.fontSize)||88));d.wordsPerSlide=Math.max(20,Math.min(80,Number(v.wordsPerSlide)||45));
@@ -88,9 +88,10 @@ export function makeDeck(d){
  // Song slides are text slides that follow the show's Design, fitted to the screen, with the song credit.
  for(const {entryId,song} of d.songs||[]){
   const credit=songCredit(song);
-  for(const page of songSlides(song,entryId)){
-   const footer=song.title+' · '+page.section+(page.pages>1?' ('+(page.page+1)+'/'+page.pages+')':'');
-   slides.push({id:'song-'+entryId+'-'+page.position+'-'+page.page,type:'text',song:{entryId,title:song.title,section:page.section,kind:page.kind,number:page.number,position:page.position},text:page.text,title:song.title+' · '+page.section,heading:'',subtitle:'',reference:footer,translation:'',
+  const removed=(position,page)=>excluded.has('song-'+entryId+'-'+position+'-'+page);
+  for(const page of songSlides(song,entryId,settings(),removed)){
+   const footer=settings().songFooter?song.title+' · '+page.section+(page.pages>1?' ('+(page.page+1)+'/'+page.pages+')':''):'';
+   slides.push({id:songSlideId(entryId,page.position,page.page),type:'text',song:{entryId,title:song.title,section:page.section,kind:page.kind,number:page.number,position:page.position},text:page.text,title:song.title+' · '+page.section,heading:'',subtitle:'',reference:footer,translation:'',
     format:cleanTextSlide({id:'song-'+entryId,layout:'content',align:'center',body:'',footer,attribution:credit,bodySize:64,fit:true,fitPadding:d.fitPadding,bold:d.bold,italic:d.italic}),page:page.page+1,pages:page.pages});
   }
  }
@@ -112,7 +113,7 @@ export function deckFor(d){
  // Song snapshots are never edited in place except for the chosen arrangement, so they are keyed by identity
  // (plus arrangement) instead of stringifying every song's lyrics on each call.
  const songKey=(d.songs||[]).map(s=>[s.entryId,s.song.arrangementId,songIdentity(s.song)]);
- const key=JSON.stringify([d.includePassage,d.passageLayout,d.wordsPerSlide,d.translation,d.reference,d.passage,d.bibleVerses,d.excludedSlides,d.notes,d.textSlides,d.slideOrder,songKey,d.fitPadding,d.bold,d.italic]);
+ const key=JSON.stringify([d.includePassage,d.passageLayout,d.wordsPerSlide,d.translation,d.reference,d.passage,d.bibleVerses,d.excludedSlides,d.notes,d.textSlides,d.slideOrder,songKey,d.fitPadding,d.bold,d.italic,settings()]);
  const hit=deckCache.get(d);if(hit&&hit.key===key)return hit.deck;
  const deck=makeDeck(d);deckCache.set(d,{key,deck});return deck;
 }

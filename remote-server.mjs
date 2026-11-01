@@ -109,6 +109,7 @@ export function createLoginLimiter({perAddress=5,windowMs=600000,globalPerMinute
    f.count++;
   },
   succeed(ip){failures.delete(ip);},
+  clear(){failures.clear();globalCount=0;},
   get size(){return failures.size;}
  };
 }
@@ -131,11 +132,13 @@ function graphicsSummary(raw){
  let g;try{g=cleanGraphics(raw);}catch{g=cleanGraphics();}
  return {logo:{visible:g.logo.visible,ready:!!g.logo.assetId},timer:{visible:g.timer.visible,ready:true},background:{visible:g.background.visible,ready:g.background.kind==='color'||!!g.background.assetId},card:{visible:g.card.visible,ready:true,title:g.card.title,subtitle:g.card.subtitle}};
 }
+// Identifies a slide by its id and its words: pasted text reuses ids such as passage-0 from one passage to the next.
+const slideTag=s=>s?s.id+':'+createHash('sha256').update(String(s.text)).digest('hex').slice(0,12):'';
 export function liveSummary(live){
  const slides=Array.isArray(live?.slides)?live.slides:[],index=Number.isInteger(live?.index)?live.index:0,t=cleanTimer(live?.timer);
  const slide=slides[index],version=slide?.versePoint?slideVersion(live,slide):'';
  return {
-  updated:Number(live?.updated)||0,blank:!!live?.blank,showId:live?.showId||'',showTitle:clip(live?.showTitle,100),
+  updated:Number(live?.updated)||0,deck:slideTag(slides[0])+'|'+slideTag(slides.at(-1)),blank:!!live?.blank,showId:live?.showId||'',showTitle:clip(live?.showTitle,100),
   sceneId:live?.showId?live.sceneId||MAIN_SCENE:'',sceneName:clip(live?.sceneName,80),index,count:slides.length,
   current:brief(slides[index],600),previous:brief(slides[index-1],140),next:brief(slides[index+1],140),
   timer:{mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,visible:t.visible},
@@ -148,8 +151,10 @@ function showList(library){
  return {activeShowId:library?.activeShowId||'',shows};
 }
 
-export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
- const configFile=path.join(dataDir,'remote.json');
+// Settings the phone page offers. The rest, such as Check first, stay with the laptop.
+const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap'],SLOW_LOOKUP_MS=1000;
+export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,settings,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
+ const configFile=path.join(dataDir,'remote.json'),sessionFile=path.join(dataDir,'remote-sessions.json');
  let config={version:1,enabled:false,password:null};
  let server=null,error='',configProblem='',generation=0;
  const sessions=new Map(),streams=new Set(),limiter=createLoginLimiter(),commands=createCommandLog();
@@ -166,7 +171,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(!saved||typeof saved!=='object'){configProblem='The phone remote settings file is damaged. Set a new password to use the remote.';return;}
   if(saved.password!=null&&!validStoredPassword(saved.password)){configProblem='The saved phone remote password is damaged. Set a new password to use the remote.';return;}
   config={version:1,enabled:saved.enabled===true&&!!saved.password,password:saved.password||null};
+  // Phones stay signed in across a restart. Only a hash of each token is kept, so the file cannot be used to sign in.
+  try{const now=Date.now();for(const [key,expires] of Object.entries(JSON.parse(await readFile(sessionFile,'utf8'))))if(/^[a-f0-9]{64}$/.test(key)&&Number(expires)>now&&config.password)sessions.set(key,{expires:Number(expires)});}catch{}
  }
+ function saveSessions(){writeFile(sessionFile,JSON.stringify(Object.fromEntries([...sessions].map(([key,s])=>[key,s.expires]))),'utf8').catch(()=>{});}
  const loaded=loadConfig();
  async function saveConfig(next){
   await mkdir(dataDir,{recursive:true});
@@ -175,7 +183,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   config=next;configProblem='';
  }
  // Ends every phone session and live stream. Used by password change, sign-out-all and turning the remote off.
- function revokeAll(){generation++;sessions.clear();for(const s of streams)s.res.end();streams.clear();}
+ function revokeAll(){generation++;sessions.clear();saveSessions();limiter.clear();for(const s of streams)s.res.end();streams.clear();}
  // An open live stream stays only while its session exists, has not expired and was made after the last revoke.
  function streamValid(stream){const s=sessions.get(stream.key);return !!s&&s.expires>=Date.now()&&stream.generation===generation;}
  function endStream(stream){streams.delete(stream);stream.res.end();}
@@ -192,7 +200,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  function newSession(){
   const token=randomBytes(32).toString('base64url');
   if(sessions.size>=MAX_SESSIONS)sessions.delete(sessions.keys().next().value);
-  sessions.set(tokenKey(token),{expires:Date.now()+SESSION_MS});
+  sessions.set(tokenKey(token),{expires:Date.now()+SESSION_MS});saveSessions();
   return token;
  }
 
@@ -225,12 +233,12 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  // Slow work happens here, before a command joins the line: the Bible text, a song, or the neighbouring verse when
  // Next or Previous runs off the end of the verses on screen. decide() then only builds the screen.
  async function prepare(body){
-  const live=getState().live,slide=live.slides[live.index];
+  const live=getState().live,slide=live.slides[live.index],started=Date.now(),waited=value=>({...value,base:Number(live.updated||0),slow:()=>Date.now()-started>SLOW_LOOKUP_MS});
   if(body.action==='bible'){
    const version=String(body.version||'');
-   return {version,data:await bible.passage(version,phoneReference(body.reference,slide?.versePoint))};
+   return waited({version,data:await bible.passage(version,phoneReference(body.reference,slide?.versePoint))});
   }
-  if(body.action==='song')return {song:(await readSong(String(body.songId||''))).song};
+  if(body.action==='song')return waited({song:(await readSong(String(body.songId||''))).song});
   if(body.action==='next'||body.action==='previous'){
    const delta=body.action==='next'?1:-1,edge=delta>0?live.index>=live.slides.length-1:live.index===0,version=slideVersion(live,slide);
    if(edge&&slide?.versePoint&&version&&Number(body.base)===Number(live.updated||0))return {version,verse:await bible.adjacent(version,slide.versePoint,delta)};
@@ -242,25 +250,26 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  // The next screen for a command, as {next}, or the answer that refuses it. Runs inside commitLive.
  function decide(body,state,ready){
   const live=state.live,now=Date.now();let next,remember=false;
+  if(ready.slow?.()&&Number(live.updated||0)!==ready.base)return conflict('The screen changed while that was loading. Check it and send again.',live);
   if(body.action==='next'||body.action==='previous'){
    // The phone sends the screen it saw, so a repeated or late tap never moves past a change made elsewhere.
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
    if(!live.slides.length)return conflict('Nothing is on screen yet.',live);
    const index=Math.max(0,Math.min(live.slides.length-1,live.index+(body.action==='next'?1:-1)));
    if(ready.verse){
-    next=onAir(bibleScreen(live,ready.verse,ready.version),live);
+    next={...onAir(bibleScreen(live,ready.verse,ready.version),live),blank:live.blank};
     // Stepping out of a deck from the studio keeps a way back to it; stepping verse by verse does not add up.
     remember=!live.bibleVersion;
-   }else next={...live,index,blank:false};
+   }else next={...live,index};
   }else if(body.action==='goto'){
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
-   if(!Number.isInteger(body.index)||!live.slides[body.index])return conflict('That slide is no longer on screen.',live);
+   if(!Number.isInteger(body.index)||!live.slides[body.index]||(body.slideId&&slideTag(live.slides[body.index])!==body.slideId))return conflict('That slide is no longer on screen.',live);
    next={...live,index:body.index,blank:false};
   }else if(body.action==='bible'){
    next=onAir(bibleScreen(live,ready.data,ready.version),live);remember=true;
   }else if(body.action==='song'){
    if(!Number.isInteger(body.position)||body.position<0)return {status:400,body:{error:'Choose a part of the song.'}};
-   try{next=onAir(songScreen(live,ready.song,body.position),live);}catch(err){return {status:err.status||400,body:{error:err.message}};}
+   try{next=onAir(songScreen(live,ready.song,body.position,typeof body.line==='string'?body.line.slice(0,300):''),live);}catch(err){return {status:err.status||400,body:{error:err.message}};}
    remember=true;
   }else if(body.action==='text'){
    const heading=typeof body.heading==='string'?body.heading.trim().slice(0,400):'',text=typeof body.body==='string'?body.body.trim().slice(0,5000):'';
@@ -304,7 +313,8 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  function command(session,body){
   if(typeof body?.id!=='string'||!/^[A-Za-z0-9_-]{8,64}$/.test(body.id))return Promise.resolve({status:400,body:{error:'Missing command id.'}});
   const key=session.key+':'+body.id,seen=commands.get(key);if(seen)return seen;
-  if(queued>=MAX_QUEUE)return Promise.resolve({status:429,body:{error:'Too many commands at once. Wait a moment.'}});
+  const urgent=['next','previous','goto','blank'].includes(body.action);
+  if(queued>=MAX_QUEUE&&!urgent)return Promise.resolve({status:429,body:{error:'Too many commands at once. Wait a moment.'}});
   queued++;
   // A lookup finishes before the command joins the line, so a slow online Bible never holds up Next or Hide.
   const started=Date.now();
@@ -358,7 +368,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(!session){send(res,401,{error:'Sign in first.'});return;}
   if(p==='/remote/api/logout'){
    const problem=mutationProblem(req);if(problem){send(res,problem[0],{error:problem[1]});return;}
-   sessions.delete(session.key);for(const s of streams)if(s.key===session.key){s.res.end();streams.delete(s);}
+   sessions.delete(session.key);saveSessions();for(const s of streams)if(s.key===session.key){s.res.end();streams.delete(s);}
    send(res,200,{ok:true},{'Set-Cookie':COOKIE+'=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});return;
   }
   if(p==='/remote/api/command'){
@@ -366,7 +376,14 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    let body;try{body=await readBody(req,8000);}catch(err){send(res,err.status,{error:err.message});return;}
    const result=await command(session,body);send(res,result.status,result.body);return;
   }
+  if(p==='/remote/api/settings'&&req.method==='POST'){
+   const problem=mutationProblem(req);if(problem){send(res,problem[0],{error:problem[1]});return;}
+   let body;try{body=await readBody(req,2000);}catch(err){send(res,err.status,{error:err.message});return;}
+   const allowed=Object.fromEntries(Object.entries(body&&typeof body==='object'?body:{}).filter(([key])=>PHONE_SETTINGS.includes(key)));
+   try{send(res,200,await settings.change(allowed));}catch{send(res,500,{error:'The settings could not be saved.'});}return;
+  }
   if(req.method!=='GET'){send(res,405,{error:'Method not allowed.'});return;}
+  if(p==='/remote/api/settings'){send(res,200,settings.get());return;}
   const state=getState();
   if(p==='/remote/api/live'){send(res,200,summary(state.live));return;}
   if(p==='/remote/api/shows'){send(res,200,showList(state.library));return;}
@@ -379,7 +396,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   // Every slide of the deck on screen, including a deck the hosted studio sent.
   if(p==='/remote/api/screen'){
    const offset=Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)),slides=state.live.slides;
-   send(res,200,{total:slides.length,offset,slides:slides.slice(offset,offset+PAGE).map(s=>({title:clip(s.title,80),text:clip(s.text,120)}))});return;
+   send(res,200,{total:slides.length,offset,slides:slides.slice(offset,offset+PAGE).map(s=>({id:slideTag(s),title:clip(s.title,80),text:clip(s.text,120)}))});return;
   }
   if(p==='/remote/api/bible/books'){send(res,200,{books:bibleBooks()});return;}
   try{
@@ -390,7 +407,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    }
    if(p==='/remote/api/songs'){
     const found=await findSongs(String(url.searchParams.get('q')||'').slice(0,100),Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)));
-    send(res,200,{total:found.total,offset:found.offset,songs:found.items.map(s=>({id:s.id,name:clip(s.name,100),category:clip(s.artist||s.category,60),...(s.line?{line:clip(s.line,90),position:s.position}:{})}))});return;
+    send(res,200,{total:found.total,offset:found.offset,songs:found.items.map(s=>({id:s.id,name:clip(s.name,100),category:clip(s.artist||s.category,60),status:s.status||'',...(s.line?{line:clip(s.line,90),fullLine:clip(s.line,300),position:s.position}:{})}))});return;
    }
    if(p==='/remote/api/song'){
     const {song}=await readSong(url.searchParams.get('id')||'');

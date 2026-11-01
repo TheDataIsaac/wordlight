@@ -25,7 +25,7 @@ export function searchEntry(song,{uses=0,modified=0}={}){
  }
  const meta=song.meta,artist=meta.artist||meta.author||'';
  return {id:song.id,name:song.title,artist,status:meta.status||'',category:meta.collection||LIBRARY,modified,uses,lines,
-  head:' '+foldWords([song.title,meta.aliases,artist,meta.collection,meta.number].filter(Boolean).join(' ')),all:lines.map(l=>l.words).join('')};
+  head:' '+foldWords([song.title,meta.aliases,artist,meta.collection,meta.number].filter(Boolean).join(' ')),all:lines.map(l=>l.words).join(''),squeezed:lines.map(l=>l.squeezed).join(' ')};
 }
 export function vocabulary(entries){
  const words=new Set();
@@ -72,6 +72,8 @@ function bestLine(entry,words,phrase,squeezed){
  return {line:best,score};
 }
 function exactMatch(entry,words,phrase,squeezed){
+ // Most songs fail this one check, which is what keeps a search over every line fast.
+ if(!words.every(w=>hasWord(entry.all,w))&&!words.every(w=>hasWord(entry.head,w))&&!(squeezed.length>=6&&entry.squeezed.includes(squeezed)))return null;
  const {line,score}=bestLine(entry,words,phrase,squeezed);
  let title=0;
  if(entry.head.startsWith(phrase))title=900;
@@ -96,7 +98,8 @@ const ranked=hits=>hits.sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name
 // Every matching song, best first. `known` is the vocabulary, built once and passed in, or a function that builds it.
 export function findInSongbook(entries,query,known){
  const words=foldWords(query).split(' ').filter(Boolean).slice(0,MAX_WORDS);
- if(!words.length)return ranked(entries.map(entry=>result(entry,{line:null,score:0})));
+ // An empty box lists everything. Punctuation or emoji alone is a search that found nothing.
+ if(!words.length)return String(query).trim()?[]:ranked(entries.map(entry=>result(entry,{line:null,score:0})));
  const phrase=' '+words.join(' '),squeezed=words.join(''),hits=[];
  for(const entry of entries){const match=exactMatch(entry,words,phrase,squeezed);if(match)hits.push(result(entry,match));}
  if(hits.length<FUZZY_WHEN_FEWER_THAN&&known){

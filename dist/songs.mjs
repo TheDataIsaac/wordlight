@@ -124,12 +124,46 @@ export function songTextLength(song){return song.sections.reduce((n,s)=>n+s.slid
 export function songCredit(song){return [song.meta.copyright,song.meta.ccli?'CCLI Song # '+song.meta.ccli:''].filter(Boolean).join(' · ');}
 // Deck slides for one song in its chosen arrangement: each page of each section, in order, repeats included,
 // minus pages hidden for that occurrence.
-export function songSlides(song,entryId){
+// Settings shared by the studio and the phone, kept by the companion. Song display settings change how songs look on
+// screen and never touch the stored words, so changing one back restores the song exactly.
+export const LINES_PER_SLIDE=[0,1,2,3,4,5,6,8];
+export const DEFAULT_SETTINGS={linesPerSlide:0,hideRepeatMarks:true,allCaps:false,songFooter:true,resultClick:'preview',phoneTap:'select',checkFirst:true,searchFreeShow:true,searchReserve:true};
+export function cleanSettings(v){
+ const s=v&&typeof v==='object'?v:{},flag=(key)=>typeof s[key]==='boolean'?s[key]:DEFAULT_SETTINGS[key],lines=Number(s.linesPerSlide);
+ return {linesPerSlide:LINES_PER_SLIDE.includes(lines)?lines:0,hideRepeatMarks:flag('hideRepeatMarks'),allCaps:flag('allCaps'),songFooter:flag('songFooter'),
+  resultClick:s.resultClick==='send'?'send':'preview',phoneTap:s.phoneTap==='send'?'send':'select',checkFirst:flag('checkFirst'),searchFreeShow:flag('searchFreeShow'),searchReserve:flag('searchReserve')};
+}
+let current=cleanSettings();
+export const settings=()=>current;
+export function applySettings(v){current=cleanSettings(v);return current;}
+// "(2x)", "x3", "[repeat]" or "2X" at the end of a line. "repeat" alone is a word, so it only counts in brackets.
+const REPEAT_MARK=/(?:[([]\s*(?:x\s*\d+|\d+\s*x|repeat[^)\]]*|rpt|twice|thrice|\d+\s*times)\s*[)\]]|(?<=\s)(?:x\d+|\d+x))$/i;
+const withoutRepeat=line=>{const clean=line.trimEnd().replace(REPEAT_MARK,'').trimEnd();return clean.trim()?clean:line;};
+function shownText(text,display){
+ let shown=display.hideRepeatMarks?text.split('\n').map(withoutRepeat).join('\n'):text;
+ if(display.allCaps)shown=shown.toLocaleUpperCase();
+ return shown;
+}
+// Runs of pages with words are joined and cut into slides of the chosen size. A blank cue stays where it is.
+function reflow(pages,size){
+ const out=[];let run=[];
+ const flush=()=>{for(let i=0;i<run.length;i+=size){const chunk=run.slice(i,i+size);out.push({text:chunk.map(l=>l.line).join('\n'),page:chunk[0].page});}run=[];};
+ for(const page of pages){
+  if(!page.text.trim()){flush();out.push(page);continue;}
+  for(const line of page.text.split('\n'))if(line.trim())run.push({line,page:page.page});
+ }
+ flush();return out;
+}
+// Slide ids carry the split. A page removed or moved at one split never points at different words at another.
+export const songSlideId=(entryId,position,page,display=current)=>'song-'+entryId+'-'+position+'-'+page+(display.linesPerSlide?'-x'+display.linesPerSlide:'');
+// A page removed from the deck stays out however the song is split. `removed` says so by its typed position and page.
+export function songSlides(song,entryId,display=current,removed=()=>false){
  const arrangement=song.arrangements.find(a=>a.id===song.arrangementId)||song.arrangements[0],byId=new Map(song.sections.map(s=>[s.id,s]));
  const slides=[];
  arrangement.order.forEach((sectionId,position)=>{
   const section=byId.get(sectionId),hidden=new Set(arrangement.hidden?.[position]||[]);if(!section)return;
-  const shown=section.slides.map((text,page)=>({text,page})).filter(p=>!hidden.has(p.page));
+  const pages=section.slides.map((text,page)=>({text:shownText(text,display),page})).filter(p=>!hidden.has(p.page)&&!(display.linesPerSlide&&removed(position,p.page)));
+  const shown=display.linesPerSlide?reflow(pages,display.linesPerSlide):pages;
   shown.forEach(({text,page},i)=>slides.push({entryId,position,page:i,pages:shown.length,sourcePage:page,section:section.label,kind:section.kind,number:section.number,text}));
  });
  return slides;
@@ -205,6 +239,12 @@ export function addCapturedLine(song,line){
 export function setlistLines(text){return String(text||'').split(/\r?\n/).map(line=>line.replace(/^\s*(?:\d+[.)]|[-*•])\s*/,'').trim()).filter(Boolean).slice(0,30);}
 // Song files for export/import without FreeShow.
 export function songFile(song){return {format:'wordlight-song-file',version:1,song};}
+// The slide that holds a matched lyric line. Slides can be split or capitalised differently from the stored words,
+// so the line is compared folded, without its repeat mark.
+export function matchedSlide(slides,line){
+ const want=foldWords(withoutRepeat(String(line||'').trim()));
+ return want?slides.find(s=>foldWords(s.text).includes(want)):undefined;
+}
 export function readSongFile(raw){
  if(raw?.format==='wordlight-song-file'&&raw.version===1)return cleanSong(raw.song);
  if(raw?.format==='wordlight-song')return cleanSong(raw);

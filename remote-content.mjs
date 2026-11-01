@@ -3,6 +3,7 @@
 // Bibles work as in the studio: an installed Bible first, then NKJV through the API.Bible key or bolls.life, then the
 // public online sources. A failed lookup is reported; another version is never used instead.
 import {cleanDraft,snapshot,cleanTextSlide} from './dist/core.mjs';
+import {songSlides,matchedSlide,songSlideId} from './dist/songs.mjs';
 import {applyBiblePassage} from './dist/library.mjs';
 import {BIBLE_BOOKS,parseReference} from './dist/reference.mjs';
 import {VERSE_COUNTS} from './dist/versification.mjs';
@@ -105,8 +106,10 @@ export function bibleScreen(live,data,version){
  applyBiblePassage(draft,data,version);
  return {...snapshot(draft),bibleVersion:version,showTitle:data.reference};
 }
-export function songScreen(live,song,position){
- const entryId='phone',first='song-'+entryId+'-'+position+'-0';
+export function songScreen(live,song,position,line=''){
+ // A search match opens at the slide holding that line, however the song is split on screen.
+ const entryId='phone',matched=matchedSlide(songSlides(song,entryId).filter(s=>s.position===position),line);
+ const first=songSlideId(entryId,position,matched?.page||0);
  const screen=snapshot(draftWithLook(live,{title:song.title,songs:[{entryId,song}]}),first);
  if(!screen.slides.some(s=>s.id===first))throw fail(404,'That part of the song is no longer there.');
  return {...screen,showTitle:song.title};
