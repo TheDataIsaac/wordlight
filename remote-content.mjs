@@ -4,7 +4,7 @@
 // public online sources. A failed lookup is reported; another version is never used instead.
 import {cleanDraft,snapshot,cleanTextSlide,getHighlights} from './dist/core.mjs';
 import {songSlides,matchedSlide,songSlideId} from './dist/songs.mjs';
-import {applyBiblePassage} from './dist/library.mjs';
+import {applyBiblePassage,activeShow} from './dist/library.mjs';
 import {BIBLE_BOOKS,parseReference} from './dist/reference.mjs';
 import {VERSE_COUNTS} from './dist/versification.mjs';
 import {TRANSLATIONS,adjacentVerse,adjacentByChapter} from './dist/scripture.mjs';
@@ -99,15 +99,27 @@ export function slideVersion(live,slide){
 // ---- Building screens. New content keeps the look of what is on screen now, so it matches the service. ----
 function draftWithLook(live,fields){
  const s=live?.style||{};
- return cleanDraft({schema:1,passage:'',reference:'',translation:'',includePassage:false,theme:s.theme,font:s.font,fontSize:s.fontSize,bold:s.bold,italic:s.italic,brand:s.brand,accent:s.accent,fit:s.fit,fitPadding:s.fitPadding,backgroundAssetId:s.backgroundAssetId,backgroundDim:s.backgroundDim,...fields});
+ return cleanDraft({schema:1,passage:'',reference:'',translation:'',includePassage:false,theme:s.theme,font:s.font,fontSize:s.fontSize,bold:s.bold,italic:s.italic,brand:s.brand,accent:s.accent,fit:s.fit,fitPadding:s.fitPadding,backgroundAssetId:s.backgroundAssetId,backgroundDim:s.backgroundDim,referenceSize:s.referenceSize,lowerReferenceSize:s.lowerReferenceSize,referenceColor:s.referenceColor,...fields});
 }
+// The studio's words, in the colours of the look on screen. Formatting set for one text slide stays with that slide.
+const wordsFor=(style,notes,everySlide=false)=>getHighlights({notes,accent:style.accent,theme:style.theme}).filter(h=>everySlide||!h.slideId);
+const withWords=(style,highlights)=>({...style,highlights,highlightWords:highlights.map(h=>h.word)});
 // Words highlighted in the studio stay highlighted on a verse from the phone. They go on the look, not the draft, so
-// no word-study slides join the verse. Formatting set for one text slide stays with that slide.
+// no word-study slides join the verse.
 export function bibleScreen(live,data,version,notes=[]){
  const draft=draftWithLook(live,{title:data.reference});
  applyBiblePassage(draft,data,version);
- const screen=snapshot(draft),highlights=getHighlights({...draft,notes}).filter(h=>!h.slideId);
- return {...screen,style:{...screen.style,highlights,highlightWords:highlights.map(h=>h.word)},bibleVersion:version,showTitle:data.reference};
+ const screen=snapshot(draft);
+ return {...screen,style:withWords(screen.style,wordsFor(screen.style,notes)),bibleVersion:version,showTitle:data.reference};
+}
+// A word changed in the studio shows at once when the screen has that item, or a verse from the phone. Moving to another
+// item or show changes only the preview. Returns the same live object when the screen stays as it is.
+export function wordsOnLive(live,before,after){
+ const was=activeShow(before),show=activeShow(after),sameItem=live.showId===show.id&&live.sceneId===show.activeSceneId;
+ if(was.id!==show.id||was.activeSceneId!==show.activeSceneId||!(sameItem||live.bibleVersion))return live;
+ const highlights=wordsFor(live.style,show.draft.notes,sameItem);
+ if(JSON.stringify(highlights)===JSON.stringify(wordsFor(live.style,was.draft.notes,sameItem)))return live;
+ return {...live,style:withWords(live.style,highlights),updated:Math.max(Date.now(),Number(live.updated||0)+1)};
 }
 export function songScreen(live,song,position,line=''){
  // A search match opens at the slide holding that line, however the song is split on screen.

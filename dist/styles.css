@@ -128,7 +128,7 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .lower-band{box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:.25em;padding:.6em 1.1em;border-radius:14px;overflow:hidden;font-family:var(--slide-font,Georgia,serif);line-height:1.3;white-space:normal;overflow-wrap:break-word}
 .lower-heading{font-weight:700;font-size:1.05em}.lower-subtitle{font-size:.68em;opacity:.85}.lower-text{font-size:1em}.lower-text.lower-lines{white-space:pre-line}
 .lower-detail{font-family:'DM Sans',Segoe UI,sans-serif;font-size:.72em;opacity:.92}
-.lower-ref{font-family:'DM Sans',Segoe UI,sans-serif;font-size:.5em;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);opacity:.95}
+.lower-ref{font-family:'DM Sans',Segoe UI,sans-serif;font-size:.5em;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:inherit}
 .lower-credit{font-family:Arial,sans-serif;font-size:max(.34em,13px);opacity:.75}
 /* Clears the browser's default mark style without outranking the per-word emphasis rules (:where adds no specificity). */
 :where(.lower-band) mark{background:transparent;color:inherit;padding:0;text-decoration:none}

@@ -14,7 +14,7 @@ import {cleanLibrary,activeShow,backgroundAssetIds} from './dist/library.mjs';
 import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
 import {createRemote} from './remote-server.mjs';
-import {createBibleLookup} from './remote-content.mjs';
+import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const port=Number(process.env.WORDLIGHT_PORT)||18765;
 const dataDir=process.env.WORDLIGHT_DATA_DIR||path.join(root,'.wordlight-data');
@@ -605,12 +605,13 @@ async function handle(req,res){
     if(update.library){nextLibrary=cleanLibrary(update.library);nextDraft=activeShow(nextLibrary).draft;}
     else if(update.draft){nextDraft=cleanDraft(update.draft);nextLibrary=cleanLibrary(state.library);activeShow(nextLibrary).draft=nextDraft;}
     if(update.live){if(!validLive(update.live))throw new Error('Invalid live slide data.');nextLive={...update.live,graphics:cleanGraphics(update.live.graphics)};}
+    else nextLive=wordsOnLive(state.live,state.library,nextLibrary);
     const previous=state;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};
     // A screen change goes out first: a locked or full disk must never stop the projector. Shows are saved first,
     // because a library that could not be written must not be reported as saved.
     if(update.live&&!update.library&&!update.draft){broadcast();answer={ok:true,saveFailed:!await keepScreen()};return;}
     try{await persist();}catch(err){state=previous;throw new Error('Your session could not be saved to disk.');}
-    if(update.live)broadcast();
+    if(nextLive!==previous.live)broadcast();
    });
    if(answer.stale){json(res,409,{error:'Another tab saved newer changes.',stale:true,savedAt:Number(state.library?.savedAt||0)});return;}
    json(res,200,answer);return;

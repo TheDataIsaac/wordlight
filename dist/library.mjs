@@ -223,8 +223,8 @@ export function isEmptyDraft(d){
 }
 // New items inherit all of these. Apply design to all items leaves out the version and the passage layout and words
 // per slide, which would repaginate other readings and change their slide ids (and so their exclusions).
-const DESIGN_FIELDS=['theme','font','fontSize','bold','italic','brand','accent','backgroundAssetId','backgroundDim','fit','fitPadding','wordsPerSlide','passageLayout','translation'];
-const APPLY_FIELDS=['theme','font','fontSize','bold','italic','brand','accent','backgroundAssetId','backgroundDim','fit','fitPadding'];
+const DESIGN_FIELDS=['theme','font','fontSize','bold','italic','brand','accent','backgroundAssetId','backgroundDim','referenceSize','lowerReferenceSize','referenceColor','fit','fitPadding','wordsPerSlide','passageLayout','translation'];
+const APPLY_FIELDS=['theme','font','fontSize','bold','italic','brand','accent','backgroundAssetId','backgroundDim','referenceSize','lowerReferenceSize','referenceColor','fit','fitPadding'];
 // Word highlight styles that are not tied to one slide: the word and how it looks, without its explanation (an
 // explanation would add a study slide to every item).
 const wordStyles=notes=>(notes||[]).filter(n=>!n.slideId).map(n=>({id:crypto.randomUUID(),word:n.word,color:n.color,emphasis:n.emphasis,bold:n.bold,italic:n.italic}));

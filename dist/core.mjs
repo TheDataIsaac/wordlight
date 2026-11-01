@@ -1,5 +1,10 @@
 import {cleanVerseRange,cleanBibleVerses,cleanScriptureSource} from './scripture.mjs';
 import {cleanSong,songSlides,songCredit,songTextLength,expandedSize,SONG_LIMITS,settings,songSlideId} from './songs.mjs';
+// The Bible reference line: its size on the full screen and on the lower third, in canvas pixels.
+export const REFERENCE_SIZE={min:24,max:90,default:30},LOWER_REFERENCE_SIZE={min:18,max:72,default:32};
+const sizeIn=(v,limits)=>v===''||v==null||!Number.isFinite(Number(v))?limits.default:Math.round(Math.max(limits.min,Math.min(limits.max,Number(v))));
+export function referenceSize(v){return sizeIn(v,REFERENCE_SIZE);}
+export function lowerReferenceSize(v){return sizeIn(v,LOWER_REFERENCE_SIZE);}
 export const FONTS={serif:{name:'Georgia',css:"Georgia,serif"},sans:{name:'Segoe UI',css:"'Segoe UI',sans-serif"},arial:{name:'Arial',css:"Arial,sans-serif"},verdana:{name:'Verdana',css:"Verdana,sans-serif"},trebuchet:{name:'Trebuchet MS',css:"'Trebuchet MS',sans-serif"},times:{name:'Times New Roman',css:"'Times New Roman',serif"},palatino:{name:'Palatino',css:"'Palatino Linotype',Palatino,serif"},mono:{name:'Courier New',css:"'Courier New',monospace"}};
 export const THEMES = {
  midnight:{name:'Midnight',bg:'#141e29',fg:'#f4eedf',accent:'#e6c68a',glow:'#4e596c66',line:'#e5d4ab33',line2:'#e5d4ab08',line3:'#e5d4ab04'},
@@ -26,6 +31,7 @@ export function cleanDraft(v){
  d.brand=str(v.brand,80);d.accent=/^#[a-f0-9]{6}$/i.test(v.accent)?v.accent:'';
  // Background image: an id in the companion's image store (never the image itself) and how much the theme color fades it.
  const dim=Number(v.backgroundDim);d.backgroundAssetId=assetId(v.backgroundAssetId);d.backgroundDim=v.backgroundDim!=null&&Number.isFinite(dim)?Math.max(0,Math.min(80,Math.round(dim))):45;
+ d.referenceSize=referenceSize(v.referenceSize);d.lowerReferenceSize=lowerReferenceSize(v.lowerReferenceSize);d.referenceColor=safeColor(v.referenceColor)||'';
  d.notes=(Array.isArray(v.notes)?v.notes:[]).slice(0,200).map((n,i)=>({
  id:str(n.id,100)||'word-'+i,word:str(n.word,200),original:str(n.original,200),transliteration:str(n.transliteration,200),
  strong:str(n.strong,20),meaning:str(n.meaning,30000),source:str(n.source,1000),color:safeColor(n.color),emphasis:safeEmphasis(n.emphasis),slideId:str(n.slideId,100),bold:!!n.bold,italic:!!n.italic
@@ -119,7 +125,7 @@ export function deckFor(d){
 }
 export function snapshot(d,id=d.previewId){
  const slides=makeDeck(d);const index=Math.max(0,slides.findIndex(s=>s.id===id));
- return {schema:1,slides,index,blank:false,style:{scriptureAttribution:d.scriptureAttribution,fit:!!d.fit,fitPadding:fitPadding(d.fitPadding),theme:d.theme,font:d.font,fontSize:d.fontSize,brand:d.brand,accent:d.accent,backgroundAssetId:assetId(d.backgroundAssetId),backgroundDim:d.backgroundDim??45,bold:!!d.bold,italic:!!d.italic,highlightWords:d.notes.map(n=>n.word),highlights:getHighlights(d)},updated:Date.now()};
+ return {schema:1,slides,index,blank:false,style:{scriptureAttribution:d.scriptureAttribution,fit:!!d.fit,fitPadding:fitPadding(d.fitPadding),theme:d.theme,font:d.font,fontSize:d.fontSize,brand:d.brand,accent:d.accent,backgroundAssetId:assetId(d.backgroundAssetId),backgroundDim:d.backgroundDim??45,referenceSize:referenceSize(d.referenceSize),lowerReferenceSize:lowerReferenceSize(d.lowerReferenceSize),referenceColor:safeColor(d.referenceColor)||'',bold:!!d.bold,italic:!!d.italic,highlightWords:d.notes.map(n=>n.word),highlights:getHighlights(d)},updated:Date.now()};
 }
 export function validLive(v){
  return !!v&&v.schema===1&&Array.isArray(v.slides)&&v.slides.length<=25000&&
