@@ -2,7 +2,7 @@
 // song id; this file finds the text and builds the screen, so the phone only ever receives short summaries.
 // Bibles work as in the studio: an installed Bible first, then NKJV through the API.Bible key or bolls.life, then the
 // public online sources. A failed lookup is reported; another version is never used instead.
-import {cleanDraft,snapshot,cleanTextSlide,getHighlights} from './dist/core.mjs';
+import {cleanDraft,snapshot,cleanTextSlide,getHighlights,nextHighlightColor} from './dist/core.mjs';
 import {songSlides,matchedSlide,songSlideId} from './dist/songs.mjs';
 import {applyBiblePassage,activeShow} from './dist/library.mjs';
 import {BIBLE_BOOKS,parseReference} from './dist/reference.mjs';
@@ -120,6 +120,13 @@ export function wordsOnLive(live,before,after){
  const highlights=wordsFor(live.style,show.draft.notes,sameItem);
  if(JSON.stringify(highlights)===JSON.stringify(wordsFor(live.style,was.draft.notes,sameItem)))return live;
  return {...live,style:withWords(live.style,highlights),updated:Math.max(Date.now(),Number(live.updated||0)+1)};
+}
+// A tap on the phone lights up a word on the screen showing now, or clears it. It stays with the screen, not the saved show.
+export function toggleWord(live,word){
+ const style=live.style,list=style.highlights||[],same=h=>h.word.toLowerCase()===word.toLowerCase();
+ if(list.some(same))return {...live,style:withWords(style,list.filter(h=>!same(h)))};
+ const look={accent:style.accent,theme:style.theme},color=nextHighlightColor({...look,notes:list});
+ return {...live,style:withWords(style,[...list,...getHighlights({...look,notes:[{word,color}]})])};
 }
 export function songScreen(live,song,position,line=''){
  // A search match opens at the slide holding that line, however the song is split on screen.

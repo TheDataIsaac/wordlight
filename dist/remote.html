@@ -57,6 +57,10 @@
  </section>
 
  <section id="panel-screen" class="card" role="tabpanel" aria-labelledby="tab-screen" hidden>
+  <div id="wordsBox" hidden>
+   <p class="muted small">Tap a word to light it up on screen. Tap it again to clear it.</p>
+   <div id="liveWords" class="chips"></div>
+  </div>
   <p class="muted small">The slides on screen now. Tap one to show it straight away.</p>
   <ol id="screenSlides" class="slides"></ol>
   <button id="screenMore" class="wide" type="button" hidden>Show more slides</button>
@@ -65,7 +69,8 @@
  <section id="panel-shows" class="card browse" role="tabpanel" aria-labelledby="tab-shows" hidden>
   <p class="muted small">Shows saved in Wordlight on this laptop. Pick a slide, then Send to live.</p>
   <label for="showPick">Show</label><select id="showPick"></select>
-  <label for="scenePick">Item</label><select id="scenePick"></select>
+  <p class="muted small">Items</p>
+  <ol id="items" class="slides"></ol>
   <ol id="slides" class="slides"></ol>
   <button id="more" class="wide" type="button" hidden>Show more slides</button>
  </section>

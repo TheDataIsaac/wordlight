@@ -3,7 +3,7 @@
 // phone or losing Wi-Fi never changes the screen. Browsing never changes the screen; only Send, Go, a tap in Slides and
 // the controls at the bottom do. A double tap on a song part or a show's slide sends it at once.
 const $=id=>document.getElementById(id);
-let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer,books=[],versionsLoaded=false,tab='bible',deckShown='';
+let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer,books=[],versions=[],versionsLoaded=false,tab='bible',deckShown='';
 const browse={showId:'',sceneId:'',offset:0,total:0};
 let songSettings={phoneTap:'select',checkFirst:true},lastTap={button:null,at:0};
 const pickState={bookId:'',chapter:0};
@@ -17,10 +17,11 @@ function say(text){$('message').textContent=text;clearTimeout(messageTimer);mess
 function setConnection(ok,text){const el=$('connection');el.textContent=text||(ok?'Connected':'Reconnecting…');el.className='connection '+(ok?'ok':'bad');}
 function element(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;}
 
-// Every request gives up after 6 s, so a stalled Wi-Fi connection never leaves the buttons waiting forever.
-async function request(path,body){
+// Every request gives up after 6 s, so a stalled Wi-Fi connection never leaves the buttons waiting forever. A Bible
+// preview waits longer, because an online version has its own limit of about 10 s.
+async function request(path,body,waitMs=6000){
  const options=body===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),waitMs);
  try{
   const response=await fetch(path,{...options,credentials:'same-origin',signal:controller.signal});
   let data={};try{data=await response.json();}catch{}
@@ -80,7 +81,7 @@ function applyLive(summary,trust=false){
  $('liveNext').textContent=live.next?'Next: '+live.next.title:live.verseSteps?'Next goes to the next verse.':live.count?'This is the last slide.':'';
  $('blank').textContent=live.blank?'Show screen':'Hide screen';$('blank').classList.toggle('restore',live.blank);
  $('back').hidden=!live.backTo;$('back').textContent='‹ Back to '+live.backTo;
- updateButtons();markOnAir();paintTimer();paintGraphics();
+ updateButtons();markOnAir();paintTimer();paintGraphics();paintWords();
  if(live.showId&&shows.length&&!shows.some(s=>s.id===live.showId))loadShows();
  if(tab==='screen'){if(deckKey()!==deckShown)loadScreen(0);else markScreen();}
 }
@@ -111,7 +112,7 @@ setInterval(()=>{if(live?.timer.running&&!document.hidden)$('timerValue').textCo
 // applies the command at most once and answers a retry with the first result. ----
 // Next, Previous, Hide and a tap on a slide never wait for a verse or song still loading: Hide has to work at once.
 async function command(body){
- const urgent=['next','previous','goto','blank'].includes(body.action);
+ const urgent=['next','previous','goto','blank','word'].includes(body.action);
  if(busy&&!urgent)return false;
  if(!urgent){busy=true;updateButtons();}
  body.id=commandId();
@@ -159,7 +160,7 @@ async function loadBible(){
  try{
   const [v,b]=await Promise.all([request('/remote/api/bible/versions'),request('/remote/api/bible/books')]);
   if(v.status!==200||b.status!==200)return;
-  books=b.data.books;
+  books=b.data.books;versions=v.data.versions;
   const choice=saved('wordlight-remote-version',live?.version||'')||v.data.versions[0]?.id;
   $('version').replaceChildren(...v.data.versions.map(x=>option(x.id,x.id.toUpperCase()+(x.installed?'':' (online)'),x.id===choice)));
   versionsLoaded=true;paintPicker();
@@ -168,6 +169,13 @@ async function loadBible(){
 $('version').addEventListener('change',()=>{save('wordlight-remote-version',$('version').value);lookSoon();});
 let lookRequest=0,lookTimer;
 function note(text){$('preview').replaceChildren(element('p','note',text));}
+// An online version can fail mid-service. Another version is never used on its own; this gives one tap to choose it.
+function offerInstalled(text){
+ if(versions.find(v=>v.id===$('version').value)?.installed)return;
+ const row=element('div','chips');
+ for(const v of versions.filter(x=>x.installed).slice(0,3))row.append(gridButton('Use '+v.id.toUpperCase(),()=>{$('version').value=v.id;look(text);}));
+ $('preview').append(row);
+}
 function lookSoon(){
  clearTimeout(lookTimer);lookRequest++;clearPicked();
  const text=$('reference').value.trim();paintHints(text);
@@ -177,9 +185,9 @@ function lookSoon(){
 }
 async function look(text){
  const mine=++lookRequest;
- let r;try{r=await request('/remote/api/bible/look?q='+encodeURIComponent(text)+'&version='+encodeURIComponent($('version').value));}catch{if(mine===lookRequest)note('Could not reach Wordlight.');return;}
+ let r;try{r=await request('/remote/api/bible/look?q='+encodeURIComponent(text)+'&version='+encodeURIComponent($('version').value),undefined,14000);}catch{if(mine===lookRequest){note('Could not reach Wordlight, or the lookup took too long.');offerInstalled(text);}return;}
  if(mine!==lookRequest)return;
- if(r.status!==200){note(r.data.error||'That passage was not found.');return;}
+ if(r.status!==200){note(r.data.error||'That passage was not found.');offerInstalled(text);return;}
  const shown=r.data.verses.map(v=>element('p','',v.verse+'  '+v.text));
  if(r.data.total>shown.length)shown.push(element('p','muted','and '+(r.data.total-shown.length)+' more verses'));
  $('preview').replaceChildren(element('h3','',r.data.reference+' · '+r.data.version),...shown);
@@ -203,7 +211,9 @@ $('bibleForm').addEventListener('submit',async ev=>{
  ev.preventDefault();clearTimeout(lookTimer);lookRequest++;
  if(!$('reference').value.trim())return;
  $('reference').blur();
+ const text=$('reference').value;
  if(await command(bibleCommand())){say('Sent: '+live.showTitle);bibleSent();clearPicked();}
+ else{note($('message').textContent||'That verse was not sent.');offerInstalled(text);}
 });
 
 // Book, chapter and verse picker. The tap on a verse fills in the reference and shows it, ready to send.
@@ -268,6 +278,15 @@ async function loadScreen(offset){
  $('screenMore').hidden=offset+r.data.slides.length>=r.data.total;
  markScreen();
 }
+// The words of the slide on screen, each once, as buttons.
+function paintWords(){
+ const text=live?.current?.text||'',seen=new Set(),lit=new Set((live?.words||[]).map(w=>w.toLowerCase())),chips=[];
+ for(const [word] of text.matchAll(/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu)){
+  const key=word.toLowerCase();if(seen.has(key)||chips.length>=40)continue;seen.add(key);
+  const b=gridButton(word,()=>live&&command({action:'word',word,base:live.updated}));b.classList.toggle('on',lit.has(key));chips.push(b);
+ }
+ $('liveWords').replaceChildren(...chips);$('wordsBox').hidden=!chips.length;
+}
 function markScreen(){
  for(const b of $('screenSlides').querySelectorAll('button')){
   const on=!!live&&Number(b.dataset.index)===live.index;let badge=b.querySelector('.on-air');
@@ -290,9 +309,24 @@ async function loadShows(){
  const show=shows.find(s=>s.id===browse.showId);
  if(show&&!show.scenes.some(s=>s.id===browse.sceneId))browse.sceneId=live?.showId===show.id&&show.scenes.some(s=>s.id===live.sceneId)?live.sceneId:show.activeSceneId;
  $('showPick').replaceChildren(...shows.map(s=>option(s.id,s.title,s.id===browse.showId)));
- $('scenePick').replaceChildren(...(show?.scenes||[]).map(s=>option(s.id,s.name,s.id===browse.sceneId)));
- $('scenePick').disabled=(show?.scenes.length||0)<2;
+ paintItems(show);
  await loadSlides(0);
+}
+// Items are a list, so every item of the service can be seen and reached with one tap.
+function paintItems(show){
+ $('items').replaceChildren(...(show?.scenes||[]).map(scene=>{
+  const li=element('li'),b=listButton(scene.name,'');b.dataset.scene=scene.id;b.setAttribute('aria-pressed',String(scene.id===browse.sceneId));li.append(b);
+  b.addEventListener('click',()=>{browse.sceneId=scene.id;clearPicked();for(const o of $('items').querySelectorAll('button'))o.setAttribute('aria-pressed',String(o===b));loadSlides(0);});
+  return li;
+ }));
+ markItems();
+}
+function markItems(){
+ for(const b of $('items').querySelectorAll('button')){
+  const on=!!live&&live.showId===browse.showId&&live.sceneId===b.dataset.scene;let badge=b.querySelector('.on-air');
+  if(on&&!badge){badge=element('span','on-air');b.prepend(badge);}
+  if(on)badge.textContent=live.blank?'HIDDEN':'LIVE';else badge?.remove();
+ }
 }
 async function loadSlides(offset){
  if(!browse.showId)return;
@@ -317,6 +351,7 @@ function markPicked(){
  if(!picked)for(const b of $('songParts').querySelectorAll('button'))b.setAttribute('aria-pressed','false');
 }
 function markOnAir(){
+ markItems();
  const here=live&&live.showId===browse.showId&&live.sceneId===browse.sceneId;
  for(const b of $('slides').querySelectorAll('button')){
   const on=here&&live.current?.id===b.dataset.id;let badge=b.querySelector('.on-air');
@@ -326,7 +361,6 @@ function markOnAir(){
  }
 }
 $('showPick').addEventListener('change',ev=>{browse.showId=ev.target.value;browse.sceneId='';clearPicked();loadShows();});
-$('scenePick').addEventListener('change',ev=>{browse.sceneId=ev.target.value;clearPicked();loadSlides(0);});
 $('more').addEventListener('click',()=>loadSlides(browse.offset+100));
 
 // ---- More: text, timer and OBS graphics ----

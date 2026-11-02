@@ -24,7 +24,7 @@ import {cleanTimer,changeTimer} from './dist/timer.mjs';
 import {cleanLowerThird} from './dist/lowerthird.mjs';
 import {cleanGraphics} from './dist/graphics.mjs';
 import {songSlides} from './dist/songs.mjs';
-import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion} from './remote-content.mjs';
+import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion,toggleWord} from './remote-content.mjs';
 
 export const REMOTE_PORT=18766;
 const SESSION_MS=12*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
@@ -142,7 +142,7 @@ export function liveSummary(live){
   sceneId:live?.showId?live.sceneId||MAIN_SCENE:'',sceneName:clip(live?.sceneName,80),index,count:slides.length,
   current:brief(slides[index],600),previous:brief(slides[index-1],140),next:brief(slides[index+1],140),
   timer:{mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,visible:t.visible},
-  version,verseSteps:!!version,graphics:graphicsSummary(live?.graphics),
+  version,verseSteps:!!version,graphics:graphicsSummary(live?.graphics),words:(Array.isArray(live?.style?.highlights)?live.style.highlights:[]).slice(0,30).map(h=>clip(h.word,60)),
   serverNow:Date.now()
  };
 }
@@ -152,7 +152,7 @@ function showList(library){
 }
 
 // Settings the phone page offers. The rest, such as Check first, stay with the laptop.
-const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap'],SLOW_LOOKUP_MS=1000;
+const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap'],STREAM_UNREAD_BYTES=1e6;
 export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,settings,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
  const configFile=path.join(dataDir,'remote.json'),sessionFile=path.join(dataDir,'remote-sessions.json');
  let config={version:1,enabled:false,password:null};
@@ -223,9 +223,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
 
  // ---- Commands ----
  function conflict(message,live){return {status:409,body:{error:message,live:summary(live)}};}
- async function execute(body,ready={}){
+ async function execute(body,ready,stillSignedIn){
   let answer;const before=[...screensBefore];
-  try{await commitLive(state=>{answer=decide(body,state,ready);return answer.next;});}
+  // Checked inside the line for the screen, so signing out wins over a command that was still waiting its turn.
+  try{await commitLive(state=>{answer=stillSignedIn()?decide(body,state,ready):{status:401,body:{error:'Sign in first.'}};return answer.next;});}
   catch{screensBefore.splice(0,Infinity,...before);return {status:500,body:{error:'The companion could not save the screen. Nothing changed.'}};}
   if(!answer.next)return answer;
   return {status:200,body:{ok:true,live:summary(getState().live)}};
@@ -233,7 +234,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  // Slow work happens here, before a command joins the line: the Bible text, a song, or the neighbouring verse when
  // Next or Previous runs off the end of the verses on screen. decide() then only builds the screen.
  async function prepare(body){
-  const live=getState().live,slide=live.slides[live.index],started=Date.now(),waited=value=>({...value,base:Number(live.updated||0),slow:()=>Date.now()-started>SLOW_LOOKUP_MS});
+  const live=getState().live,slide=live.slides[live.index],waited=value=>({...value,screen:screenNow(live)});
   if(body.action==='bible'){
    const version=String(body.version||'');
    return waited({version,data:await bible.passage(version,phoneReference(body.reference,slide?.versePoint))});
@@ -245,12 +246,16 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   }
   return {};
  }
+ // What the audience is reading: hidden or not, which slide, and every slide of the deck.
+ const screenNow=live=>JSON.stringify([!!live.blank,live.index,live.showId||'',live.sceneId||'',live.showTitle||'',live.slides.map(slideTag)]);
  // New content keeps the timer, lower third and graphics that are on air.
  function onAir(screen,live){return {...screen,timer:cleanTimer(live.timer),lowerThird:cleanLowerThird(live.lowerThird),graphics:live.graphics};}
  // The next screen for a command, as {next}, or the answer that refuses it. Runs inside commitLive.
  function decide(body,state,ready){
   const live=state.live,now=Date.now();let next,remember=false;
-  if(ready.slow?.()&&Number(live.updated||0)!==ready.base)return conflict('The screen changed while that was loading. Check it and send again.',live);
+  // Anything put on or taken off the screen while the text was loading wins, such as Hide or a send from the studio,
+  // however short the wait. A timer change or a lit word leaves the same content on screen, so the send goes ahead.
+  if(ready.screen!==undefined&&screenNow(live)!==ready.screen)return conflict('The screen changed while that was loading. Check it and send again.',live);
   if(body.action==='next'||body.action==='previous'){
    // The phone sends the screen it saw, so a repeated or late tap never moves past a change made elsewhere.
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
@@ -265,6 +270,11 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
    if(!Number.isInteger(body.index)||!live.slides[body.index]||(body.slideId&&slideTag(live.slides[body.index])!==body.slideId))return conflict('That slide is no longer on screen.',live);
    next={...live,index:body.index,blank:false};
+  }else if(body.action==='word'){
+   if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
+   const word=typeof body.word==='string'?body.word.trim().slice(0,200):'';
+   if(!word)return {status:400,body:{error:'Choose a word.'}};
+   next=toggleWord(live,word);
   }else if(body.action==='bible'){
    next=onAir(bibleScreen(live,ready.data,ready.version,state.draft?.notes),live);remember=true;
   }else if(body.action==='song'){
@@ -313,15 +323,16 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  function command(session,body){
   if(typeof body?.id!=='string'||!/^[A-Za-z0-9_-]{8,64}$/.test(body.id))return Promise.resolve({status:400,body:{error:'Missing command id.'}});
   const key=session.key+':'+body.id,seen=commands.get(key);if(seen)return seen;
-  const urgent=['next','previous','goto','blank'].includes(body.action);
+  const urgent=['next','previous','goto','blank','word'].includes(body.action);
   if(queued>=MAX_QUEUE&&!urgent)return Promise.resolve({status:429,body:{error:'Too many commands at once. Wait a moment.'}});
   queued++;
   // A lookup finishes before the command joins the line, so a slow online Bible never holds up Next or Hide.
-  const started=Date.now();
+  const started=Date.now(),signedIn=generation,stillSignedIn=()=>generation===signedIn&&sessions.has(session.key);
   const run=prepare(body).then(ready=>{
    // The phone has given up by now, so a late verse must not appear on screen out of nowhere.
    if(Date.now()-started>LOOKUP_LIMIT_MS)return {status:504,body:{error:'That took too long, so nothing changed.'}};
-   queue=queue.then(()=>execute(body,ready)).catch(()=>({status:500,body:{error:'The command failed. Nothing changed.'}}));
+   // A phone signed out while its verse was loading has no say any more.
+   queue=queue.then(()=>execute(body,ready,stillSignedIn)).catch(()=>({status:500,body:{error:'The command failed. Nothing changed.'}}));
    return queue;
   }).catch(err=>({status:err.status||400,body:{error:err.message||'That did not work.'}})).then(result=>{
    queued--;
@@ -355,6 +366,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    const wait=limiter.blocked(ip);if(wait){send(res,429,{error:'Too many wrong passwords. Try again in '+Math.ceil(wait/60000)+' min.'},{'Retry-After':String(Math.ceil(wait/1000))});return;}
    if(checking>=2){send(res,429,{error:'Busy. Try again in a moment.'});return;}
    let body;try{body=await readBody(req);}catch(err){send(res,err.status,{error:err.message});return;}
+   // Checked again now the body has arrived: many slow requests can pass the check above together. Nothing awaits between
+   // this check and taking the slot, so at most two passwords are worked on at once.
+   const waited=limiter.blocked(ip);if(waited){send(res,429,{error:'Too many wrong passwords. Try again in '+Math.ceil(waited/60000)+' min.'},{'Retry-After':String(Math.ceil(waited/1000))});return;}
+   if(checking>=2){send(res,429,{error:'Busy. Try again in a moment.'});return;}
    const stored=config.password,started=generation;
    checking++;let ok=false;try{ok=!!stored&&await checkPassword(body?.password,stored);}catch{}finally{checking--;}
    if(!ok){limiter.fail(ip);send(res,401,{error:'Wrong password.'});return;}
@@ -474,7 +489,11 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  function liveChanged(live){
   if(!streams.size)return;
   const message='data: '+JSON.stringify(summary(live))+'\n\n';
-  for(const s of streams){if(streamValid(s))s.res.write(message);else endStream(s);}
+  for(const s of streams){
+   // A phone that stopped reading would make every screen pile up here. Closing it lets it reconnect to the latest screen.
+   if(s.res.writableLength>STREAM_UNREAD_BYTES){streams.delete(s);s.res.destroy();continue;}
+   if(streamValid(s))s.res.write(message);else endStream(s);
+  }
  }
  return {
   async start(){await loaded;await start();},

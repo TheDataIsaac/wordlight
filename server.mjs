@@ -15,6 +15,7 @@ import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
+import {createProjector} from './projector.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const port=Number(process.env.WORDLIGHT_PORT)||18765;
 const dataDir=process.env.WORDLIGHT_DATA_DIR||path.join(root,'.wordlight-data');
@@ -70,7 +71,7 @@ if(!bridge){bridge={code:newCode()};await saveBridge(bridge).catch(()=>{});}
 const sameCode=value=>{const a=Buffer.from(String(value||'')),b=Buffer.from(bridge.code);return a.length===b.length&&timingSafeEqual(a,b);};
 // Output pages that currently hold the live event stream open, by view. This counts connections to the
 // companion only; it cannot tell whether OBS or a TV is actually showing them.
-const viewers={output:0,lower:0,graphics:0,studio:0};
+const viewers={output:0,lower:0,graphics:0,studio:0,projector:0};
 const clients=new Set();
 let writes=Promise.resolve();
 // Before replacing session.json, keep a copy at most every 10 minutes in backups/ (newest 20 kept).
@@ -86,6 +87,8 @@ async function backup(){
 // Changes to the session (studio saves, sends from the web studio and the phone remote) run one at a time, so each
 // starts from the last saved state and a failed save can simply put the previous state back.
 let stateQueue=Promise.resolve();
+// The id of the last library save, so a tab whose answer was lost can tell that save was its own.
+let lastWriteId='';
 const inStateQueue=task=>{const run=stateQueue.then(task,task);stateQueue=run.catch(()=>{});return run;};
 function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});await backup().catch(()=>{});const tmp=path.join(dataDir,'session.tmp');await writeFile(tmp,json,'utf8');await retryBusy(()=>rename(tmp,path.join(dataDir,'session.json')));});return writes;}
 function json(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));}
@@ -571,12 +574,23 @@ async function handle(req,res){
   json(res,200,{ok:true});
   server.close();await remote.close();await remote.idle();await Promise.allSettled([stateQueue,writes,assetQueue,songQueue]);setTimeout(()=>process.exit(0),100);return;
  }
+ if(url.pathname.startsWith('/api/projector/')){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'Only the local studio can change the projector.'});return;}
+  if(req.method!=='POST'){json(res,405,{error:'Method not allowed.'});return;}
+  if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+  try{
+   if(url.pathname==='/api/projector/open'){json(res,200,viewers.projector?{ok:true,already:true}:await projector.open());return;}
+   if(url.pathname==='/api/projector/close'){json(res,200,await projector.close());return;}
+   if(url.pathname==='/api/projector/reload'){const message='data: '+JSON.stringify({reload:'projector'})+'\n\n';for(const client of clients)client.write(message);json(res,200,{ok:true,windows:viewers.projector});return;}
+   json(res,404,{error:'Not found'});return;
+  }catch(err){json(res,err.status||500,{error:err.status?err.message:'The projector could not be changed.'});return;}
+ }
  if(url.pathname==='/api/assets'||url.pathname.startsWith('/api/assets/')){await handleAssets(req,res,url);return;}
- if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,state);return;}
+ if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,{...state,writeId:lastWriteId});return;}
  if(req.method==='GET'&&url.pathname==='/api/events'){
-  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});res.write('data: '+JSON.stringify({live:state.live,settings:settings()})+'\n\n');clients.add(res);
-  const view=['output','lower','graphics'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'studio';viewers[view]++;
-  const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);clients.delete(res);viewers[view]--;});return;
+  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});res.write('data: '+JSON.stringify({live:state.live,settings:settings(),build:APP_BUILD,...(saveProblem?{saveProblem:true}:{})})+'\n\n');clients.add(res);
+  const view=['output','lower','graphics'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'studio',isProjector=view==='output'&&url.searchParams.has('projector');viewers[view]++;if(isProjector)viewers.projector++;
+  const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);clients.delete(res);viewers[view]--;if(isProjector)viewers.projector--;});return;
  }
  if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}
  if(url.pathname==='/api/settings'&&req.method==='POST'){
@@ -606,14 +620,14 @@ async function handle(req,res){
     else if(update.draft){nextDraft=cleanDraft(update.draft);nextLibrary=cleanLibrary(state.library);activeShow(nextLibrary).draft=nextDraft;}
     if(update.live){if(!validLive(update.live))throw new Error('Invalid live slide data.');nextLive={...update.live,graphics:cleanGraphics(update.live.graphics)};}
     else nextLive=wordsOnLive(state.live,state.library,nextLibrary);
-    const previous=state;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};
+    const previous=state,previousWrite=lastWriteId;state={app:'wordlight',library:nextLibrary,draft:nextDraft,live:nextLive};if(update.library)lastWriteId=String(update.writeId||'').slice(0,64);
     // A screen change goes out first: a locked or full disk must never stop the projector. Shows are saved first,
     // because a library that could not be written must not be reported as saved.
     if(update.live&&!update.library&&!update.draft){broadcast();answer={ok:true,saveFailed:!await keepScreen()};return;}
-    try{await persist();}catch(err){state=previous;throw new Error('Your session could not be saved to disk.');}
+    try{await persist();}catch(err){state=previous;lastWriteId=previousWrite;throw new Error('Your session could not be saved to disk.');}
     if(nextLive!==previous.live)broadcast();
    });
-   if(answer.stale){json(res,409,{error:'Another tab saved newer changes.',stale:true,savedAt:Number(state.library?.savedAt||0)});return;}
+   if(answer.stale){json(res,409,{error:'Another tab saved newer changes.',stale:true,savedAt:Number(state.library?.savedAt||0),writeId:lastWriteId});return;}
    json(res,200,answer);return;
   }catch(err){json(res,400,{error:err.message||'Invalid session.'});return;}
  }
@@ -644,6 +658,7 @@ function saveNewest(){
 // A slide is answered once it is safely on disk. While saves are known to be failing, nothing waits for them, so a
 // locked or full disk never holds up the next slide.
 const keepScreen=()=>{const saved=saveNewest();return saveProblem?true:Promise.race([saved,new Promise(resolve=>setTimeout(resolve,SAVE_WAIT_MS,true))]);};
+const projector=createProjector({url:'http://127.0.0.1:'+port+'/?view=output&projector=1',dataDir});
 const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible}),findSongs,readSong,settings:{get:settings,change:changeSettings}});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});

@@ -46,7 +46,7 @@ for(const [id,info] of Object.entries(CATALOG)){
 }
 files[top+'bibles/BIBLES.txt']=Buffer.from('Bible text packs installed on first start (only for versions not installed yet).\r\nEach archive is the unchanged official download from eBible.org and contains its own copyright notice.\r\n\r\n'+seedLines.join('\r\n\r\n')+'\r\n');
 const add=async(source,target)=>{files[top+target]=await readFile(path.join(repo,source));};
-for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','song-search.mjs'])await add(name,'app/'+name);
+for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs'])await add(name,'app/'+name);
 for(const name of (await readdir(path.join(repo,'dist'))).filter(n=>/\.(html|css|js|mjs)$/.test(n)).sort())await add('dist/'+name,'app/dist/'+name);
 await add('tools/portable/launcher.mjs','launcher/launcher.mjs');
 for(const name of ['Start Wordlight.vbs','Stop Wordlight.vbs','Start with Windows.vbs'])await add('tools/portable/'+name,name);

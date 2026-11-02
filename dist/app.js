@@ -54,7 +54,7 @@ const autoName=name=>/^(Scene|Item) \d+$/.test(name);
 let liveView='full';try{const saved=localStorage.getItem('wordlight-live-view');if(saved==='lower'||saved==='graphics')liveView=saved;}catch{}
 let tab='slides',isLocal=false,localReachable=false,saveTimer,toastTimer,dictionary=[],lookupId=0,wordLookupId=0;
 // view=output is the full-screen output, view=lower the transparent lower third. Both follow the same live state.
-const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics;
+const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector');
 let channel;try{channel=new BroadcastChannel('wordlight-screen-v1');channel.onmessage=ev=>receive(ev.data);}catch{}
 function toast(text){if(!text)return;const dialog=document.querySelector('dialog[open]');if(dialog){let feedback=dialog.querySelector('.dialog-feedback');if(!feedback){feedback=document.createElement('p');feedback.className='dialog-feedback';feedback.setAttribute('role','status');dialog.append(feedback);}feedback.textContent=text;}$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3500);}
 function remember(){
@@ -87,6 +87,7 @@ async function publish(next,base){
   let answer;
   try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide.');return false;}
   if(answer.superseded){toast('The screen just changed. Check it and press again.');reconcileWithCompanion();return false;}
+  if(answer.saveFailed)showSaveProblem(true);
  }
  // The live stream may already have delivered something newer, such as a phone tap made in the same moment.
  if(Number(next.updated)>=Number(live.updated||0)){live=next;cacheLive();channel?.postMessage({type:'live',live});}
@@ -169,7 +170,7 @@ function renderPassage(){
 function updateStats(){const el=$('#passageStats');if(el)el.textContent=(draft.passage.trim().match(/\S+/g)||[]).length+' words · '+deckFor(draft).filter(s=>s.type==='passage').length+' passage slides';}
 function renderWords(){
  const n=getNote();
- $('#panel').innerHTML='<h3 class="section-title">Words</h3><div class="word-picker" id="wordPicker"></div><div class="lookup-row">'+input('wordInput','','placeholder="A word or phrase..." maxlength="200" aria-label="Word or phrase to study"')+'<button class="button" data-action="add-word" aria-label="Add word study">'+icon('plus')+'</button></div><div class="note-chips" id="noteChips">'+wordChips()+'</div>'+
+ $('#panel').innerHTML='<h3 class="section-title">Words</h3><div id="liveWords"></div><div class="word-picker" id="wordPicker"></div><div class="lookup-row">'+input('wordInput','','placeholder="A word or phrase..." maxlength="200" aria-label="Word or phrase to study"')+'<button class="button" data-action="add-word" aria-label="Add word study">'+icon('plus')+'</button></div><div class="note-chips" id="noteChips">'+wordChips()+'</div>'+
  (n?'<div class="field-row"><div>'+label('Selected word / phrase','noteWord')+input('noteWord',n.word,'maxlength="200"')+'</div><div>'+label('Occurrences in passage','occurrenceCount')+'<div class="input" id="occurrenceCount">'+occurrences(getStudyText(),n.word)+'</div></div></div>'+wordColorControls(n)+label('Your explanation in this passage','noteMeaning')+'<textarea id="noteMeaning" rows="4" maxlength="30000" placeholder="What does this word mean here?">'+e(n.meaning)+'</textarea><div class="field-row"><div>'+label('Greek / Hebrew (optional)','noteOriginal')+input('noteOriginal',n.original,'maxlength="200" dir="auto"')+'</div><div>'+label('Transliteration (optional)','noteTransliteration')+input('noteTransliteration',n.transliteration,'maxlength="200"')+'</div></div>'+label('Strong’s number (optional)','noteStrong')+input('noteStrong',n.strong,'placeholder="e.g. G3056 or H2617" maxlength="20"')+label('Study source / link (optional)','noteSource')+input('noteSource',n.source,'maxlength="1000"')+''+tip('Your explanation appears beside the passage. Study sources stay in your notes.')+'<button class="inline-link" data-action="delete-note">Remove this word study</button>':'<div class="subtle-card"><p class="hint">Pick your first word to add an explanation and make a word-study slide.</p></div>')+
  '<div class="setup-panel"><h3>Greek & Hebrew dictionary</h3><p>Search a Strong’s number, original word, or English term. Results are possible matches, not a verse-specific analysis.</p><div class="lookup-row">'+input('dictionaryQuery',n?.strong||n?.word||'','placeholder="e.g. G3056, λόγος, love" maxlength="100" aria-label="Dictionary search"')+'<button class="button" id="dictionaryButton" data-action="dictionary" aria-label="Search dictionary">'+icon('search')+'</button></div><div id="dictionaryResults" class="results-area"></div><p class="small-note">BDB / Thayer via <a href="https://bolls.life/" target="_blank" rel="noopener">Bolls Bible</a>. Check the original word against your verse before using an entry.</p></div>';
  const studyText=getStudyText();const picker=$('#wordPicker');let cursor=0;const tokens=/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu;
@@ -179,6 +180,7 @@ function renderWords(){
   const lower=m[0].toLowerCase(),b=document.createElement('button');b.className='word-token'+(selectedWord===lower?' selected':'');b.textContent=m[0];b.dataset.word=m[0];const hl=scopedHighlights.get(lower);if(hl){b.classList.add('highlighted');applyTokenStyle(b,hl);}words.append(b);cursor=m.index+m[0].length;
   if(cursor>18000){words.append(document.createTextNode(' … More text is available in the Passage tab. Type any word above to study it.'));break;}
  }if(cursor<=18000)words.append(document.createTextNode(studyText.slice(cursor)));picker.append(words);
+ paintLiveWords();
  $('#wordInput').addEventListener('keydown',ev=>{if(ev.key==='Enter')addWord($('#wordInput').value);});
  $('#dictionaryQuery').addEventListener('keydown',ev=>{if(ev.key==='Enter')searchDictionary();});
  if(n){for(const [id,key] of [['wordBold','bold'],['wordItalic','italic']])$('#'+id).addEventListener('change',ev=>{n[key]=ev.target.checked;remember();renderPreview();renderDeck();refreshWordChips();});$('#wordEmphasis').addEventListener('change',ev=>{n.emphasis=safeEmphasis(ev.target.value);remember();renderPreview();renderDeck();refreshWordChips();});$('#wordColor').addEventListener('input',ev=>setWordColor(ev.target.value));$('#wordColorHex').addEventListener('input',ev=>{const color=safeColor(ev.target.value);if(color)setWordColor(color);else $('#wordColorStatus').textContent='Use a 6-digit color, like #8fcde8.';});$('#wordColorHex').addEventListener('change',ev=>{if(!safeColor(ev.target.value))ev.target.value=getHighlights(draft).find(h=>h.word===n.word.trim()&&(h.slideId||'')===(n.slideId||''))?.color||THEMES[draft.theme].accent;});}
@@ -187,11 +189,26 @@ function renderWords(){
  }
  if(activeTextSlide()){$('.section-title').textContent='Style the words.';for(const id of ['noteMeaning','noteStrong','noteSource']){const el=$('#'+id);if(el)el.hidden=true;const lab=$('label[for='+id+']');if(lab)lab.hidden=true;}$('#noteOriginal')?.closest('.field-row')?.setAttribute('hidden','');$('#panel .setup-panel')?.setAttribute('hidden','');const remove=$('[data-action=delete-note]');if(remove)remove.textContent='Remove this formatting';const explanation=$('#noteSource')?.nextElementSibling;if(explanation)explanation.textContent='Formatting applies only to this slide.';}
 }
-function addWord(word){
+// A verse sent from the phone is on screen but not in this item, so its words are offered here to click.
+function paintLiveWords(){
+ const box=$('#liveWords');if(!box)return;
+ const slide=live.bibleVersion&&!live.blank?live.slides[live.index]:null;box.replaceChildren();if(!slide?.text)return;
+ const heading=document.createElement('p'),words=document.createElement('div'),lit=new Set((live.style.highlights||[]).map(h=>h.word.toLowerCase()));
+ heading.className='small-note';heading.textContent='On screen now · '+(slide.reference||live.showTitle||'')+'. Click a word to light it up.';words.className='word-picker';
+ let cursor=0;
+ for(const m of slide.text.matchAll(/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu)){
+  words.append(document.createTextNode(slide.text.slice(cursor,m.index)));
+  const b=document.createElement('button');b.className='word-token'+(lit.has(m[0].toLowerCase())?' highlighted':'');b.textContent=m[0];b.dataset.liveWord=m[0];words.append(b);cursor=m.index+m[0].length;
+ }
+ words.append(document.createTextNode(slide.text.slice(cursor)));box.append(heading,words);
+}
+// onAir: a word clicked on the verse showing now applies to the whole item, so it reaches the screen.
+function addWord(word,onAir=false){
  word=word.trim();if(!word)return toast('Type a word or phrase first.');
- const scope=activeTextSlide()?.id||'';let n=draft.notes.find(n=>n.word.toLowerCase()===word.toLowerCase()&&(n.slideId||'')===scope);
+ const onVerse=onAir||(live.bibleVersion&&occurrences(live.slides[live.index]?.text||'',word)>0);
+ const scope=onVerse?'':activeTextSlide()?.id||'';let n=draft.notes.find(n=>n.word.toLowerCase()===word.toLowerCase()&&(n.slideId||'')===scope);
  if(!n){n={id:crypto.randomUUID(),word,original:'',transliteration:'',strong:'',meaning:'',source:'',color:nextHighlightColor(draft),emphasis:'highlight',slideId:scope};draft.notes.push(n);}
- draft.selectedNoteId=n.id;const passageSlide=deckFor(draft).find(s=>s.type==='passage'&&occurrences(s.text,n.word));if(!activeTextSlide())draft.previewId=passageSlide?.id||'passage-0';tab='words';remember();render();
+ draft.selectedNoteId=n.id;const passageSlide=deckFor(draft).find(s=>s.type==='passage'&&occurrences(s.text,n.word));if(!activeTextSlide()&&!onVerse)draft.previewId=passageSlide?.id||'passage-0';tab='words';remember();render();
 }
 // Highlights for the words in the current scope (the selected text slide, or the passage), by lowercase word.
 // The first matching entry wins, as the old per-word find() did.
@@ -360,7 +377,7 @@ function renderLive(){
  el.innerHTML='<div class="live-bar"><div class="live-dot"></div><div class="live-copy"><strong>'+e([live.showTitle,live.sceneName,text].filter(Boolean).join(' · '))+'</strong><br>'+(isLocal?'OBS & presentation output':companion.state==='connected'?'Presentation window and OBS companion':'Presentation window only · OBS not connected')+' · '+(live.blank?'Send a slide when you’re ready':(live.index+1)+' of '+live.slides.length)+'</div><div class="live-controls"><button class="icon-button" data-action="live-prev" aria-label="Previous live slide" '+(live.index<=0?'disabled':'')+'>'+icon('left')+'</button><button class="icon-button" data-action="live-next" aria-label="Next live slide" '+(live.index>=live.slides.length-1?'disabled':'')+'>'+icon('chevron')+'</button>'+'</div></div>';
 }
 function renderOutput(){
- document.body.classList.add('output-body');if(new URLSearchParams(location.search).has('obs'))document.body.classList.add('obs');
+ document.body.classList.add('output-body');if(new URLSearchParams(location.search).has('obs'))document.body.classList.add('obs');if(isProjector)document.body.classList.add('projector');
  // The lower third keeps the page, wrapper and canvas transparent so the video underneath stays visible.
  if(isLower||isGraphics){document.documentElement.classList.add('lower-page');document.body.classList.add('lower-body');}
  document.title=isGraphics?'Wordlight | Graphics':isLower?'Wordlight | Lower third':'Wordlight | Presentation';
@@ -600,7 +617,7 @@ async function getBibleData(path){
 async function stepVerse(delta){
  verseSteps+=delta;if(verseStepping)return;
  verseStepping=true;renderVerseNavigation();
- const start=activeShow(library),showId=start.id,sceneId=start.activeSceneId,intent=verseIntent;
+ const start=activeShow(library),showId=start.id,sceneId=start.activeSceneId,intent=verseIntent,screenBase=live.updated;
  let ok=true,moved=false,expected=null;
  const same=()=>{const s=activeShow(library);return s.id===showId&&s.activeSceneId===sceneId&&intent===verseIntent&&(!expected||(draft.previewId===expected.preview&&draft.reference===expected.reference));};
  try{
@@ -612,7 +629,8 @@ async function stepVerse(delta){
  }finally{verseSteps=0;verseStepping=false;renderVerseNavigation();}
  if(!ok||!moved||!same())return;
  const slide=deckFor(draft).find(s=>s.id===draft.previewId);
- const sent=await publish({...currentSnapshot(),blank:live.blank});if(sent)toast(sentMessage(slide?.reference||'Verse',sent));
+ // Sent from the screen as it stood when the step began: if the phone or another tab changed it, the verse stays in preview.
+ const sent=await publish({...currentSnapshot(),blank:live.blank},screenBase);if(sent)toast(sentMessage(slide?.reference||'Verse',sent));
 }
 async function lookupPassage(delta=0,options={}){
  // A manual lookup replaces any verse steps still loading.
@@ -666,8 +684,13 @@ async function lookupPassage(delta=0,options={}){
   rememberRecent(localStorage,reference,tr);
   remember();render();if(fellBack)toast('The companion is not reachable, so '+tr.toUpperCase()+' was looked up online.');else if(!options.quiet)toast(reference+' loaded in preview. Send to screen when ready.');
   return true;
- }catch(err){if(request===lookupId&&showId===library.activeShowId){const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}toast(err.message);}}
+ }catch(err){if(request===lookupId&&showId===library.activeShowId){const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';offerInstalledBibles(el,tr);}toast(err.message);}}
  finally{if(request===lookupId){lookupBusy=false;renderVerseNavigation();}}
+}
+// An online version can fail mid-service. Another version is never used on its own; the operator gets one click to choose it.
+function offerInstalledBibles(el,tr){
+ if(installedBible(tr))return;
+ for(const b of (installedBibles||[]).filter(x=>x.installed).slice(0,3)){const use=document.createElement('button');use.className='button';use.dataset.action='lookup-with';use.dataset.version=b.id;use.textContent='Use '+b.abbreviation;el.append(' ',use);}
 }
 function adaptedCredit(credit){return !credit.includes('CC BY-SA')||credit.startsWith('Adapted')?credit:'Adapted Yoruba text. Original work © 2009, 2017 Biblica, Inc., available at open.bible. Changes by the presenter · CC BY-SA 4.0';}
 function stripHTML(html){return new DOMParser().parseFromString(String(html), 'text/html').body.textContent.trim();}
@@ -689,6 +712,7 @@ function useEntry(index){
 let presentationRefreshing=false;
 async function refreshPresentation(){
  if(presentationRefreshing)return;
+ if(isLocal&&companion.viewers?.projector){try{await projectorRequest('reload');toast('Projector window reloaded.');}catch(err){toast(err.message);}return;}
  // Obtain the existing named window during the click so popup blockers can be reported.
  const w=window.open('','wordlight-presentation','popup,width=1280,height=720');
  if(!w)return toast('Allow pop-ups for Wordlight, then click Refresh presentation again.');
@@ -711,7 +735,20 @@ async function refreshPresentation(){
   if(current){current.disabled=false;current.textContent='Refresh presentation';}
  }
 }
-function present(){const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');if(!w)toast('Allow pop-ups for this site to open the presentation window.');else toast('Presentation window opened. Use Send to screen when you’re ready.');}
+async function projectorRequest(action){
+ const r=await fetch('/api/projector/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
+ const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'The projector could not be changed.');return data;
+}
+// The local studio fills the projector by itself. A web studio, or a laptop with no second screen, opens a normal window.
+async function present(){
+ let problem='';
+ if(isLocal){
+  try{const done=await projectorRequest('open');toast(done.already?'The projector window is already open.':'Opening full screen on the projector. Use Send to screen when you’re ready.');setTimeout(refreshCompanion,2500);return;}
+  catch(err){problem=err.message+' ';}
+ }
+ const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');
+ if(!w)toast(problem+'Allow pop-ups for this site to open the presentation window.');else toast(problem+'Presentation window opened. Use Send to screen when you’re ready.');
+}
 // The same list in the projection guide and in Settings, so there is one place to look.
 const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Alt+Enter anywhere','Send it to the screen.'],['Ctrl+Enter in song search, or +','Keep the song in this show for later.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
 function keysTable(){return '<table class="keys-table">'+KEYS.map(([keys,what])=>'<tr><td>'+e(keys)+'</td><td>'+e(what)+'</td></tr>').join('')+'</table>';}
@@ -721,7 +758,7 @@ function showHelp(){
  const ndi='<details class="setup-panel"><summary><h3>NDI</h3></summary><p>Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser sources in one scene that stays rendered (for example a projector of a “Wordlight NDI Engine” scene) and give each source its own Dedicated NDI output filter, such as “Wordlight Full Screen” and “Wordlight Lower Third”. Keep that projector open and OBS not minimised: a source that is not being rendered can send stale frames. The lower third keeps its transparency. Check each feed on the receiving computer.</p></details>';
  const keys='<details class="setup-panel"><summary><h3>Keys</h3></summary>'+keysTable()+'</details>';
  $('#helpContent').innerHTML=isLocal?
-  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>TV</h3>'+button('Open presentation window','present','screen')+' '+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
+  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>Projector or TV</h3><p class="small-note">With the projector connected and set to Extend (Windows+P), Present fills it with nothing else on screen. Press F5 here if you ever need to refresh it, or use Refresh presentation.</p>'+button('Present on projector','present','screen')+' '+(isLocal?button('Close projector window','projector-close')+' ':'')+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
   '<div class="setup-panel"><h3>Local companion</h3><p>OBS reads the outputs from the Wordlight companion on this computer. Start it (Start Wordlight.cmd), open its studio at '+e(COMPANION_URL)+', copy the code from OBS &amp; screens there, and enter it here. The browser may ask to allow access to devices on your local network; allow it.</p><div class="lookup-row">'+input('pairingInput',pairing?.code||'','placeholder="ABCD-EFGH-JKLM" maxlength="14" spellcheck="false" aria-label="Pairing code"')+button(pairing?'Reconnect':'Connect','companion-pair','','primary')+'</div><p id="pairingState" class="small-note"></p>'+(pairing?button('Disconnect','companion-forget'):'')+' <a class="button" href="wordlight-obs-companion.zip" download>'+icon('download')+'Download companion</a></div>'+urls+ndi+keys+'<div class="setup-panel"><h3>TV</h3>'+button('Open presentation window','present','screen')+'</div>';
  $('#helpDialog').showModal();refreshCompanion();
 }
@@ -791,6 +828,7 @@ document.addEventListener('click',async ev=>{
  const t=ev.target.closest('button,a');if(!t)return;
  if(t.dataset.tab){tab=t.dataset.tab;render();return;}
  if(t.dataset.word){addWord(t.dataset.word);return;}
+ if(t.dataset.liveWord){addWord(t.dataset.liveWord,true);return;}
  if(t.dataset.note){draft.selectedNoteId=t.dataset.note;if(!draft.previewId.startsWith('passage-')&&!activeTextSlide())draft.previewId='study-'+t.dataset.note+'-0';remember();render();return;}
  if(t.dataset.wordColor){setWordColor(t.dataset.wordColor);renderWords();return;}
  if(t.dataset.theme){draft.theme=t.dataset.theme;draft.accent='';remember();render();return;}
@@ -832,12 +870,14 @@ document.addEventListener('click',async ev=>{
  else if(a==='send'){const next=currentSnapshot(),sent=await publish(next);if(sent)toast(sentMessage('Your preview',sent));}
  else if(a==='present')present();
  else if(a==='refresh-presentation')refreshPresentation();
+ else if(a==='projector-close'){try{await projectorRequest('close');toast('Projector window closed.');setTimeout(refreshCompanion,1000);}catch(err){toast(err.message);}}
  else if(a==='help')showHelp();
  else if(a==='close-help')$('#helpDialog').close();
  else if(a==='copy-url')copyURL();
  else if(a==='export')exportSession();
  else if(a==='import')chooseFile($('#importFile'));
  else if(a==='lookup')lookupPassage();
+ else if(a==='lookup-with'){setTranslationSelect(t.dataset.version);lookupPassage();}
  else if(a==='dictionary')searchDictionary();
  else if(a==='add-word')addWord($('#wordInput').value);
  else if(a==='reset-word-color'){setWordColor('');renderWords();}
@@ -1124,28 +1164,58 @@ let saveRevision=0,savedRevision=0,saveInFlight=false,events=null,connectTry=0;
 const unsaved=()=>saveRevision!==savedRevision;
 // The library save this tab last knew the companion had. Sent with each save so a stale tab is refused.
 let serverSavedAt=0;
+// Saves sent since the last one the companion confirmed, by id. Any of them may have arrived with only its answer lost.
+const sentSaves=new Map();
+// The last library both sides agreed on, kept across reloads: its time, and when each of its shows last changed. A show
+// that differs from this was changed in this tab. Times alone can't say that: a later edit may lack newer work.
+const ACKED_KEY='wordlight-library-acked',showStamps=lib=>Object.fromEntries(lib.shows.map(s=>[s.id,Number(s.updated)||0]));
+let acked=null;try{acked=JSON.parse(localStorage.getItem(ACKED_KEY));}catch{}
+function confirmSave(savedAt,shows){
+ serverSavedAt=Number(savedAt);sentSaves.clear();acked={savedAt:serverSavedAt,shows};
+ try{localStorage.setItem(ACKED_KEY,JSON.stringify(acked));}catch{}
+}
 async function flushLocalSave(){
  if(!isLocal||!unsaved()||saveInFlight)return;
  const revision=saveRevision;saveInFlight=true;let retryLater=true;
- const savedAt=library.savedAt;
- try{await apiWrite({library,baseSavedAt:serverSavedAt});serverSavedAt=savedAt;savedRevision=Math.max(savedRevision,revision);localReachable=true;setSaveStatus(unsaved()?'Saving…':'Saved on this computer');}
+ const savedAt=library.savedAt,shows=showStamps(library),writeId=crypto.randomUUID();sentSaves.set(writeId,{savedAt,shows});
+ try{await apiWrite({library,baseSavedAt:serverSavedAt,writeId});confirmSave(savedAt,shows);savedRevision=Math.max(savedRevision,revision);localReachable=true;setSaveStatus(unsaved()?'Saving…':'Saved on this computer');}
  catch(err){
-  // Another tab saved first. This tab takes the newer shows instead of wiping them.
-  // Unless the companion already holds this very save and only its answer was lost, in which case carry on.
-  if(err.status===409&&Number(err.detail?.savedAt)===Number(savedAt)){serverSavedAt=savedAt;savedRevision=Math.max(savedRevision,revision);setSaveStatus('Saved on this computer');return;}
+  // The companion holds a save from this tab and only the answer was lost. Carry on; a newer edit is sent next.
+  const arrived=err.status===409?sentSaves.get(err.detail?.writeId):null;
+  if(arrived){confirmSave(arrived.savedAt,arrived.shows);if(arrived.savedAt===savedAt)savedRevision=Math.max(savedRevision,revision);localReachable=true;setSaveStatus(unsaved()?'Saving…':'Saved on this computer');return;}
+  // Another tab saved first. This tab takes the newer shows instead of wiping them, and keeps its own edits as copies.
   if(err.status===409){saveInFlight=false;await adoptServerLibrary();return;}
   localReachable=false;retryLater=err.status!==413;setSaveStatus('Not saved to this computer yet · kept in this browser');}
  // A failed save is tried again every 5 s while changes are still unsaved, even if the live stream stays connected,
  // but not when the companion refused the library as too large (sending it again would only be refused again).
  finally{saveInFlight=false;if(unsaved()&&(localReachable||retryLater)){clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,localReachable?450:5000);}}
 }
+// What a show holds, without when it was saved.
+const showContent=show=>JSON.stringify([show.draft,show.scenes,show.activeSceneId]);
+// Shows changed in this tab since the last agreed library. They become copies, so nothing typed is ever thrown away. A
+// show the other side deleted, and this tab never touched, stays deleted. With no agreed library yet, only the words
+// themselves can show a change: times can't, because an edit on an older copy can carry an older time.
+function losingShows(mine,theirs){
+ return mine.shows.filter(show=>{
+  const other=theirs.shows.find(s=>s.id===show.id);
+  if(!acked)return !other||showContent(show)!==showContent(other);
+  const was=acked.shows[show.id];
+  return was===undefined?!other:Number(show.updated)!==was;
+ });
+}
+const COPY_NAME=' (copy from this tab)';
 async function adoptServerLibrary(){
  try{
   const s=await (await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)})).json();
-  library=cleanLibrary(s.library,s.draft);draft=activeShow(library).draft;serverSavedAt=Number(library.savedAt||0);savedRevision=saveRevision;summaryCache=new WeakMap();songState.peekEntryId='';
+  const copyName=title=>title.endsWith(COPY_NAME)?title:title.slice(0,80)+COPY_NAME;
+  const mine=library,next=cleanLibrary(s.library,s.draft),agreed=showStamps(next),copies=losingShows(mine,next).map(show=>copyShow(show,copyName(show.draft.title))).slice(0,Math.max(0,MAX_SHOWS-next.shows.length));
+  // Only the companion's own library is agreed. The copies are not on disk until a save says so, so a second conflict
+  // keeps them too.
+  confirmSave(next.savedAt||0,agreed);next.shows.push(...copies);library=next;draft=activeShow(library).draft;savedRevision=saveRevision;summaryCache=new WeakMap();songState.peekEntryId='';
+  if(copies.length){library.savedAt=Math.max(Date.now(),Number(library.savedAt||0)+1);saveRevision++;clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,450);}
   try{saveLibrary(localStorage,library);}catch{}
-  setSaveStatus('Saved on this computer · loaded newer changes');render();
-  toast('Another Wordlight tab saved newer changes, so this tab has loaded them. The last change made here was not kept. Keep one tab open.');
+  setSaveStatus(copies.length?'Saving…':'Saved on this computer · loaded newer changes');render();
+  toast(copies.length?'Another Wordlight tab saved newer changes. Your changes are kept as “'+copies[0].draft.title+'”. Keep one tab open.':'Another Wordlight tab saved newer changes, so this tab has loaded them. Keep one tab open.');
  }catch{setSaveStatus('Reconnecting to local app…');}
 }
 // afterOutage: the companion restarted or the link came back, so a newer browser copy is the one to keep and save.
@@ -1153,11 +1223,15 @@ async function reconcileWithCompanion(afterOutage=false){
  try{
   const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)});if(!r.ok)throw new Error();const s=await r.json();
   if(!isOutput&&(s.library||s.draft)){
-   const serverLibrary=cleanLibrary(s.library,s.draft),chosen=chooseLocalLibrary(library,serverLibrary);
+   const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(serverLibrary.savedAt||0),arrived=sentSaves.get(s.writeId);
+   // A save from this tab arrived and only its answer was lost.
+   if(arrived){confirmSave(arrived.savedAt,arrived.shows);if(arrived.savedAt===library.savedAt)savedRevision=saveRevision;}
    // Same save on both sides: nothing to redraw, so the operator's cursor stays where it is.
-   if(Number(serverLibrary.savedAt)===Number(library.savedAt)&&!unsaved())setSaveStatus('Saved on this computer');
-   else if(chosen===library){if(afterOutage){serverSavedAt=Number(serverLibrary.savedAt||0);saveRevision++;}if(unsaved())await flushLocalSave();else setSaveStatus('Saved on this computer');}
-   else{library=serverLibrary;draft=activeShow(library).draft;serverSavedAt=Number(library.savedAt||0);savedRevision=saveRevision;try{saveLibrary(localStorage,library);}catch{}setSaveStatus('Saved on this computer · loaded newer changes');render();}
+   if(server===Number(library.savedAt)&&!unsaved())setSaveStatus('Saved on this computer');
+   // Another writer moved the companion on. Edits waiting here become copies; with none, this tab just follows.
+   else if(server>serverSavedAt){if(unsaved())await adoptServerLibrary();else{library=serverLibrary;draft=activeShow(library).draft;confirmSave(server,showStamps(library));savedRevision=saveRevision;try{saveLibrary(localStorage,library);}catch{}setSaveStatus('Saved on this computer · loaded newer changes');render();}}
+   // The companion is level or went back, for example after a restart from an older save. This tab's copy is the one to keep.
+   else{if(server<serverSavedAt)serverSavedAt=server;if(afterOutage&&server<Number(library.savedAt))saveRevision++;if(unsaved())await flushLocalSave();else setSaveStatus('Saved on this computer');}
   }
   if(validLive(s.live)){live=s.live;cacheLive();if(isOutput)renderOutput();else{renderLive();renderDeck();}}
  }catch{setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');}
@@ -1167,11 +1241,20 @@ async function connectLocal(){
  try{
   const r=await fetch('/api/state',{signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error('not ready');const s=await r.json();if(s.app!=='wordlight')return;
   connectTry=0;isLocal=true;localReachable=true;showAppInfo();
-  if(!isOutput&&(s.library||s.draft)){const serverLibrary=cleanLibrary(s.library,s.draft);serverSavedAt=Number(s.library?.savedAt||0);const chosen=chooseLocalLibrary(library,serverLibrary);const browserWasNewer=chosen===library;library=chosen;draft=activeShow(library).draft;libraryError='';try{saveLibrary(localStorage,library);}catch{}if(browserWasNewer){saveRevision++;setSaveStatus('Saving…');flushLocalSave();}else setSaveStatus('Saved on this computer');}
+  if(!isOutput&&(s.library||s.draft)){
+   const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(s.library?.savedAt||0),hasCopy=!libraryError&&Number(library.savedAt)>0,knownBase=!!acked;
+   // Edits this tab made that the companion never confirmed, and whether it moved on without them.
+   const edited=hasCopy&&(knownBase?Number(library.savedAt)!==acked.savedAt:losingShows(library,serverLibrary).length>0);
+   const companionBehind=hasCopy&&(!server||(knownBase&&server<acked.savedAt)),companionMoved=!knownBase||server>acked.savedAt;
+   serverSavedAt=server;libraryError='';
+   if(companionBehind||(edited&&!companionMoved)){draft=activeShow(library).draft;try{saveLibrary(localStorage,library);}catch{}saveRevision++;setSaveStatus('Saving…');flushLocalSave();}
+   else if(edited)await adoptServerLibrary();
+   else{library=serverLibrary;draft=activeShow(library).draft;confirmSave(server,showStamps(library));try{saveLibrary(localStorage,library);}catch{}setSaveStatus('Saved on this computer');}
+  }
   if(validLive(s.live)){live=s.live;cacheLive();}render();
   if(!isOutput&&!installedBibles)refreshInstalledBibles();
   if(events)events.close();
-  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output'):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings&&!isOutput)receiveSettings(data.settings);if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
+  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output')+(isProjector?'&projector=1':''):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings&&!isOutput)receiveSettings(data.settings);if(data.build)followBuild(data.build);if(data.reload==='projector'&&isProjector)reloadOutputWhenReady();if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();paintLiveWords();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
   // The first open follows the startup load; later opens are reconnects, which reconcile and retry saves.
   let opened=false;events.onopen=()=>{localReachable=true;if(opened)reconcileWithCompanion(true);opened=true;};
  }catch{
@@ -1183,6 +1266,17 @@ async function connectLocal(){
  }
 }
 connectLocal();
+// After an update, pages still open run the old code. Output pages load the new code themselves. The studio is only told,
+// because it may be in the middle of an edit.
+let buildSeen='';
+function followBuild(build){
+ if(buildSeen&&build!==buildSeen){if(isOutput)reloadOutputWhenReady();else toast('Wordlight was updated. Press F5 when you have a moment.');}
+ buildSeen=build;
+}
+// The slide on screen stays unless the new page and code really answer, so a failed reload never loses the picture.
+async function reloadOutputWhenReady(){
+ try{await freshPresentationFiles(location.href);location.reload();}catch{}
+}
 
 // Deck selection, bulk bar, double-click send and scenes.
 function toggleDeckSelection(slideId){
@@ -1615,6 +1709,12 @@ function captureTools(){
 }
 function captureButtons(sections){return sections.map((s,i)=>'<button class="button" data-action="song-capture-again" data-capture-index="'+i+'" title="Send this line again"><b>'+(i+1)+'</b> '+e(s.slides[0].split('\n')[0].slice(0,40))+'</button>').join('')+(sections.length?button('Finish song','song-capture-finish'):'');}
 function capturedEntry(){return (draft.songs||[]).find(x=>x.entryId===capture.entryId);}
+// The operator may have moved on while a save was running, and a copied item keeps the same entry id, so a song is found
+// by the exact show and item it came from.
+function findSongEntry({showId,sceneId,entryId}){
+ const show=library.shows.find(s=>s.id===showId);
+ return (show&&sceneDraft(show,sceneId))?.songs?.find(x=>x.entryId===entryId)||null;
+}
 function capturedSong(){return capturedEntry()?.song;}
 function paintCapture(){const el=$('#captureLines');if(el)el.innerHTML=captureButtons(capturedSong()?.sections||[]);}
 function bindCaptureTools(){
@@ -1642,7 +1742,8 @@ async function captureSend(text){
   draft.previewId=deckFor(draft).find(x=>x.song?.entryId===capture.entryId&&x.song.position===line)?.id||draft.previewId;
   remember();
   if(entry){renderPreview();renderDeck();paintCapture();}else{render();$('#captureLine')?.focus();}
-  await publish(currentSnapshot());saveCapture();
+  const where={showId:show.id,sceneId:show.activeSceneId,entryId:capture.entryId};
+  await publish(currentSnapshot());saveCapture(where);
  }catch(err){toast(err.message);}
 }
 async function captureAgain(index){
@@ -1650,13 +1751,13 @@ async function captureAgain(index){
  draft.previewId=slide.id;remember();renderPreview();renderDeck();await publish(currentSnapshot());
 }
 // The song is safe in the show at once. The library copy follows, one save at a time, and the first save gives it its id.
-function saveCapture(){
+function saveCapture(where){
  capture.saving=capture.saving.then(async()=>{
-  const entry=capturedEntry();if(!entry||!companionReady())return;
+  const entry=findSongEntry(where);if(!entry||!companionReady())return;
   const song=entry.song,saved=song.source.app==='wordlight';
   const r=await localFetch('/api/songs/library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song:{...song,id:saved?song.id:undefined},expectedModified:saved?song.source.modified:null})});
   const data=await r.json();if(!r.ok)throw new Error(data.error);
-  const current=capturedEntry();if(current){current.song={...current.song,id:data.song.id,source:data.song.source};remember();}
+  const current=findSongEntry(where);if(current){current.song={...current.song,id:data.song.id,source:data.song.source};remember();}
  }).catch(()=>toast('This song is safe in the show, but the library copy has not been saved yet.'));
 }
 function paintSetlist(){
@@ -1673,7 +1774,12 @@ function paintSongDetail(){
   (song.arrangements.length>1?'<select id="songArrangement" aria-label="Arrangement">'+song.arrangements.map(a=>'<option value="'+e(a.id)+'" '+(a.id===arrangement.id?'selected':'')+'>'+e(a.name)+'</option>').join('')+'</select>':'')+
   '<div class="song-order">'+arrangement.order.map(id=>{const x=byId.get(id);return x?'<span class="note-chip">'+e(x.label)+(x.slides.length>1?' ×'+x.slides.length:'')+'</span>':'';}).join('')+'</div>'+
   (isLocal&&song.source.app==='wordlight'?'<button class="button danger" data-action="song-library-remove" title="Remove from your song library (kept in songs/removed)">Remove from library</button>':'')+(song.skipped.length?tip('Not carried over from FreeShow: '+e(song.skipped.join('; '))+'.'):'')+'</div>';
- $('#songArrangement')?.addEventListener('change',ev=>{songState.arrangementId=ev.target.value;paintSongDetail();});
+ $('#songArrangement')?.addEventListener('change',ev=>{
+  songState.arrangementId=ev.target.value;
+  const entry=(draft.songs||[]).find(x=>x.entryId===songState.peekEntryId);
+  if(entry){entry.song.arrangementId=ev.target.value;draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entry.entryId)?.id||draft.previewId;remember();renderPreview();renderDeck();}
+  paintSongDetail();
+ });
 }
 async function handleSongAction(action,t,ev){
  try{
@@ -1815,12 +1921,14 @@ $('#songFile')?.addEventListener('change',async ev=>{
  try{if(file.size>5e6)throw new Error('That file is too large for one song.');addSongEntry(readSongFile(JSON.parse(await file.text())));}
  catch(err){toast(err.message||'That song file could not be read.');}
 });
+// A song made here has no library copy yet. Saving it keeps it, so it can be found next time.
+const notInLibrary=song=>/^native-/.test(song.id)&&companionReady();
 // Song editor: changes this show's copy of the song only. FreeShow files are never written.
 function openSongEditor(entryId){
  const entry=(draft.songs||[]).find(x=>x.entryId===entryId);if(!entry)return;const song=entry.song;
  const arrangement=song.arrangements.find(a=>a.id===song.arrangementId)||song.arrangements[0],hiddenPages=Object.keys(arrangement.hidden||{}).length;
  $('#songDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">SONG</span><button class="icon-button" data-action="song-editor-close" aria-label="Close song editor">×</button></div><h2 id="songDialogTitle">Edit song</h2>'+
-  '<p class="small-note">'+(song.source.app==='freeshow'?'The FreeShow file is never changed. ':'')+(companionReady()?'Save to song library also updates your library copy.':'Changes apply to this show’s copy.')+'</p>'+
+  '<p class="small-note">'+(song.source.app==='freeshow'?'The FreeShow file is never changed. ':'')+(notInLibrary(song)?'A new song is saved to your song library and this show.':companionReady()?'Save to song library also updates your library copy.':'Changes apply to this show’s copy.')+'</p>'+
   '<div class="field-row"><div>'+label('Title','songTitle')+input('songTitle',song.title,'maxlength="200"')+'</div><div>'+label('Author','songAuthor')+input('songAuthor',song.meta.author||song.meta.artist||'','maxlength="300"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Copyright','songCopyright')+input('songCopyright',song.meta.copyright||'','maxlength="300"')+'</div><div>'+label('CCLI song number','songCcli')+input('songCcli',song.meta.ccli||'','maxlength="30"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Other names or spellings','songAliases')+input('songAliases',song.meta.aliases||'','maxlength="500"')+'</div><div>'+label('Status','songStatus')+'<select id="songStatus">'+[['','Not set'],['checked','Checked'],['book','From a songbook'],['draft','Draft'],['reserve','Check first']].map(([v,n])=>'<option value="'+v+'" '+(v===(song.meta.status||'')?'selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
@@ -1829,7 +1937,7 @@ function openSongEditor(entryId){
   label('Arrangement'+(song.arrangements.length>1?' · '+e(arrangement.name):''),'songArrangementText')+input('songArrangementText',arrangementText(song),'maxlength="4000"')+
   tip('Section labels in the order they are sung, separated by commas. Repeats are fine: Verse 1, Chorus, Verse 2, Chorus.')+
   (hiddenPages?'<p class="small-note">This arrangement hides some slides for single repeats (from FreeShow). Changing the order shows all slides of each section.</p>':'')+
-  '<p id="songEditError" class="small-note status-error" aria-live="polite"></p><div class="timer-actions"><button class="button primary" data-action="song-editor-save" data-song-entry="'+e(entryId)+'">Save in this show</button>'+(companionReady()?'<button class="button" data-action="song-editor-library" data-song-entry="'+e(entryId)+'" title="Save in this show and in your song library">Save to song library</button><button class="button" data-action="song-editor-library-new" data-song-entry="'+e(entryId)+'" hidden>Save as new song</button>':'')+button('Cancel','song-editor-close')+'</div>';
+  '<p id="songEditError" class="small-note status-error" aria-live="polite"></p><div class="timer-actions"><button class="button primary" data-action="song-editor-save" data-song-entry="'+e(entryId)+'">'+(notInLibrary(song)?'Save song':'Save in this show')+'</button>'+(companionReady()&&!notInLibrary(song)?'<button class="button" data-action="song-editor-library" data-song-entry="'+e(entryId)+'" title="Save in this show and in your song library">Save to song library</button><button class="button" data-action="song-editor-library-new" data-song-entry="'+e(entryId)+'" hidden>Save as new song</button>':'')+'<button class="button" data-action="song-editor-show-only" data-song-entry="'+e(entryId)+'" hidden>Save in this show only</button>'+button('Cancel','song-editor-close')+'</div>';
  if(!$('#songDialog').open)$('#songDialog').showModal();
 }
 document.addEventListener('click',async ev=>{
@@ -1840,7 +1948,7 @@ document.addEventListener('click',async ev=>{
   let song=editSong(entry.song,{title:$('#songTitle').value,meta:{author:$('#songAuthor').value,copyright:$('#songCopyright').value,ccli:$('#songCcli').value,aliases:$('#songAliases').value,status:$('#songStatus').value},lyrics:$('#songLyrics').value,arrangement:$('#songArrangementText').value});
   cleanDraft({...draft,songs:draft.songs.map(x=>x===entry?{entryId:entry.entryId,song}:x)});
   let note='saved in this show';
-  if(t.dataset.action!=='song-editor-save'){
+  if(t.dataset.action!=='song-editor-show-only'&&(t.dataset.action!=='song-editor-save'||notInLibrary(song))){
    // A library song is updated only if the library still has the version this copy came from.
    if(entry.entryId===songState.peekEntryId)songState.peekEntryId='';
    const asNew=t.dataset.action==='song-editor-library-new',fromLibrary=song.source.app==='wordlight'&&!asNew;
@@ -1857,7 +1965,7 @@ document.addEventListener('click',async ev=>{
   {const show=activeShow(library),scene=activeScene(show);if(scene.name===entry.song.title&&song.title!==entry.song.title)renameScene(show,scene.id,song.title);}
   draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entry.entryId)?.id||draft.previewId;
   $('#songDialog').close();remember();render();toast(song.title+' '+note+'. The screen is unchanged until you send.');
- }catch(err){$('#songEditError').textContent=err.message;}
+ }catch(err){$('#songEditError').textContent=(err.message||'That could not be saved.');const showOnly=$('[data-action=song-editor-show-only]');if(showOnly&&notInLibrary(entry.song))showOnly.hidden=false;}
 });
 $('#songLibraryFile')?.addEventListener('change',async ev=>{
  const file=ev.target.files[0];ev.target.value='';if(!file)return;
