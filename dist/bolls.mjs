@@ -6,8 +6,16 @@ import {NKJV_CREDIT} from './library.mjs';
 import {readLimitedJSON} from './readlimit.mjs';
 
 // Limits: the longest chapter (Psalm 119) has 176 verses and its reply is far under 2 MB.
-const BASE='https://bolls.life/get-text/NKJV/',CACHE_CHAPTERS=12,MAX_CHAPTERS=10,TIMEOUT_MS=12000,MAX_BYTES=2e6,MAX_VERSES=200,MAX_VERSE_TEXT=5000;
+const BASE='https://bolls.life/get-text/NKJV/',CACHE_CHAPTERS=40,MAX_CHAPTERS=10,TIMEOUT_MS=8000,MAX_BYTES=2e6,MAX_VERSES=200,MAX_VERSE_TEXT=5000,RETRY_MS=1200,MAX_RETRY_MS=3000;
 const cache=new Map(),inflight=new Map();
+// bolls.life answers 429 for a moment when it is busy, and the next request works, so one short wait comes before any error.
+async function askBolls(url,request){
+ const first=await request(url,{signal:AbortSignal.timeout(TIMEOUT_MS)});
+ if(first.status!==429&&first.status!==503)return first;
+ const asked=Number(first.headers?.get('retry-after'))*1000;
+ await new Promise(resolve=>setTimeout(resolve,asked>0?Math.min(asked,MAX_RETRY_MS):RETRY_MS));
+ return request(url,{signal:AbortSignal.timeout(TIMEOUT_MS)});
+}
 
 // Verse text arrives as HTML (supplied words in <i>, sometimes <br>). Only the plain words are kept.
 export function bollsText(html){
@@ -28,7 +36,7 @@ export async function bollsChapter(bookId,chapter,request=fetch){
  if(inflight.has(key))return inflight.get(key);
  const job=(async()=>{
   let response;
-  try{response=await request(BASE+(index+1)+'/'+chapter+'/',{signal:AbortSignal.timeout(TIMEOUT_MS)});}
+  try{response=await askBolls(BASE+(index+1)+'/'+chapter+'/',request);}
   catch{throw new Error('The online NKJV (bolls.life) could not be reached. Check the internet connection and try again.');}
   if(!response.ok)throw new Error('The online NKJV (bolls.life) is not available right now ('+response.status+'). Try again later.');
   const unexpected=()=>new Error('The online NKJV (bolls.life) sent an unexpected answer.');
