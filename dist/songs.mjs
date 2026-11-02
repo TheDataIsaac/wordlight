@@ -144,15 +144,16 @@ function shownText(text,display){
  if(display.allCaps)shown=shown.toLocaleUpperCase();
  return shown;
 }
-// Runs of pages with words are joined and cut into slides of the chosen size. A blank cue stays where it is.
+// A blank line in the lyrics always starts a new slide. The chosen size is a limit: longer pages are cut to it, and
+// shorter ones stay as typed. A blank cue stays where it is.
 function reflow(pages,size){
- const out=[];let run=[];
- const flush=()=>{for(let i=0;i<run.length;i+=size){const chunk=run.slice(i,i+size);out.push({text:chunk.map(l=>l.line).join('\n'),page:chunk[0].page});}run=[];};
+ const out=[];
  for(const page of pages){
-  if(!page.text.trim()){flush();out.push(page);continue;}
-  for(const line of page.text.split('\n'))if(line.trim())run.push({line,page:page.page});
+  if(!page.text.trim()){out.push(page);continue;}
+  const lines=page.text.split('\n').filter(line=>line.trim());
+  for(let i=0;i<lines.length;i+=size)out.push({text:lines.slice(i,i+size).join('\n'),page:page.page});
  }
- flush();return out;
+ return out;
 }
 // Slide ids carry the split. A page removed or moved at one split never points at different words at another.
 export const songSlideId=(entryId,position,page,display=current)=>'song-'+entryId+'-'+position+'-'+page+(display.linesPerSlide?'-x'+display.linesPerSlide:'');
@@ -182,37 +183,82 @@ export function searchSongs(index,{query='',category='',offset=0,limit=50}={}){
 // separated, with repeats allowed ("Verse 1, Chorus, Verse 2, Chorus"). Edits change the show's copy only.
 // A slide containing only "(blank)" is a blank cue, so blank slides inside a section survive editing.
 const BLANK='(blank)';
+// Imported songs can repeat a label ("Slide", "Verse"). The editor gives each section its own name, so the lyrics and
+// the arrangement can both say which one they mean: the first keeps the label, the next becomes "Slide 2".
+function editorLabels(song){
+ const taken=new Set(song.sections.map(s=>s.label.toLowerCase())),seen=new Set(),names=new Map();
+ for(const s of song.sections){
+  let name=s.label;
+  if(seen.has(s.label.toLowerCase())){
+   for(let n=2;taken.has(name.toLowerCase());n++)name=s.label+' '+n;
+   taken.add(name.toLowerCase());
+  }
+  seen.add(s.label.toLowerCase());names.set(s.id,name);
+ }
+ return names;
+}
+// A lyric line that looks like a label, such as [x2], is written with a backslash so it stays a lyric.
+const LOOKS_LIKE_LABEL=/^\s*\[.+\]\s*$/;
+const asLyric=text=>text.split('\n').map(line=>LOOKS_LIKE_LABEL.test(line)?'\\'+line:line).join('\n');
 export function songToText(song){
- return song.sections.map(s=>'['+s.label+']\n'+s.slides.map(t=>t===''?BLANK:t).join('\n\n')).join('\n\n');
+ const names=editorLabels(song);
+ return song.sections.map(s=>'['+names.get(s.id)+']\n'+s.slides.map(t=>t===''?BLANK:asLyric(t)).join('\n\n')).join('\n\n');
 }
 export function arrangementText(song,arrangementId=song.arrangementId){
- const byId=new Map(song.sections.map(s=>[s.id,s.label])),a=song.arrangements.find(x=>x.id===arrangementId)||song.arrangements[0];
- return a.order.map(id=>byId.get(id)).join(', ');
+ const names=editorLabels(song),a=song.arrangements.find(x=>x.id===arrangementId)||song.arrangements[0];
+ return a.order.map(id=>names.get(id)).join(', ');
 }
-export function parseSongText(text){
- const sections=[];let current=null,page=[];
- const closePage=()=>{if(current&&page.length){const text=page.join('\n');current.slides.push(text.trim()===BLANK?'':text);page=[];}};
+// Lyrics to sections, plus the labels in the order they were typed. Pasted lyrics with no labels are one verse, split
+// at blank lines. A label typed again with the same words is a repeat; with other words it becomes the next number.
+function readLyrics(text){
+ const typed=[];let current=null,page=[];
+ const open=label=>{current={label,slides:[]};typed.push(current);};
+ const closePage=()=>{
+  if(!current||!page.length)return;
+  // Lyrics pasted under the "(blank)" of a new section replace it.
+  const lines=page.length>1&&page[0].trim()===BLANK?page.slice(1):page,text=lines.join('\n');
+  current.slides.push(text.trim()===BLANK?'':text);page=[];
+ };
  for(const raw of String(text).replace(/\r\n?/g,'\n').split('\n')){
   const header=raw.trim().match(/^\[(.+)\]$/);
-  if(header){closePage();current={label:header[1].trim().slice(0,60),slides:[]};sections.push(current);continue;}
+  if(header){closePage();open(header[1].trim().slice(0,60));continue;}
   if(!raw.trim()){closePage();continue;}
-  if(!current)throw new Error('Start the lyrics with a section label such as [Verse 1].');
-  page.push(raw.replace(/\s+$/,''));
+  if(!current)open('Verse 1');
+  page.push(raw.replace(/\s+$/,'').replace(/^\\(?=\s*\[)/,''));
  }
  closePage();
- if(!sections.length)throw new Error('Add at least one section, such as [Verse 1].');
- const labels=new Set();
- for(const s of sections){const key=s.label.toLowerCase();if(labels.has(key))throw new Error('The section label “'+s.label+'” is used twice. Give each section its own label (for example Verse 1, Verse 2).');labels.add(key);if(!s.slides.length)s.slides.push('');}
- return sections;
+ if(!typed.length)throw new Error('Add the lyrics, or at least one section such as [Verse 1].');
+ const sections=[],order=[],byLabel=new Map();
+ for(const s of typed){
+  if(!s.slides.length)s.slides.push('');
+  const same=byLabel.get(s.label.toLowerCase());
+  if(same&&same.slides.join('\n\n')===s.slides.join('\n\n')){order.push(same.label);continue;}
+  const base=s.label;for(let n=2;byLabel.has(s.label.toLowerCase());n++)s.label=base+' '+n;
+  byLabel.set(s.label.toLowerCase(),s);sections.push(s);order.push(s.label);
+ }
+ return {sections,order};
 }
+export function parseSongText(text){return readLyrics(text).sections;}
 // Returns an edited copy of the song. Sections keep their ids when their label is unchanged, so other saved
 // arrangements stay valid; an arrangement that still uses a removed section is an error, not a silent change.
 export function editSong(song,{title,meta={},lyrics,arrangement}){
- const parsed=parseSongText(lyrics),byLabel=new Map(song.sections.map(s=>[s.label.toLowerCase(),s.id])),used=new Set();
+ const {sections:parsed,order:typedOrder}=readLyrics(lyrics),names=editorLabels(song),byLabel=new Map(song.sections.map(s=>[names.get(s.id).toLowerCase(),s.id])),used=new Set();
  let n=0;const newId=()=>{let id;do id='s'+(++n);while(byLabel.has(id)||used.has(id)||song.sections.some(s=>s.id===id));return id;};
  const sections=parsed.map(s=>{const id=byLabel.get(s.label.toLowerCase())||newId();used.add(id);return {id,label:s.label,slides:s.slides};});
  const idFor=new Map(sections.map(s=>[s.label.toLowerCase(),s.id]));
- const order=String(arrangement||'').split(',').map(x=>x.trim()).filter(Boolean).map(label=>{const id=idFor.get(label.toLowerCase());if(!id)throw new Error('The arrangement uses “'+label+'”, which is not a section label.');return id;});
+ let labels=String(arrangement||'').split(',').map(x=>x.trim()).filter(Boolean);
+ // An arrangement left as it was follows the lyrics: sections taken out leave it, and new ones go where they were typed.
+ if(String(arrangement||'').trim()===arrangementText(song)){
+  const known=label=>byLabel.has(label.toLowerCase());
+  labels=labels.filter(label=>idFor.has(label.toLowerCase()));
+  let at=-1;
+  for(const label of typedOrder){
+   if(!known(label)){labels.splice(at+1,0,label);at++;continue;}
+   const next=labels.findIndex((x,i)=>i>at&&x.toLowerCase()===label.toLowerCase());
+   if(next>=0)at=next;
+  }
+ }
+ const order=labels.map(label=>{const id=idFor.get(label.toLowerCase());if(!id)throw new Error('The arrangement uses “'+label+'”, which is not a section label.');return id;});
  if(!order.length)throw new Error('List at least one section in the arrangement.');
  const current=song.arrangements.find(a=>a.id===song.arrangementId)||song.arrangements[0];
  const unchanged=current.order.length===order.length&&current.order.every((id,i)=>id===order[i]);
