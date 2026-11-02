@@ -99,10 +99,10 @@ test('Slide background images in any saved item or on air cannot be deleted; a p
  // Saved in the second item of a show, not the current one.
  const show=createShow('Backgrounds');addItem(show,'Second');show.draft.backgroundAssetId=id;addItem(show,'Third');
  const library={format:'wordlight-library',version:1,activeShowId:show.id,shows:[show]};
- assert.equal((await request('POST','/api/state',{body:{library}})).status,200);
+ assert.equal((await request('POST','/api/state',{body:{library,baseSavedAt:(await request('GET','/api/state')).body.library.savedAt||0}})).status,200);
  assert.equal((await request('DELETE','/api/assets/'+id)).status,409,'used by a saved item');
  const plain=createShow('Plain');
- assert.equal((await request('POST','/api/state',{body:{library:{...library,activeShowId:plain.id,shows:[plain]}}})).status,200);
+ assert.equal((await request('POST','/api/state',{body:{library:{...library,activeShowId:plain.id,shows:[plain]},baseSavedAt:(await request('GET','/api/state')).body.library.savedAt||0}})).status,200);
  assert.equal((await request('POST','/api/state',{body:{live:{...liveWith(undefined),style:{...liveWith(undefined).style,backgroundAssetId:id},updated:Date.now()+20000}}})).status,200);
  assert.equal((await request('DELETE','/api/assets/'+id)).status,409,'used on air');
  const code=(await request('GET','/api/bridge/code')).body.code;

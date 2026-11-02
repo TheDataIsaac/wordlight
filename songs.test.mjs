@@ -131,7 +131,7 @@ test('Editing a song: lyrics text round trip, blank cues, repeats, clear errors 
  assert.deepEqual(edited.sections.find(s=>s.label==='Verse 2').slides,['new verse','']);assert.equal(edited.sections[0].id,'v1','unchanged labels keep their ids');assert.equal(edited.edited,true);
  assert.deepEqual(songSlides(edited,'e').map(s=>s.section),['Verse 1','Verse 1','Verse 1','Chorus','Verse 2','Verse 2','Chorus']);
  assert.throws(()=>editSong(imported,{lyrics:text,arrangement:'Verse 1, Verse 7'}),/“Verse 7”, which is not a section label/);
- assert.throws(()=>parseSongText('no label'),/Start the lyrics/);assert.throws(()=>parseSongText('[A]\nx\n[a]\ny'),/used twice/);assert.throws(()=>editSong(imported,{lyrics:text,arrangement:''}),/at least one section/);
+ assert.deepEqual(parseSongText('no label\n\nsecond').map(s=>[s.label,s.slides]),[['Verse 1',['no label','second']]]);assert.deepEqual(parseSongText('[A]\nx\n[a]\ny').map(s=>[s.label,s.slides]),[['A',['x']],['a 2',['y']]]);assert.throws(()=>editSong(imported,{lyrics:text,arrangement:''}),/at least one section/);
  const two=cleanSong({...imported,arrangements:[...imported.arrangements,{id:'L2',name:'Short',order:['br'],hidden:{}}]});
  assert.throws(()=>editSong(two,{lyrics:'[Verse 1]\nx\n\n[Chorus]\ny',arrangement:'Verse 1'}),/“Short” still uses 1 removed section/);
  const kept=editSong(two,{lyrics:text,arrangement:'Chorus'});assert.deepEqual(kept.arrangements.map(a=>a.name),['Default','Short']);
@@ -157,4 +157,41 @@ test('Arrangements are bounded by what they expand to, and long details are kept
  const entries=Array.from({length:4},(_,i)=>({entryId:'e'+i,song:cleanSong(slides)}));
  assert.throws(()=>cleanDraft({...DEFAULT,songs:entries}),/expand to 3200 slides; a show supports up to 3000/);
  assert.equal(cleanDraft({...DEFAULT,songs:entries.slice(0,3)}).songs.length,3);
+});
+
+test('The song editor opens songs that repeat a label, and pasted lyrics just work',()=>{
+ const base={format:'wordlight-song',version:1,id:'wl-repeat-labels',title:'Repeats',meta:{},category:'',source:{app:'wordlight'},skipped:[],arrangementId:'main'};
+ const song={...base,sections:[{id:'a',label:'Slide',slides:['one']},{id:'b',label:'Slide',slides:['two']},{id:'c',label:'Slide 2',slides:['three']}],arrangements:[{id:'main',name:'Default',order:['a','b','c','a'],hidden:{}}]};
+ const clean=readSongFile(song),text=songToText(clean),order=arrangementText(clean);
+ assert.equal(order,'Slide, Slide 3, Slide 2, Slide');
+ const same=editSong(clean,{lyrics:text,arrangement:order});
+ assert.deepEqual(same.sections.map(s=>s.id),['a','b','c']);
+ assert.deepEqual(same.arrangements[0].order,['a','b','c','a']);
+ // Nothing is lost: every section keeps its own words.
+ assert.deepEqual(same.sections.map(s=>s.slides[0]),['one','two','three']);
+
+ // New song: lyrics pasted under the first label, with a repeated chorus and no change to the arrangement box.
+ const fresh=newSong('Pasted'),pasted=songToText(fresh)+'\nFirst line\nSecond line\n\nThird line\n\n[Chorus]\nSing\n\n[Verse 2]\nMore\n\n[Chorus]\nSing';
+ const saved=editSong(fresh,{lyrics:pasted,arrangement:arrangementText(fresh)});
+ assert.deepEqual(saved.sections.map(s=>s.label),['Verse 1','Chorus','Verse 2']);
+ assert.deepEqual(saved.sections[0].slides,['First line\nSecond line','Third line']);
+ assert.equal(arrangementText(saved),'Verse 1, Chorus, Verse 2, Chorus');
+
+ // Lyrics pasted over everything, with the label renamed away: no error, and every section is shown.
+ const plain=editSong(fresh,{lyrics:'Just words\n\nMore words',arrangement:arrangementText(fresh)});
+ assert.deepEqual(plain.sections[0].slides,['Just words','More words']);
+ const renamed=editSong(fresh,{lyrics:'[Hymn]\nWords',arrangement:arrangementText(fresh)});
+ assert.equal(arrangementText(renamed),'Hymn');
+
+ // An arrangement typed by hand is followed exactly.
+ const chosen=editSong(saved,{lyrics:songToText(saved)+'\n\n[Bridge]\nNew',arrangement:'Chorus, Verse 1'});
+ assert.equal(arrangementText(chosen),'Chorus, Verse 1');
+});
+
+test('A chorus typed between verses goes between them when the arrangement is left alone',()=>{
+ const two=editSong(newSong('Order'),{lyrics:'[Verse 1]\nONE\n\n[Verse 2]\nTWO',arrangement:'Verse 1'});
+ const text='[Verse 1]\nONE\n\n[Chorus]\nSING\n\n[Verse 2]\nTWO\n\n[Chorus]\nSING';
+ assert.equal(arrangementText(editSong(two,{lyrics:text,arrangement:arrangementText(two)})),'Verse 1, Chorus, Verse 2, Chorus');
+ const repeats=editSong(two,{lyrics:'[Verse 1]\nONE\n\n[Verse 2]\nTWO',arrangement:'Verse 1, Verse 2, Verse 1'});
+ assert.equal(arrangementText(editSong(repeats,{lyrics:songToText(repeats)+'\n\n[Bridge]\nNEW',arrangement:arrangementText(repeats)})),'Verse 1, Verse 2, Bridge, Verse 1');
 });

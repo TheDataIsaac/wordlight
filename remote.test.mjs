@@ -8,10 +8,12 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import http from 'node:http';
-import {cleanTextSlide,snapshot,validLive} from './dist/core.mjs';
-import {createShow,addScene} from './dist/library.mjs';
+import {cleanDraft,cleanTextSlide,snapshot,validLive,referenceSize,lowerReferenceSize} from './dist/core.mjs';
+import {createShow,addScene,activeShow,switchScene} from './dist/library.mjs';
 import {cleanTimer} from './dist/timer.mjs';
 import {createLoginLimiter,createCommandLog,lanAddresses,hostAllowed,liveSummary,checkPassword,hashPassword,validStoredPassword} from './remote-server.mjs';
+import {phoneReference,createBibleLookup,wordsOnLive,toggleWord} from './remote-content.mjs';
+import {newSong,editSong} from './dist/songs.mjs';
 import {rsEcc,formatBits,qrMatrix,qrSvg} from './dist/qr.mjs';
 
 const port=18828,remotePort=18829,remoteHost='127.0.0.1:'+remotePort,remoteOrigin='http://'+remoteHost;
@@ -61,6 +63,7 @@ async function stopServer(){server.kill();await new Promise(r=>server.once('exit
 
 // Synthetic fixture: two shows; the first has two scenes. Live shows scene 1, slide 1, with a timer and lower third set.
 const slide=(id,heading,body)=>cleanTextSlide({id,heading,body});
+const sampleSong=()=>editSong(newSong('Sample hymn'),{title:'Sample hymn',lyrics:['[Verse 1]','Sample first line','','[Chorus]','Sample chorus line'].join(String.fromCharCode(10)),arrangement:'Verse 1, Chorus'});
 let fixture;
 before(async()=>{
  dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-remote-test-'));
@@ -72,6 +75,12 @@ before(async()=>{
  assert.ok(validLive(live));
  fixture={service,sermon,other};
  await mkdir(dataDir,{recursive:true});await writeFile(path.join(dataDir,'session.json'),JSON.stringify({app:'wordlight',library,live}));
+ // A small installed Bible: John 3 and the start of John 4, with the verse numbers the steps need.
+ const kjv=path.join(dataDir,'bibles','kjv'),chapter3=Array.from({length:17},(_,i)=>'Sample verse '+(i+1));
+ chapter3[15]='Sample verse sixteen';chapter3[16]='Sample verse seventeen';
+ await mkdir(kjv,{recursive:true});
+ await writeFile(path.join(kjv,'manifest.json'),JSON.stringify({abbreviation:'KJV',credit:'',installedAt:1,verses:18}));
+ await writeFile(path.join(kjv,'JHN.json'),JSON.stringify([[],[],chapter3,['Sample verse four one']]));
  await startServer();
 });
 after(async()=>{await stopServer();await rm(dataDir,{recursive:true,force:true});});
@@ -224,7 +233,9 @@ test('Hide/show and the countdown go through the same live state',async()=>{
  t=(await state()).live.timer;assert.equal(t.running,false);assert.ok(t.valueMs<120000);
  await command(cookie,{action:'timer',timer:'reset'});
  t=(await state()).live.timer;assert.equal(t.valueMs,120000);assert.equal(t.mode,'countdown');
- assert.equal((await command(cookie,{action:'timer',timer:'show'})).status,400,'only start, pause and reset');
+ assert.equal((await command(cookie,{action:'timer',timer:'explode'})).status,400,'only the known timer actions');
+ assert.equal((await command(cookie,{action:'timer',timer:'show'})).body.live.timer.visible,true);
+ assert.equal((await command(cookie,{action:'timer',timer:'hide'})).body.live.timer.visible,false);
  assert.equal((await command(cookie,{action:'timer',timer:'start'})).status,200);
 });
 
@@ -241,6 +252,191 @@ test('Closing the phone or losing the connection leaves the screen alone; a reco
  assert.ok(await until(()=>again.messages.length===1));
  assert.equal(again.messages[0].index,2);assert.equal(again.messages[0].updated,(await state()).live.updated);
  again.close();
+});
+
+test('A phone reference can skip the colon, and bare numbers mean the verse on screen',()=>{
+ assert.equal(phoneReference('John 3 16').reference,'John 3:16');
+ assert.equal(phoneReference('1 cor 13 4 7').reference,'1 Corinthians 13:4-7');
+ assert.equal(phoneReference('1 John 3 16-18').reference,'1 John 3:16-18');
+ assert.equal(phoneReference('Psalm 23').reference,'Psalms 23');
+ const onScreen={bookId:'JHN',chapter:3,verse:16};
+ assert.equal(phoneReference('17',onScreen).reference,'John 3:17');
+ assert.equal(phoneReference('14-16',onScreen).reference,'John 3:14-16');
+ assert.equal(phoneReference('4:2',onScreen).reference,'John 4:2');
+ assert.equal(phoneReference('4 2',onScreen).reference,'John 4:2');
+ assert.throws(()=>phoneReference('17'),/book name/);
+ assert.throws(()=>phoneReference('Zzz 3 16'),/Book not found/);
+});
+
+test('An online Bible is looked up on the laptop and kept; a failure is reported, never replaced',async()=>{
+ let calls=0,reachable=true;
+ const verses=[{book_id:'JHN',book_name:'John',chapter:3,verse:16,text:'Online words'}];
+ const request=async url=>{calls++;assert.match(url,/^https:\/\/bible-api\.com\/John%203%3A16\?translation=web/);if(!reachable)throw new Error('offline');return new Response(JSON.stringify({verses}));};
+ const lookup=createBibleLookup({bibles:{installed:async()=>false,list:async()=>[]},apiBible:{status:async()=>({ready:false})},request});
+ const found=phoneReference('John 3 16');
+ assert.equal((await lookup.passage('web',found)).text,'Online words');
+ await lookup.passage('web',found);assert.equal(calls,1,'the second lookup comes from the laptop');
+ await assert.rejects(lookup.passage('nope',found),/Choose a Bible version/);
+ reachable=false;
+ const other=createBibleLookup({bibles:{installed:async()=>false,list:async()=>[]},apiBible:{status:async()=>({ready:false})},request});
+ await assert.rejects(other.passage('web',found),/needs the internet/);
+ assert.equal((await lookup.versions()).length,8);
+});
+
+test('A called verse goes live from the phone, keeps the look and timer, and steps by verse past its end',async()=>{
+ const cookie=await login(),before=(await state()).live;
+ const output=await stream(port,'/api/events?view=output');
+ assert.ok(await until(()=>output.messages.length===1));
+ for(const p of ['/remote/api/screen','/remote/api/bible/books','/remote/api/bible/versions','/remote/api/bible/look?q=John+3+16&version=kjv','/remote/api/songs','/remote/api/song?id=x'])assert.equal((await remote('GET',p)).status,401,p);
+ const versions=(await remote('GET','/remote/api/bible/versions',{cookie})).body.versions;
+ assert.deepEqual([versions[0].id,versions[0].installed],['kjv',true]);
+ assert.equal((await remote('GET','/remote/api/bible/books',{cookie})).body.books.length,66);
+ const look=await remote('GET','/remote/api/bible/look?q=John+3+16-17&version=kjv',{cookie});
+ assert.equal(look.status,200,JSON.stringify(look.body));
+ assert.equal(look.body.reference,'John 3:16-17');assert.equal(look.body.total,2);assert.equal(look.body.verses[1].text,'Sample verse seventeen');
+ assert.equal((await state()).live.updated,before.updated,'a preview never changes the screen');
+ assert.equal((await remote('GET','/remote/api/bible/look?q=Zzz+3+16&version=kjv',{cookie})).status,400);
+ const sent=await command(cookie,{action:'bible',reference:'John 3 16',version:'kjv'});
+ assert.equal(sent.status,200,JSON.stringify(sent.body));
+ assert.equal(sent.body.live.current.title,'John 3:16');assert.equal(sent.body.live.verseSteps,true);assert.equal(sent.body.live.version,'kjv');
+ let now=(await state()).live;
+ assert.ok(validLive(now));assert.equal(now.slides[0].text,'Sample verse sixteen');assert.equal(now.slides[0].translation,'KJV');
+ assert.equal(now.style.theme,before.style.theme);assert.deepEqual(now.lowerThird,before.lowerThird);assert.equal(now.timer.durationMs,before.timer.durationMs);assert.equal(now.blank,false);
+ assert.ok(await until(()=>output.messages.at(-1).live.updated===now.updated),'the output has the verse');
+ // Next runs off the end of the verses on screen into the following verse, then over the chapter end, and back.
+ const step=async action=>{const r=await command(cookie,{action,base:(await state()).live.updated});assert.equal(r.status,200,JSON.stringify(r.body));return r.body.live.current.title;};
+ assert.equal(await step('next'),'John 3:17');
+ assert.equal(await step('next'),'John 4:1');
+ assert.equal(await step('previous'),'John 3:17');
+ // Bare numbers use the verse on screen.
+ assert.equal((await remote('GET','/remote/api/bible/look?q=16&version=kjv',{cookie})).body.reference,'John 3:16');
+ assert.equal((await command(cookie,{action:'bible',reference:'16',version:'kjv'})).body.live.current.title,'John 3:16');
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3:99',version:'kjv'})).status,404);
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3:16',version:'nope'})).status,400);
+ assert.equal((await state()).live.slides[0].reference,'John 3:16','a failed lookup leaves the screen alone');
+ output.close();
+});
+
+test('Words highlighted in the studio stay highlighted on verses from the phone, with no word-study slides',async()=>{
+ const cookie=await login(),{draft}=await state(),headers={Origin:'http://127.0.0.1:'+port};
+ const notes=[{id:'word',word:'verse',color:'#1e6594',emphasis:'highlight'},{id:'slide',word:'Sample',color:'#8b5b31',emphasis:'underline',slideId:'a-text-slide'}];
+ await request(port,'POST','/api/state',{body:{draft:{...draft,notes}},headers});
+ const highlighted=async()=>{const {live}=await state();assert.equal(live.slides.length,1,'the highlight adds no slides');return live.style.highlights.map(h=>[h.word,h.color,h.emphasis]);};
+ const wanted=[['verse','#1e6594','highlight']];
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3 16',version:'kjv'})).status,200);
+ assert.deepEqual(await highlighted(),wanted);
+ assert.equal((await command(cookie,{action:'next',base:(await state()).live.updated})).body.live.current.title,'John 3:17');
+ assert.deepEqual(await highlighted(),wanted,'stepping to the next verse keeps them');
+ await request(port,'POST','/api/state',{body:{draft},headers});
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3 16',version:'kjv'})).status,200);
+ assert.deepEqual(await highlighted(),[]);
+});
+
+test('The Bible reference look set in the studio stays on verses from the phone, and sizes stay in range',async()=>{
+ assert.equal(referenceSize(500),90);assert.equal(referenceSize(undefined),30);assert.equal(lowerReferenceSize(1),18);assert.equal(lowerReferenceSize('44'),44);
+ const cookie=await login(),{draft}=await state(),headers={Origin:'http://127.0.0.1:'+port};
+ const look=cleanDraft({...draft,referenceSize:60,lowerReferenceSize:44,referenceColor:'#112233'});
+ await request(port,'POST','/api/state',{body:{live:{...snapshot(look),updated:Date.now()+5}},headers});
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3 16',version:'kjv'})).status,200);
+ const {style}=(await state()).live;
+ assert.deepEqual([style.referenceSize,style.lowerReferenceSize,style.referenceColor],[60,44,'#112233']);
+});
+
+test('A word changed in the studio reaches the verse on screen straight away, and removing it clears it',async()=>{
+ const cookie=await login(),{draft}=await state(),headers={Origin:'http://127.0.0.1:'+port};
+ assert.equal((await command(cookie,{action:'bible',reference:'John 3 16',version:'kjv'})).status,200);
+ const sent=(await state()).live,output=await stream(port,'/api/events?view=output');
+ assert.ok(await until(()=>output.messages.length===1));
+ const shown=()=>output.messages.at(-1).live.style.highlights.map(h=>h.word).join();
+ await request(port,'POST','/api/state',{body:{draft:{...draft,notes:[{id:'word',word:'verse',color:'#1e6594',emphasis:'highlight'}]}},headers});
+ assert.ok(await until(()=>shown()==='verse'),'the output has the word');
+ const now=(await state()).live;
+ assert.ok(now.updated>sent.updated);assert.deepEqual(now.slides,sent.slides,'only the highlight changed');assert.equal(now.index,sent.index);
+ assert.equal((await command(cookie,{action:'next',base:now.updated})).status,200,'the phone carries on from the new screen');
+ assert.deepEqual((await state()).live.style.highlightWords,['verse']);
+ await request(port,'POST','/api/state',{body:{draft},headers});
+ assert.ok(await until(()=>shown()===''),'removing the word clears it');
+ output.close();
+});
+
+test('Only that item or a phone verse takes a new word; moving between items leaves the screen alone',async()=>{
+ const before=structuredClone((await state()).library),show=activeShow(before),other=addScene(show,'Other');
+ const screen=snapshot(show.draft),phone={...screen,showId:'',bibleVersion:'kjv'},item={...screen,showId:show.id,sceneId:show.activeSceneId},elsewhere={...screen,showId:'another',sceneId:'another'};
+ const after=structuredClone(before),word={id:'word',word:'verse',color:'#1e6594',emphasis:'highlight'},oneSlide={id:'slide',word:'Sample',color:'#8b5b31',emphasis:'underline',slideId:'a-text-slide'};
+ activeShow(after).draft.notes=[word,oneSlide];
+ const words=live=>live.style.highlights.map(h=>h.word);
+ assert.deepEqual(words(wordsOnLive(phone,before,after)),['verse'],'one slide\'s formatting stays off a phone verse');
+ assert.deepEqual(words(wordsOnLive(item,before,after)),['verse','Sample']);
+ assert.equal(wordsOnLive(elsewhere,before,after),elsewhere);
+ assert.equal(wordsOnLive(phone,before,structuredClone(before)),phone,'no change, no new screen');
+ const moved=structuredClone(after);switchScene(activeShow(moved),other.id);
+ assert.equal(wordsOnLive(phone,after,moved),phone);assert.equal(wordsOnLive(item,after,moved),item);
+});
+
+test('Back returns to the slide before the called verse, and Slides jumps anywhere in the deck on screen',async()=>{
+ const cookie=await login();
+ await command(cookie,{action:'send',showId:fixture.service.id,sceneId:fixture.service.activeSceneId,slideId:'text-a'});
+ const sermon=(await state()).live;
+ const list=await remote('GET','/remote/api/screen',{cookie});
+ assert.equal(list.body.total,3);assert.equal(list.body.slides[2].title,'Closing');
+ assert.equal((await command(cookie,{action:'goto',index:2,base:sermon.updated})).body.live.index,2);
+ const moved=(await state()).live;
+ assert.equal((await command(cookie,{action:'goto',index:0,base:sermon.updated})).status,409,'a stale tap is refused');
+ assert.equal((await command(cookie,{action:'goto',index:9,base:moved.updated})).status,409);
+ const verse=await command(cookie,{action:'bible',reference:'John 3:16',version:'kjv'});
+ assert.equal(verse.body.live.backTo,'Sample service');
+ await command(cookie,{action:'timer',timer:'pause'});
+ const goBack=async()=>command(cookie,{action:'back',base:(await state()).live.updated});
+ assert.equal((await command(cookie,{action:'back',base:1})).status,409,'a stale tap is refused');
+ const back=await goBack();
+ assert.equal(back.status,200,JSON.stringify(back.body));
+ const now=(await state()).live;
+ assert.equal(now.slides[now.index].id,moved.slides[2].id);assert.equal(now.showId,moved.showId);assert.equal(now.blank,false);
+ assert.equal(now.timer.running,false,'Back keeps the timer as it is now');
+ while((await remote('GET','/remote/api/live',{cookie})).body.backTo)await goBack();
+ assert.equal((await goBack()).status,409);
+ // Next off the end of a deck the studio sent keeps a way back to that deck, and verse steps after it do not add up.
+ const verse17={id:'passage-JHN-3-17',type:'passage',text:'Studio verse',reference:'John 3:17',translation:'KJV',versePoint:{bookId:'JHN',chapter:3,verse:17},title:'John 3:17'};
+ await request(port,'POST','/api/state',{body:{live:{...now,bibleVersion:undefined,slides:[verse17],index:0,showTitle:'Studio deck',updated:Date.now()+5}},headers:{Origin:'http://127.0.0.1:'+port}});
+ const stepped=await command(cookie,{action:'next',base:(await state()).live.updated});
+ assert.equal(stepped.body.live.current.title,'John 4:1');assert.equal(stepped.body.live.backTo,'Studio deck');
+ await command(cookie,{action:'previous',base:(await state()).live.updated});
+ assert.equal((await goBack()).body.live.current.text,'Studio verse');
+ assert.equal((await remote('GET','/remote/api/live',{cookie})).body.backTo,'','one Back returns to the studio deck');
+});
+
+test('Songs, text, the timer and graphics all work from the phone',async()=>{
+ const cookie=await login();
+ const saved=await request(port,'POST','/api/songs/library',{body:{song:sampleSong()},headers:{Origin:'http://127.0.0.1:'+port}});
+ assert.ok([200,201].includes(saved.status),JSON.stringify(saved.body));
+ const found=await remote('GET','/remote/api/songs?q=sample+hymn',{cookie});
+ assert.equal(found.body.songs.length,1);
+ const song=await remote('GET','/remote/api/song?id='+encodeURIComponent(found.body.songs[0].id),{cookie});
+ assert.equal(song.body.title,'Sample hymn');assert.deepEqual(song.body.parts.map(p=>p.section),['Verse 1','Chorus']);
+ const live=await command(cookie,{action:'song',songId:found.body.songs[0].id,position:1});
+ assert.equal(live.status,200,JSON.stringify(live.body));assert.equal(live.body.live.current.title,'Sample hymn · Chorus');
+ assert.ok(validLive((await state()).live));
+ assert.equal((await command(cookie,{action:'song',songId:found.body.songs[0].id,position:7})).status,404);
+ assert.equal((await command(cookie,{action:'song',songId:'missing',position:0})).status,404);
+
+ assert.equal((await command(cookie,{action:'text'})).status,400);
+ const text=await command(cookie,{action:'text',heading:'Sample notice',body:'Sample body'});
+ assert.equal(text.body.live.current.title,'Sample notice');
+ assert.ok(validLive((await state()).live));
+
+ const timer=await command(cookie,{action:'timer-set',minutes:10,mode:'countdown'});
+ assert.equal(timer.body.live.timer.durationMs,600000);assert.equal(timer.body.live.timer.running,false);
+ assert.equal((await command(cookie,{action:'timer-set',minutes:0})).status,400);
+
+ assert.equal((await command(cookie,{action:'graphics',element:'logo',visible:true})).status,400,'no logo chosen yet');
+ assert.equal((await command(cookie,{action:'graphics',element:'card',visible:true})).status,400,'an empty card');
+ assert.equal((await command(cookie,{action:'graphics',element:'stage',visible:true})).status,400);
+ const card=await command(cookie,{action:'graphics',element:'card',visible:true,title:'Sample speaker',subtitle:''});
+ assert.equal(card.body.live.graphics.card.visible,true);assert.equal(card.body.live.graphics.card.title,'Sample speaker');
+ assert.equal((await state()).live.graphics.card.title,'Sample speaker');
+ assert.equal((await command(cookie,{action:'graphics',element:'card',visible:false})).body.live.graphics.card.visible,false);
+ assert.equal((await command(cookie,{action:'graphics',element:'background',visible:true})).body.live.graphics.background.visible,true);
+ assert.equal((await command(cookie,{action:'graphics',element:'background',visible:false})).status,200);
 });
 
 test('Changing the password, signing out and turning off end sessions, including open live streams',async()=>{
@@ -341,4 +537,14 @@ test('QR encoder: Reed-Solomon, format bits and layout match the QR standard',()
  assert.equal(m[21][8],true,'dark module');
  assert.throws(()=>qrMatrix('x'.repeat(300)));
  assert.match(qrSvg('http://10.0.0.8:18766/remote'),/^<svg [^>]*viewBox="0 0 37 37"/);
+});
+
+test('A word tapped on the phone lights up on the slide showing, and a second tap clears it',()=>{
+ const live=snapshot(cleanDraft({schema:1,passage:'Sample words here',reference:'Sample 1:1',title:'Sample'}));
+ const lit=toggleWord(live,'words');
+ assert.deepEqual(lit.style.highlightWords,['words']);assert.equal(lit.style.highlights[0].emphasis,'highlight');assert.ok(validLive(lit));
+ const two=toggleWord(lit,'Sample');
+ assert.deepEqual(two.style.highlightWords,['words','Sample']);assert.notEqual(two.style.highlights[0].color,two.style.highlights[1].color);
+ assert.deepEqual(toggleWord(two,'WORDS').style.highlightWords,['Sample']);
+ assert.deepEqual(two.slides,live.slides,'only the look changes');
 });

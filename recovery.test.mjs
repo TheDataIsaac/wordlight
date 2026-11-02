@@ -76,7 +76,7 @@ test('A live stream that stops reading is closed instead of filling memory, and 
   let closed=false;
   const stalled=await new Promise((resolve,reject)=>{const req=http.get('http://127.0.0.1:'+port+'/api/events?view=output',res=>{res.pause();res.on('error',()=>{});res.on('close',()=>closed=true);resolve({req,res});});req.on('error',()=>{});});
   // About 4 MB per screen; the stalled page reads none of them.
-  const live=n=>({...snapshot(cleanDraft(DEFAULT)),slides:[{type:'text',text:'Screen '+n+' '+'x'.repeat(4e6)}],index:0,blank:false,updated:n});
+  const live=n=>({...snapshot(cleanDraft(DEFAULT)),slides:[{type:'text',text:'Screen '+n+' '+'x'.repeat(4e6)}],index:0,blank:false,updated:Date.now()+n*1000});
   for(let n=1;n<=12;n++){assert.equal((await post('/api/state',{live:live(n)})).status,200);await wait(50);}
   // A paused page cannot notice its stream ending. Reading again drains what was already sent: a stream the companion
   // closed then ends, while one it kept would stay open.

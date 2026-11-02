@@ -57,6 +57,48 @@ test('Search merges the library with FreeShow, filters by source, and never writ
  assert.equal(await readFile(path.join(dir,'Shows','Amazing Grace.show'),'utf8'),before);assert.equal(await readFile(path.join(dir,'shows.json'),'utf8'),indexBefore);
  assert.deepEqual(await readdir(path.join(dir,'Shows')),['Amazing Grace.show']);
 });
+test('Line search finds a library song by a lyric line, follows changes, and counts use',async()=>{
+ const made=await withFs('/api/songs/library',{method:'POST',body:{song:editSong(newSong('Line Test'),{meta:{artist:'Test Choir',status:'draft',collection:'Choruses'},lyrics:'[Verse 1]\nFirst words\n\n[Chorus]\nOnly sung here today',arrangement:'Verse 1, Chorus'})}});
+ const [hit]=(await withFs('/api/songs?q=only+sung+here')).body.items;
+ assert.deepEqual([hit.id,hit.line,hit.section,hit.position,hit.artist,hit.status,hit.category],[made.body.id,'Only sung here today','Chorus',1,'Test Choir','draft','Choruses']);
+ assert.deepEqual((await withFs('/api/songs?source=drafts')).body.items.map(s=>s.id),[made.body.id],'Drafts lists songs to check and skips FreeShow');
+ assert.equal((await withFs('/api/songs?q=only+sung&category=Choruses')).body.total,1);assert.equal((await withFs('/api/songs?q=only+sung&category=Hymns')).body.total,0);
+ assert.ok((await withFs('/api/songs/categories')).body.categories.some(c=>c.name==='Choruses'&&c.count===1));
+ const changed=editSong(made.body.song,{lyrics:'[Verse 1]\nNew words now',arrangement:'Verse 1'});
+ await withFs('/api/songs/library',{method:'POST',body:{song:changed,expectedModified:made.body.modified}});
+ assert.equal((await withFs('/api/songs?q=only+sung+here')).body.total,0);assert.equal((await withFs('/api/songs?q=new+words+now')).body.items[0].id,made.body.id);
+ assert.equal((await withFs('/api/songs/library/used',{method:'POST',body:{id:made.body.id}})).status,200);
+ assert.equal((await withFs('/api/songs/library/used',{method:'POST',body:{id:'not-a-song'}})).status,404);
+ assert.equal(JSON.parse(await readFile(path.join(dir,'data','songs','usage.json'),'utf8'))[made.body.id],1);
+ await withFs('/api/songs/library/'+made.body.id,{method:'DELETE'});
+ assert.equal((await withFs('/api/songs?q=new+words+now')).body.total,0);
+});
+test('Settings: saved, cleaned, kept across a restart, and refused from another site',async()=>{
+ assert.equal((await withFs('/api/settings')).body.linesPerSlide,0);
+ const saved=await withFs('/api/settings',{method:'POST',body:{linesPerSlide:2,allCaps:true,evil:'x'}});
+ assert.equal(saved.status,200);assert.equal(saved.body.linesPerSlide,2);assert.equal(saved.body.allCaps,true);assert.ok(!('evil' in saved.body));
+ const merged=await withFs('/api/settings',{method:'POST',body:{songFooter:false}});assert.equal(merged.body.linesPerSlide,2,'one change keeps the others');
+ const file=JSON.parse(await readFile(path.join(dir,'data','settings.json'),'utf8'));assert.equal(file.songFooter,false);
+ const other=await fetch('http://127.0.0.1:18785/api/settings',{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://evil.example'},body:'{"allCaps":false}'});assert.equal(other.status,403);
+ const form=await fetch('http://127.0.0.1:18785/api/settings',{method:'POST',headers:{'Content-Type':'text/plain'},body:'{"allCaps":false}'});assert.equal(form.status,415);
+ const bad=await fetch('http://127.0.0.1:18785/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:'not json'});assert.equal(bad.status,400);
+ assert.equal((await withFs('/api/settings')).body.allCaps,true);
+ await withFs('/api/settings',{method:'POST',body:{linesPerSlide:0,allCaps:false,songFooter:true}});
+});
+test('Search settings leave out FreeShow and Check first songs without changing the library',async()=>{
+ const made=await withFs('/api/songs/library',{method:'POST',body:{song:editSong(newSong('Held Back'),{meta:{status:'reserve'},lyrics:'[Verse 1]\nZebra crossing words',arrangement:'Verse 1'})}});
+ assert.equal((await withFs('/api/songs?q=zebra+crossing')).body.total,1);
+ await withFs('/api/settings',{method:'POST',body:{searchReserve:false,searchFreeShow:false}});
+ try{
+  assert.equal((await withFs('/api/songs?q=zebra+crossing')).body.total,0);assert.equal((await withFs('/api/songs?q=zebra+crossing&source=wordlight')).body.total,1,'My library still lists it');
+  assert.ok((await withFs('/api/songs?q=amazing')).body.items.every(s=>s.source!=='freeshow'));
+ }finally{await withFs('/api/settings',{method:'POST',body:{searchReserve:true,searchFreeShow:true}});}
+ await withFs('/api/songs/library/'+made.body.id,{method:'DELETE'});
+});
+test('Pages of results run from the library into FreeShow with nothing repeated or lost',async()=>{
+ const seen=[];for(let offset=0;;offset+=3){const page=(await withFs('/api/songs?limit=3&offset='+offset)).body;seen.push(...page.items.map(s=>s.id));if(!page.items.length||seen.length>=page.total)break;}
+ const all=(await withFs('/api/songs?limit=100')).body;assert.equal(seen.length,all.total);assert.equal(new Set(seen).size,seen.length);
+});
 test('Without FreeShow the library still works and says FreeShow was not found',async()=>{
  const empty=await noFs('/api/songs');assert.equal(empty.status,200);assert.equal(empty.body.freeshow,null);assert.equal(empty.body.total,0);
  const saved=await noFs('/api/songs/library',{method:'POST',body:{song:song('On its own')}});assert.equal(saved.status,201);
@@ -82,7 +124,7 @@ test('Import keeps library ids: the same file twice adds once, and repeats withi
 });
 test('An import over the library limit is refused whole',async()=>{
  const before=(await noFs('/api/songs')).body.native,tiny=song('Bulk');
- const big=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:Array.from({length:5000},()=>({...tiny,id:undefined}))}});
+ const big=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:Array.from({length:6000},()=>({...tiny,id:undefined}))}});
  assert.equal(big.status,409);assert.match(big.body.error,/Nothing was imported/);assert.equal(big.body.added,0);
  assert.equal((await noFs('/api/songs')).body.native,before);
  assert.equal((await readdir(path.join(dir,'data-alone','songs'))).filter(f=>f.endsWith('.json')&&f!=='index.json').length,before,'no song files were left behind');

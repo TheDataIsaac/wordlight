@@ -50,3 +50,12 @@ test('Outages and damaged replies are reported plainly, refused whole, and not c
  await assert.rejects(bollsChapter('PSA',23,async()=>reply('['+'"x",'.repeat(5e5)+'"x"]')),/larger than expected/);
  const {calls,request}=fakeServer();await bollsChapter('PSA',23,request);assert.equal(calls.length,1,'a failed chapter is fetched again next time');
 });
+test('A busy answer waits briefly and tries again before any error',async()=>{
+ const calls=[];
+ const request=async url=>{calls.push(url);return calls.length===1?new Response('',{status:429,headers:{'Retry-After':'1'}}):reply(chapter(5));};
+ const started=Date.now(),done=await bollsChapter('OBA',1,request);
+ assert.equal(calls.length,2);assert.equal(done.verses.length,5);assert.ok(Date.now()-started>=900);
+ let tries=0;
+ await assert.rejects(bollsChapter('PHM',1,async()=>{tries++;return new Response('',{status:429,headers:{'Retry-After':'0.1'}});}),/429/);
+ assert.equal(tries,2);
+});
