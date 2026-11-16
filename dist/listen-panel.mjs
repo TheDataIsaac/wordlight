@@ -28,12 +28,15 @@ async function startCapture(){
  const source=context.createMediaStreamSource(media),node=new AudioWorkletNode(context,'listen-capture'),mute=context.createGain();
  mute.gain.value=0;source.connect(node);node.connect(mute);mute.connect(context.destination);
  const pending=new Float32Array(CHUNK),waiting=[];let filled=0,sending=false;
+ // This capture's own identity: once it is stopped (or replaced by a new Start), its waiting sound is dropped and a
+ // late answer to one of its requests cannot stop the newer capture.
+ const self={media,context};
  async function send(){
   if(sending)return;sending=true;
-  while(waiting.length){
+  while(waiting.length&&capture===self){
    const body=waiting.shift();
    // A time limit, so one stuck request cannot hold up the sound that follows it.
-   try{const r=await fetch('/api/listen/audio',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body,signal:AbortSignal.timeout(5000)});if(r.status===409){stopCapture();break;}}catch{}
+   try{const r=await fetch('/api/listen/audio',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body,signal:AbortSignal.timeout(5000)});if(r.status===409){if(capture===self)stopCapture();break;}}catch{}
   }
   sending=false;
  }
@@ -51,7 +54,7 @@ async function startCapture(){
    }
   }
  };
- capture={media,context};
+ capture=self;
 }
 function stopCapture(){
  if(!capture)return;

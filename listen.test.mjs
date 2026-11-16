@@ -204,3 +204,50 @@ test('A speech process that dies is started again, a few times; one that never s
  assert.equal(downloader.state().installed,false);
  await rm(dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});
 });
+
+test('Listening lifecycle: Stop during a restart, the quiet stop, a quick Stop and Start, and Remove during a restart',async()=>{
+ const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-listen-'));
+ await mkdir(path.join(dataDir,'listen','model'),{recursive:true});
+ await writeFile(path.join(dataDir,'listen','model','tokens.txt'),'');
+ await writeFile(path.join(dataDir,'listen','installed.json'),'{"version":1}');
+ // steady: runs until its connection closes. dies: runs for 150 ms, then crashes.
+ const steady=path.join(dataDir,'steady.mjs'),dies=path.join(dataDir,'dies.mjs');
+ await writeFile(steady,"process.send({type:'ready'});process.on('message',m=>{if(m.type==='audio')process.send({type:'ack'});});process.on('disconnect',()=>process.exit(0));");
+ await writeFile(dies,"process.send({type:'ready'});setTimeout(()=>process.exit(1),150);");
+ const make=(workerFile,options={})=>createListener({dataDir,search:null,workerFile,workerArgs:[],freeMemory:()=>8e9,...options});
+ const listeners=[];const use=l=>{listeners.push(l);return l;};
+ try{
+  // Stop while waiting to start again: nothing starts afterwards.
+  let l=use(make(dies,{restartDelays:[300]}));
+  l.start();assert.ok(await until(()=>l.state().restarting),'it died and waits to start again');
+  l.stop();
+  assert.deepEqual([l.state().listening,l.state().restarting],[false,false]);
+  await wait(500);assert.equal(l.state().listening,false,'and nothing started later');
+  // The quiet stop: audio keeps listening on; when the studio stops sending, listening ends, without an error.
+  l=use(make(steady,{quietMs:300}));
+  l.start();assert.ok(await until(()=>l.state().ready));
+  for(let i=0;i<6;i++){l.audio(Buffer.alloc(8000));await wait(100);}
+  assert.equal(l.state().listening,true,'audio keeps it on');
+  assert.ok(await until(()=>!l.state().listening,1500),'silence stops it');
+  assert.equal(l.state().error,'');
+  // The quiet stop also ends a pending restart.
+  l=use(make(dies,{restartDelays:[800],quietMs:300}));
+  l.start();assert.ok(await until(()=>l.state().restarting));
+  assert.ok(await until(()=>!l.state().listening,1500),'the studio is gone, so it stops');
+  await wait(900);assert.equal(l.state().listening,false,'and the restart never happens');
+  // A quick Stop and Start: the old process ending does not touch the new one.
+  l=use(make(steady));
+  l.start();assert.ok(await until(()=>l.state().ready));
+  l.stop();l.start();
+  assert.ok(await until(()=>l.state().ready),'the new one runs');
+  await wait(300);assert.deepEqual([l.state().listening,l.state().ready,l.state().error],[true,true,'']);
+  l.stop();
+  // Remove while waiting to start again: everything stops and listening needs downloading again.
+  l=use(make(dies,{restartDelays:[300]}));
+  l.start();assert.ok(await until(()=>l.state().restarting));
+  await l.remove();
+  assert.deepEqual([l.state().listening,l.state().restarting,l.state().installed],[false,false,false]);
+  await wait(400);assert.equal(l.state().listening,false);
+  assert.throws(()=>l.start(),/Download verse listening first/);
+ }finally{for(const l of listeners)l.stop();await rm(dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});

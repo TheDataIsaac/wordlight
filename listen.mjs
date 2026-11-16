@@ -50,9 +50,10 @@ const RESTART_DELAYS=[5000,30000,120000],RESTART_WINDOW_MS=10*60000,RESTART_FREE
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 
 // workerFile and workerArgs let tests stand in for the speech process.
-// restartDelays, restartWaitMs and freeMemory let tests run restarts quickly and pretend memory is short.
+// restartDelays, restartWaitMs, quietMs and freeMemory let tests run restarts and the quiet stop quickly, and pretend
+// memory is short.
 export function createListener({dataDir,search,notify=()=>{},request=fetch,downloads=LISTEN_DOWNLOADS,workerFile=fileURLToPath(new URL('./listen-worker.mjs',import.meta.url)),workerArgs=null,
- restartDelays=RESTART_DELAYS,restartWaitMs=RESTART_WAIT_MS,freeMemory=os.freemem}){
+ restartDelays=RESTART_DELAYS,restartWaitMs=RESTART_WAIT_MS,quietMs=QUIET_STOP_MS,freeMemory=os.freemem}){
  const folder=path.join(dataDir,'listen'),marker=path.join(folder,'installed.json');
  let installing=null,progress=null,error='',worker=null,ready=false,behind=0,skipped=false,quietTimer=null,startedAt=0;
  let restartTimer=null,restarts=[],ranOnce=false;
@@ -175,7 +176,7 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
   partial='';changed();return state();
  }
  // The studio sends audio while it listens. If it stops (closed, refreshed), listening stops after a short while.
- function quiet(){clearTimeout(quietTimer);quietTimer=setTimeout(stop,QUIET_STOP_MS);quietTimer.unref?.();}
+ function quiet(){clearTimeout(quietTimer);quietTimer=setTimeout(stop,quietMs);quietTimer.unref?.();}
  function audio(buffer){
   if(!worker&&!restartTimer)throw fail(409,'Listening is off.');
   quiet();
