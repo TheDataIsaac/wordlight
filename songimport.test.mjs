@@ -123,3 +123,21 @@ test('EasyWorship words (RTF) become sections and slides; accents and Unicode le
  assert.deepEqual(sections(song),[['Verse 1',['First line café\nSecond ẹline']],['Chorus',['Chorus words']]]);
  assert.deepEqual([song.meta.author,song.meta.ccli],['Ann Writer, Ben Composer','1234']);
 });
+
+test('ProPresenter 6 files: groups become sections, RTF or plain text slides are read, and the arrangement is kept',()=>{
+ const b64=s=>Buffer.from(s,'utf8').toString('base64');
+ const slide=inner=>'<RVDisplaySlide uuid="s"><array rvXMLIvarName="displayElements"><RVTextElement displayName="Text">'+inner+'</RVTextElement></array></RVDisplaySlide>';
+ const xml=`<?xml version="1.0" encoding="utf-8"?>
+<RVPresentationDocument CCLISongTitle="Bright Morning" CCLIAuthor="Ann Writer" CCLICopyrightYear="2018" CCLIPublisher="Sample Music" CCLISongNumber="987654" versionNumber="600">
+ <array rvXMLIvarName="groups">
+  <RVSlideGrouping name="Verse 1" uuid="g1"><array rvXMLIvarName="slides">${slide('<NSString rvXMLIvarName="RTFData">'+b64(String.raw`{\rtf1\ansi First line caf\'e9\par Second line}`)+'</NSString>')}${slide('<NSString rvXMLIvarName="PlainText">'+b64('Third line\nFourth line')+'</NSString>')}</array></RVSlideGrouping>
+  <RVSlideGrouping name="Chorus" uuid="g2"><array rvXMLIvarName="slides">${slide('<NSString rvXMLIvarName="RTFData">'+b64(String.raw`{\rtf1 Chorus line}`)+'</NSString>')}</array></RVSlideGrouping>
+ </array>
+ <array rvXMLIvarName="arrangements"><RVSongArrangement name="Main" uuid="a1"><array rvXMLIvarName="groupIDs"><NSString>g1</NSString><NSString>g2</NSString><NSString>g2</NSString></array></RVSongArrangement></array>
+</RVPresentationDocument>`;
+ const song=songFromImportedFile('Bright Morning.pro6',xml);
+ assert.equal(song.title,'Bright Morning');
+ assert.deepEqual(sections(song),[['Verse 1',['First line café\nSecond line','Third line\nFourth line']],['Chorus',['Chorus line']]]);
+ assert.equal(order(song),'Verse 1, Chorus, Chorus');
+ assert.deepEqual([song.meta.author,song.meta.copyright,song.meta.ccli],['Ann Writer','2018 Sample Music','987654']);
+});

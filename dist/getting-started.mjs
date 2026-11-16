@@ -25,7 +25,7 @@ async function check(){
    action:'goto-bible',label:'Bible tab',warn:failed.length>0},
   {key:'projector',done:viewers.projector>0,title:'Projector',detail:viewers.projector>0?'The projector window is open.':'Connect the projector, press Windows+P and choose Extend, then click Present.',action:'present',label:'Present'},
   {key:'obs',done:(viewers.output||0)+(viewers.lower||0)+(viewers.graphics||0)>0,title:'OBS (for streaming)',detail:(viewers.output||0)+(viewers.lower||0)>0?'OBS is showing Wordlight.':'Add Wordlight to OBS as a Browser source. OBS & screens gives the addresses.',action:'help',label:'OBS & screens'},
-  {key:'songs',done:(songs?.native||0)>0,title:'Your songs',detail:songs?.native?songs.native+' songs in the library.':'Import the songs you already have: EasyWorship, SongSelect, OpenLyrics (OpenLP), ChordPro or plain text, many at once.',action:'song-import',label:'Import songs'},
+  {key:'songs',done:(songs?.native||0)>0,title:'Your songs',detail:songs?.native?songs.native+' songs in the library.':'Import the songs you already have: EasyWorship, ProPresenter 6, SongSelect, OpenLyrics (OpenLP), ChordPro or plain text, many at once.',action:'song-import',label:'Import songs'},
   {key:'remote',done:!!remote?.enabled,optional:true,title:'Phone remote (optional)',detail:remote?.enabled?'On: a phone can look up verses and move slides.':'Let a phone on the church Wi-Fi look up verses and move slides.',action:'phone-remote',label:'Phone remote'},
  ];
  // Ticks stay: a step done once counts as done after that.

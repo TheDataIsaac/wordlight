@@ -4,11 +4,12 @@
 //   ChordPro (.cho, .chordpro, .chopro, .pro), with the chords taken out
 //   plain text, where a blank line starts a new slide and [Verse 1] lines name sections
 //   EasyWorship 6 and 7 (its Songs.db and SongWords.db, read by the companion; the words are RTF)
+//   ProPresenter 6 and 5 (.pro6 and .pro5, XML; ProPresenter 7's binary .pro is not read)
 // Each becomes Wordlight's own lyric text and goes through the song editor (editSong), so an imported song follows the
 // same rules as one typed in. Nothing here touches the network or the disk.
 import {newSong,editSong} from './songs.mjs';
 
-export const SONG_IMPORT_EXTENSIONS=['.usr','.txt','.xml','.cho','.chordpro','.chopro','.pro'];
+export const SONG_IMPORT_EXTENSIONS=['.usr','.txt','.xml','.cho','.chordpro','.chopro','.pro','.pro6','.pro5'];
 const OPENLYRICS_LABELS={v:'Verse',c:'Chorus',b:'Bridge',p:'Pre-Chorus',e:'Ending',i:'Intro',o:'Other',t:'Tag'};
 // Section headings as SongSelect and most lyric sheets write them: "Verse 1", "Chorus", "Pre-Chorus 2", "Tag".
 const HEADING=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda|slide)(\s*\d+)?\s*:?\s*$/i;
@@ -183,10 +184,36 @@ export function fromEasyWorship({title,author,copyright,ccli,words}){
  return songFrom({title,meta:{author:String(author||'').split(/\s*[\/;]\s*/).filter(Boolean).join(', '),copyright:copyright||'',ccli:String(ccli||'').replace(/\D/g,'')},sections:readHeaded(text)});
 }
 
+// ProPresenter 6 (and 5): XML. Each group (named "Verse 1", "Chorus"…) holds slides, and each slide's words are in its
+// text element as base64, either plain text or RTF. A saved arrangement, if there is one, gives the order sung.
+const base64Text=s=>new TextDecoder('utf-8').decode(Uint8Array.from(atob(String(s).replace(/\s+/g,'')),c=>c.charCodeAt(0)));
+const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="([^"]*)"','i').exec(tag);return m?decode(m[1]):'';};
+function slideWords(slide){
+ const element=/<RVTextElement\b[^>]*>[\s\S]*?<\/RVTextElement>|<RVTextElement\b[^>]*\/>/i.exec(slide)?.[0];if(!element)return '';
+ const field=name=>(new RegExp('<NSString[^>]*rvXMLIvarName="'+name+'"[^>]*>([^<]*)<','i').exec(element)||[])[1]||attribute(element.match(/<RVTextElement\b[^>]*>/i)?.[0]||'',name);
+ try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Text(rtf)):'';}catch{return '';}
+}
+export function fromProPresenter6(xml,fallbackTitle=''){
+ const root=/<RVPresentationDocument\b[^>]*>/i.exec(xml)?.[0];
+ if(!root)throw new Error('This is not a ProPresenter 6 file.');
+ const sections=[],byId=new Map();
+ for(const g of xml.matchAll(/<RVSlideGrouping\b([^>]*)>([\s\S]*?)<\/RVSlideGrouping>/gi)){
+  const slides=[...g[2].matchAll(/<RVDisplaySlide\b[^>]*>([\s\S]*?)<\/RVDisplaySlide>/gi)].map(s=>slideWords(s[1])).filter(Boolean);
+  const name=attribute('<x'+g[1]+'>','name').trim();
+  const section={label:HEADING.test(name)?tidyHeading(name):name||'Verse '+(sections.length+1),slides};
+  sections.push(section);byId.set(attribute('<x'+g[1]+'>','uuid'),section);
+ }
+ const arrangement=/<RVSongArrangement\b[^>]*>([\s\S]*?)<\/RVSongArrangement>/i.exec(xml)?.[1]||'';
+ const order=[...arrangement.matchAll(/<NSString[^>]*>([^<]+)<\/NSString>/gi)].map(m=>byId.get(m[1].trim())?.label).filter(Boolean);
+ const copyright=attribute(root,'CCLICopyrightInfo')||[attribute(root,'CCLICopyrightYear'),attribute(root,'CCLIPublisher')].filter(Boolean).join(' ');
+ return songFrom({title:attribute(root,'CCLISongTitle')||fallbackTitle,meta:{author:attribute(root,'CCLIAuthor')||attribute(root,'CCLIArtistCredits'),copyright,ccli:attribute(root,'CCLISongNumber').replace(/\D/g,'')},sections,order});
+}
+
 // Picks the reader by file name and content. Returns a Wordlight song, or throws with a reason the operator can read.
 export function songFromImportedFile(name,text){
  const lower=String(name).toLowerCase(),base=String(name).replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim();
  if(lower.endsWith('.usr')||/^Type=SongSelect Import File/mi.test(text))return fromSongSelectUsr(text);
+ if(/\.pro[56]$/.test(lower)||/<RVPresentationDocument\b/i.test(text))return fromProPresenter6(text,base);
  if(lower.endsWith('.xml')||/<song[^>]+openlyrics/i.test(text))return fromOpenLyrics(text);
  // .pro is ChordPro's extension and also ProPresenter's, so a .pro file must look like ChordPro to be read as it.
  if(lower.endsWith('.pro')&&!CHORDPRO.test(text))throw new Error('this .pro file is not ChordPro (ProPresenter files cannot be read yet: export the song from ProPresenter as text)');
