@@ -52,7 +52,7 @@ export function fromSongSelectText(text){
  const body=footerAt>=0?lines.slice(0,footerAt):lines,footer=footerAt>=0?lines.slice(footerAt).map(l=>l.trim()).filter(Boolean):[];
  const titleAt=body.findIndex(l=>l.trim());
  const sections=readHeaded(body.slice(titleAt+1).join('\n'));
- const author=footer.find((l,i)=>i>0&&!/^©|^\(c\)|^for use|^ccli|^all rights|^www\./i.test(l))||'';
+ const author=(footer.find((l,i)=>i>0&&!/^©|^\(c\)|^for use|^ccli|^all rights|^www\./i.test(l))||'').replace(/\s*\|\s*/g,', ');
  return songFrom({title:body[titleAt]?.trim(),meta:{author,copyright:(footer.find(l=>/^©|^\(c\)/i.test(l))||'').replace(/^©\s*|^\(c\)\s*/i,''),ccli:(/CCLI Song #\s*(\d+)/i.exec(text)||[])[1]||''},sections});
 }
 // Text with heading lines ("Verse 1", "Chorus") or [Verse 1] markers. Paragraphs under a heading are its slides; text
@@ -72,15 +72,18 @@ function readHeaded(text){
 // OpenLyrics XML. Read with patterns, not a full XML parser: only the parts below are used, and anything else (chords,
 // comments, formatting tags) is dropped. Each <lines> is a slide; v1a and v1b are two parts of Verse 1.
 const ENTITIES={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"};
-const decode=s=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,(_,e)=>e[0]==='#'?String.fromCodePoint(e[1].toLowerCase()==='x'?parseInt(e.slice(2),16):Number(e.slice(1))):ENTITIES[e.toLowerCase()]);
+const codePoint=n=>n>=0&&n<=0x10ffff?String.fromCodePoint(n):'';
+const decode=s=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,(_,e)=>e[0]==='#'?codePoint(e[1].toLowerCase()==='x'?parseInt(e.slice(2),16):Number(e.slice(1))):ENTITIES[e.toLowerCase()]);
 const xmlText=s=>decode(String(s).replace(/<!--[\s\S]*?-->/g,'').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,'')).split('\n').map(l=>l.trim()).filter(Boolean).join('\n');
 const first=(xml,tag)=>{const m=new RegExp('<'+tag+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+tag+'>','i').exec(xml);return m?xmlText(m[1]):'';};
+// Chords are for musicians, not the screen: OpenLyrics 0.9 <chord name="D"/> marks, and OpenLP's own [D] chord tags.
+const withoutChords=s=>String(s).replace(/<chord\b[^>]*\/>/gi,'').replace(/<tag\b[^>]*>\s*\[[^\]<]{1,15}\]\s*<\/tag>/gi,'');
 export function fromOpenLyrics(xml){
  if(!/<song[\s>]/i.test(xml))throw new Error('This is not an OpenLyrics song.');
  const labelFor=name=>{const m=/^([a-z])(\d*)([a-z]?)$/i.exec(name);if(!m)return name;return (OPENLYRICS_LABELS[m[1].toLowerCase()]||'Verse')+(m[2]?' '+m[2]:'');};
  const sections=[],byLabel=new Map();
  for(const m of xml.matchAll(/<verse\s[^>]*name="([^"]+)"[^>]*>([\s\S]*?)<\/verse>/gi)){
-  const label=labelFor(m[1]),slides=[...m[2].matchAll(/<lines(?:\s[^>]*)?>([\s\S]*?)<\/lines>/gi)].map(l=>xmlText(l[1])).filter(Boolean);
+  const label=labelFor(m[1]),slides=[...m[2].matchAll(/<lines(?:\s[^>]*)?>([\s\S]*?)<\/lines>/gi)].map(l=>xmlText(withoutChords(l[1]))).filter(Boolean);
   if(byLabel.has(label))byLabel.get(label).slides.push(...slides);else{const s={label,slides};byLabel.set(label,s);sections.push(s);}
  }
  // v1a v1b (two parts of Verse 1) become one entry; a part written twice, such as c c, is sung twice.
@@ -90,11 +93,12 @@ export function fromOpenLyrics(xml){
 }
 
 // ChordPro: {title: …} and other directives, [G] chords inside the words, and {start_of_chorus} … {end_of_chorus}
-// blocks. {comment: Verse 2} names the next section, as most ChordPro sheets use it.
+// blocks. {comment: Verse 2} names the next section, as most ChordPro sheets use it; {comment: Chorus} once a chorus
+// was written out means "sing the chorus here", so it goes into the order sung instead of naming the next verse.
 export function fromChordPro(text,fallbackTitle=''){
- const meta={},sections=[];let title='',current=null,buffer=[];
- const close=()=>{const slides=paragraphs(buffer.join('\n'));buffer=[];if(!slides.length)return;if(!current){current={label:'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1),slides:[]};sections.push(current);}current.slides.push(...slides);};
- const start=label=>{close();current={label,slides:[],named:true};sections.push(current);};
+ const meta={},sections=[],order=[];let title='',current=null,buffer=[];
+ const close=()=>{const slides=paragraphs(buffer.join('\n'));buffer=[];if(!slides.length)return;if(!current){current={label:'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1),slides:[]};sections.push(current);order.push(current);}current.slides.push(...slides);};
+ const start=label=>{close();current={label,slides:[],named:true};sections.push(current);order.push(current);};
  for(const raw of String(text).replace(/\r/g,'').split('\n')){
   const line=raw.trim();
   if(line.startsWith('#'))continue;
@@ -109,7 +113,10 @@ export function fromChordPro(text,fallbackTitle=''){
    else if(key==='start_of_bridge'||key==='sob')start(value||'Bridge');
    else if(key==='start_of_verse'||key==='sov')start(value||'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1));
    else if(/^end_of_|^eo[cvb]$/.test(key)){close();current=null;}
-   else if(['comment','c','ci','comment_italic','cb'].includes(key)&&HEADING.test(value))start(tidyHeading(value));
+   else if(['comment','c','ci','comment_italic','cb'].includes(key)&&HEADING.test(value)){
+    const label=tidyHeading(value),again=sections.find(s=>s.label.toLowerCase()===label.toLowerCase()&&s.slides.length);
+    if(again){close();current=null;order.push(again);}else start(label);
+   }
    continue;
   }
   // A blank line ends a paragraph; outside a named block, the next paragraph is a new verse.
@@ -117,7 +124,7 @@ export function fromChordPro(text,fallbackTitle=''){
   buffer.push(raw.replace(/\[[^\]]*\]/g,'').replace(/\s{2,}/g,' ').trim());
  }
  close();
- return songFrom({title:title||fallbackTitle,meta,sections});
+ return songFrom({title:title||fallbackTitle,meta,sections,order});
 }
 
 // Plain lyrics: headed sections if it has headings or [markers], otherwise one verse with a slide per paragraph.
