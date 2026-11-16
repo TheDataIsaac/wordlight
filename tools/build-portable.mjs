@@ -61,8 +61,19 @@ files[top+'README.txt']=Buffer.from(`Wordlight · Church Media ${version} (build
 
 Start:  double-click "Start Wordlight". It starts Wordlight in the background and opens it in a window.
         Double-click it again at any time: it opens the running Wordlight instead of starting a second one.
+        If Wordlight stops unexpectedly, it is started again by itself within a few seconds.
 Stop:   double-click "Stop Wordlight". Closing the Wordlight window does not stop it, so OBS outputs keep working.
 Start with Windows (optional): double-click "Start with Windows" to turn it on or off.
+
+First time:
+  1. Bible: the Bible tab looks up references (John 3:16, john 3 16) or the words of a verse.
+  2. Projector: connect it, set Windows to Extend (Windows+P), then click Present in Wordlight.
+  3. Phone remote (optional): Phone remote, set a password, Turn on, and scan the code with a phone on the same Wi-Fi.
+  4. Stage display (optional): Stage shows the address for a screen facing the singers or the preacher.
+
+Updates: Settings, Updates says when a newer version is out. Download update, then Restart now and install
+between services. The previous version is kept, so Go back undoes it. Your shows are never moved.
+Logs, if something goes wrong: %LOCALAPPDATA%\\Wordlight\\data\\logs
 
 OBS addresses:  full screen  http://127.0.0.1:18765/?view=output&obs=1
                 lower third  http://127.0.0.1:18765/?view=lower&obs=1

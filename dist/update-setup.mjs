@@ -9,6 +9,8 @@ async function call(path,body){
  if(!r.ok)throw new Error(data.error||'The companion did not accept that.');
  return data;
 }
+// After going back, the version kept beside this one is the newer one.
+const newerThan=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true})>0;
 const when=ms=>ms?new Date(ms).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'}):'';
 
 function markup(){
@@ -24,7 +26,7 @@ function markup(){
  if(s.downloadError)rows.push('<p class="small-note status-error">'+e(s.downloadError)+'</p>');
  if(note)rows.push('<p class="small-note">'+e(note)+'</p>');
  rows.push('<div class="remote-actions"><button class="button" data-update="check"'+(working?' disabled':'')+'>Check now</button>'+
-  (s.previous&&s.isPackage?'<button class="button" data-update="back">Go back to '+e(s.previous.version)+'</button>':'')+'</div>');
+  (s.previous&&s.isPackage?'<button class="button" data-update="back">'+(newerThan(s.previous.version,s.version)?'Use '+e(s.previous.version)+' again':'Go back to '+e(s.previous.version))+'</button>':'')+'</div>');
  if(s.isPackage)rows.push('<p class="small-note">Wordlight checks GitHub for a newer version once a day. It never installs one by itself. Your shows and settings stay where they are, and a copy of them is made before each update.</p>');
  return rows.join('');
 }
@@ -38,7 +40,7 @@ function markButton(){
 
 async function act(action){
  if(action==='restart'&&!confirm('Restart Wordlight now and install version '+state.ready.version+'?\n\nScreens and OBS keep their last slide and reconnect in about 10 seconds. Do not do this during a service.'))return;
- if(action==='back'&&!confirm('Go back to version '+state.previous.version+'? Wordlight restarts (about 10 seconds). Your shows are kept.'))return;
+ if(action==='back'&&!confirm('Switch to version '+state.previous.version+'? Wordlight restarts (about 10 seconds). Your shows are kept.'))return;
  working=true;note=action==='download'?'Downloading… this can take a minute on a slow connection.':action==='check'?'Checking…':'Restarting… this page reconnects by itself.';paint();
  try{
   const answer=await call('/api/update/'+action,{});
