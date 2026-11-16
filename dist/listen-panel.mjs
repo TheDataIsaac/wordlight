@@ -14,7 +14,9 @@ async function call(path,body){
 function follow(){
  if(events)return;
  events=new EventSource('/api/listen/events');
- events.onmessage=ev=>{try{state=JSON.parse(ev.data);}catch{return;}paintBar();paintDialog();if(!state.listening&&capture)stopCapture();};
+ // When listening stops by itself, the operator is told why.
+ events.onmessage=ev=>{const was=state?.listening;try{state=JSON.parse(ev.data);}catch{return;}paintBar();paintDialog();
+  if(!state.listening&&capture)stopCapture();if(was&&!state.listening&&state.error)toast(state.error);};
 }
 
 // ---- Capture: the chosen input at 16 kHz, a quarter of a second at a time, as 16-bit samples ----
@@ -30,7 +32,8 @@ async function startCapture(){
   if(sending)return;sending=true;
   while(waiting.length){
    const body=waiting.shift();
-   try{const r=await fetch('/api/listen/audio',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body});if(r.status===409){stopCapture();break;}}catch{}
+   // A time limit, so one stuck request cannot hold up the sound that follows it.
+   try{const r=await fetch('/api/listen/audio',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body,signal:AbortSignal.timeout(5000)});if(r.status===409){stopCapture();break;}}catch{}
   }
   sending=false;
  }
@@ -72,10 +75,10 @@ const toast=text=>hooks.toast?.(text);
 export function paintBar(){
  const bar=document.getElementById('listenBar');if(!bar)return;
  const items=state?.suggestions||[];
- if(!state||(!state.listening&&!items.length)){bar.hidden=true;bar.innerHTML='';bar.dataset.look='';return;}
+ if(!state||(!state.listening&&!items.length&&!state.error)){bar.hidden=true;bar.innerHTML='';bar.dataset.look='';return;}
  bar.hidden=false;
  const last=state.partial||state.phrases?.at(-1)?.text||'';
- const heard=state.listening?(state.ready?last||'Listening…':'Starting the speech model…'):'Listening is off';
+ const heard=state.listening?(state.ready?last||'Listening…':'Starting the speech model…'):state.error||'Listening is off';
  const look=JSON.stringify([state.listening,state.skipped,items.map(s=>[s.id,s.confidence])]);
  if(bar.dataset.look!==look||!bar.querySelector('.listen-heard')){
   bar.dataset.look=look;

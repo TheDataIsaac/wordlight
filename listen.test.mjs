@@ -157,7 +157,7 @@ test('A reference split by a pause is still found',async()=>{
  }finally{await rm(dataDir,{recursive:true,force:true});}
 });
 
-test('A speech process that loses its connection, or a download that breaks off, stops listening without stopping Wordlight',async()=>{
+test('A speech process that dies is started again, a few times; one that never starts, or a download that breaks off, stops without stopping Wordlight',async()=>{
  const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-listen-'));
  await mkdir(path.join(dataDir,'listen','model'),{recursive:true});
  await writeFile(path.join(dataDir,'listen','model','tokens.txt'),'');
@@ -170,10 +170,23 @@ test('A speech process that loses its connection, or a download that breaks off,
   listener.start();
   assert.ok(await until(()=>listener.state().ready));
   await wait(300);
-  for(let i=0;i<5;i++){try{listener.audio(Buffer.alloc(8000));}catch(err){assert.match(err.message,/Listening is off/);}}
-  assert.ok(await until(()=>!listener.state().listening),'listening ends');
-  assert.match(listener.state().error,/stopped unexpectedly/);
+  assert.equal(listener.state().listening,true,'still listening while the speech process starts again');
+  assert.deepEqual(listener.audio(Buffer.alloc(8000)),{ok:true},'audio is taken (and dropped) meanwhile');
+  assert.ok(await until(()=>listener.state().ready),'and it is running again');
+  // It keeps dying: after three restarts listening is left off, with the reason.
+  assert.ok(await until(()=>!listener.state().listening,8000),'listening ends');
+  assert.match(listener.state().error,/stopped 4 times.*short of memory/);
+  assert.throws(()=>listener.audio(Buffer.alloc(8000)),/Listening is off/);
  }finally{listener.stop();}
+ // One that drops before it was ever ready is not started again.
+ const early=path.join(dataDir,'early.mjs');
+ await writeFile(early,"setTimeout(()=>process.disconnect(),100);setTimeout(()=>{},1000);");
+ const never=createListener({dataDir,search:null,workerFile:early,workerArgs:[]});
+ try{
+  never.start();
+  assert.ok(await until(()=>!never.state().listening),'listening ends');
+  assert.match(never.state().error,/stopped unexpectedly/);
+ }finally{never.stop();}
  // A download whose connection breaks partway.
  const broken={what:'the model',url:'http://127.0.0.1:9/model.tgz',size:1000,sha256:'0'.repeat(64),into:'model'};
  const request=async()=>({ok:true,status:200,body:new ReadableStream({start(c){c.enqueue(new Uint8Array(10));c.error(new Error('connection reset'));}})});

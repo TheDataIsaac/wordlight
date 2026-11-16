@@ -42,17 +42,21 @@ export function sharedWords(heard,verse){
  return [...keys(heard)].filter(k=>inVerse.has(k)).length;
 }
 const QUOTE_WORDS=24,KEEP_PHRASES=12,KEEP_SUGGESTIONS=8,SAME_VERSE_MS=90000,QUIET_STOP_MS=20000,MAX_BEHIND=12;
+// A speech process that was running and then dies (Windows ends it when the computer runs out of memory) is started
+// again after RESTART_MS, up to MAX_RESTARTS times in RESTART_WINDOW_MS; after that listening stays off with a reason.
+const RESTART_MS=1000,MAX_RESTARTS=3,RESTART_WINDOW_MS=10*60000;
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 
 // workerFile and workerArgs let tests stand in for the speech process.
 export function createListener({dataDir,search,notify=()=>{},request=fetch,downloads=LISTEN_DOWNLOADS,workerFile=fileURLToPath(new URL('./listen-worker.mjs',import.meta.url)),workerArgs=null}){
  const folder=path.join(dataDir,'listen'),marker=path.join(folder,'installed.json');
  let installing=null,progress=null,error='',worker=null,ready=false,behind=0,skipped=false,quietTimer=null,startedAt=0;
+ let restartTimer=null,restarts=[],ranOnce=false;
  let phrases=[],partial='',suggestions=[],context={},heard=0;
 
  const installed=()=>existsSync(marker)&&existsSync(path.join(folder,'model','tokens.txt'));
  function state(){
-  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker,ready,skipped,
+  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker||!!restartTimer,ready,skipped,
    downloadMB:Math.round(downloads.reduce((n,d)=>n+d.size,0)/1e6),phrases:phrases.slice(-KEEP_PHRASES),partial,suggestions};
  }
  const changed=()=>notify(state());
@@ -117,34 +121,52 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
 
  function start(){
   if(!installed())throw fail(409,'Download verse listening first.');
-  if(worker)return state();
+  if(worker||restartTimer)return state();
+  restarts=[];ranOnce=false;error='';
+  launch();quiet();changed();
+  return state();
+ }
+ function launch(){
   const args=workerArgs||[path.join(folder,'engine'),path.join(folder,'model'),'1'];
   worker=fork(workerFile,args,{serialization:'advanced',stdio:['ignore','ignore','pipe','ipc'],windowsHide:true});
-  ready=false;behind=0;skipped=false;error='';startedAt=Date.now();
+  ready=false;behind=0;skipped=false;partial='';startedAt=Date.now();
   // Below normal, so OBS and the screen always come first; when the computer is busy the words arrive a little later.
   try{os.setPriority(worker.pid,os.constants.priority.PRIORITY_BELOW_NORMAL);}catch{}
   const mine=worker;
   mine.stderr?.on('data',()=>{});
   mine.on('message',message=>{if(worker===mine)receive(message);});
-  // However the speech process ends (exit, lost connection, failure to start), listening stops cleanly; nothing it
-  // does can stop the companion.
-  const ended=message=>{if(worker!==mine)return;worker=null;ready=false;clearTimeout(quietTimer);if(message&&!error)error=message;try{mine.kill();}catch{}changed();};
+  // However the speech process ends (exit, lost connection, failure to start), nothing it does can stop the companion.
+  // Once listening has worked this session, a process that dies is started again (see RESTART_MS) while the studio
+  // keeps sending audio; the quiet timer still stops everything if the studio goes away. Otherwise listening stops.
+  const ended=message=>{
+   if(worker!==mine)return;
+   worker=null;ready=false;try{mine.kill();}catch{}
+   const now=Date.now();restarts=restarts.filter(t=>now-t<RESTART_WINDOW_MS);
+   if(message&&ranOnce&&restarts.length<MAX_RESTARTS){
+    restarts.push(now);
+    restartTimer=setTimeout(()=>{restartTimer=null;launch();changed();},RESTART_MS);restartTimer.unref?.();
+   }else{
+    clearTimeout(quietTimer);
+    if(message&&!error)error=ranOnce?'Listening stopped '+(MAX_RESTARTS+1)+' times in a few minutes, so it was left off. The computer may be short of memory: close other programs, then start it again.':message;
+   }
+   changed();
+  };
   mine.on('exit',code=>ended(code?'Listening stopped unexpectedly. Start it again.':''));
   mine.on('disconnect',()=>ended('Listening stopped unexpectedly. Start it again.'));
   mine.on('error',()=>ended('The speech process could not run. Start listening again.'));
-  quiet();changed();
-  return state();
  }
  function stop(){
-  clearTimeout(quietTimer);
+  clearTimeout(quietTimer);clearTimeout(restartTimer);restartTimer=null;
   if(worker){const w=worker;worker=null;ready=false;w.kill();}
   partial='';changed();return state();
  }
  // The studio sends audio while it listens. If it stops (closed, refreshed), listening stops after a short while.
  function quiet(){clearTimeout(quietTimer);quietTimer=setTimeout(stop,QUIET_STOP_MS);quietTimer.unref?.();}
  function audio(buffer){
-  if(!worker)throw fail(409,'Listening is off.');
+  if(!worker&&!restartTimer)throw fail(409,'Listening is off.');
   quiet();
+  // While the speech process starts again, audio is dropped.
+  if(!worker)return {ok:true};
   if(!ready)return {ok:true};
   // If recognition falls more than about 3 s behind, new audio is skipped rather than queued, so it catches up.
   if(behind>=MAX_BEHIND){if(!skipped){skipped=true;changed();}return {ok:true,skipped:true};}
@@ -154,7 +176,7 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
   return {ok:true};
  }
  function receive(message){
-  if(message.type==='ready'){ready=true;changed();return;}
+  if(message.type==='ready'){ready=true;ranOnce=true;changed();return;}
   if(message.type==='ack'){behind=Math.max(0,behind-1);if(skipped&&behind===0){skipped=false;changed();}return;}
   if(message.type==='error'){error=message.message;changed();return;}
   if(message.type==='partial'){partial=message.text;changed();return;}
@@ -190,7 +212,7 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
   suggestions.unshift({id:item.at.toString(36)+'-'+suggestions.length,...item});
   suggestions=suggestions.slice(0,KEEP_SUGGESTIONS);
  }
- function clear(){suggestions=[];phrases=[];partial='';context={};changed();return state();}
+ function clear(){suggestions=[];phrases=[];partial='';context={};error='';changed();return state();}
  return {state,install,remove,start,stop,audio,clear,
   // For tests and the studio: feed words as if they were heard.
   hear:text=>hear(text).then(state)};
