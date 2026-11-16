@@ -80,7 +80,8 @@ export function fromOpenLyrics(xml){
   const label=labelFor(m[1]),slides=[...m[2].matchAll(/<lines(?:\s[^>]*)?>([\s\S]*?)<\/lines>/gi)].map(l=>xmlText(l[1])).filter(Boolean);
   if(byLabel.has(label))byLabel.get(label).slides.push(...slides);else{const s={label,slides};byLabel.set(label,s);sections.push(s);}
  }
- const order=first(xml,'verseOrder').split(/\s+/).filter(Boolean).map(labelFor).filter((l,i,all)=>l!==all[i-1]);
+ // v1a v1b (two parts of Verse 1) become one entry; a part written twice, such as c c, is sung twice.
+ const tokens=first(xml,'verseOrder').split(/\s+/).filter(Boolean),order=tokens.map(labelFor).filter((l,i)=>!(i&&l===labelFor(tokens[i-1])&&tokens[i]!==tokens[i-1]));
  const authors=[...xml.matchAll(/<author(?:\s[^>]*)?>([\s\S]*?)<\/author>/gi)].map(m=>xmlText(m[1])).filter(Boolean).join(', ');
  return songFrom({title:first(xml,'title'),meta:{author:authors,copyright:first(xml,'copyright'),ccli:first(xml,'ccliNo')},sections,order});
 }

@@ -123,6 +123,8 @@ async function publish(next,base){
  const size=JSON.stringify(next).length,mb=n=>(n/1e6).toFixed(1)+' MB';
  if(isLocal&&size>24e6){toast('This deck is too large to send ('+mb(size)+'; the companion accepts 24 MB). Split it into scenes. The screen is unchanged.');return false;}
  if(!isLocal&&pairing&&size>9.5e6)toast('This deck ('+mb(size)+') is over the 10 MB bridge limit, so the OBS companion will not get it. Split it into scenes.');
+ // The web studio holds its own screen: a send that waited (a lookup, a song) is dropped if the screen changed meanwhile.
+ if(!isLocal&&base!==undefined&&Number(live.updated||0)!==Number(base)){toast('The screen just changed. Check it and press again.');return false;}
  if(isLocal){
   let answer;
   try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide.');return false;}
@@ -915,9 +917,10 @@ function downloadJSON(data,name){const blob=new Blob([JSON.stringify(data,null,2
 // Exports carry the background images their shows use (once each), so the file works on another computer. The images
 // never enter the saved library: import puts them back into the companion's store, where the same bytes get the same id.
 // An export is complete or not made: if any background image cannot be included, nothing is downloaded.
+const EXPORT_LIMIT=250e6;
 async function withImages(file,shows){
  const ids=[...backgroundAssetIds({shows})];if(!ids.length)return file;
- if(ids.length>40)throw new Error('These shows use '+ids.length+' background images; an export holds up to 40. Nothing was exported.');
+ if(ids.length>200)throw new Error('These shows use '+ids.length+' images; an export holds up to 200. Nothing was exported.');
  if(!companionReady())throw new Error('These shows use background images stored by the companion. Connect OBS, then export again. Nothing was exported.');
  const images=[];
  for(const id of ids){
@@ -926,7 +929,8 @@ async function withImages(file,shows){
   const blob=await r.blob();images.push({id,type:blob.type,name:graphicsAssets.find(a=>a.id===id)?.name||'background',data:await blobBase64(blob)});
  }
  const result={...file,images};
- if(JSON.stringify(result,null,2).length>60e6)throw new Error('This export would be larger than 60 MB, the most an import accepts. Export fewer shows. Nothing was exported.');
+ // Import and export share one size limit, so every export can be imported again (pictures make files large).
+ if(JSON.stringify(result,null,2).length>EXPORT_LIMIT)throw new Error('This export would be larger than 250 MB, the most an import accepts. Export fewer shows. Nothing was exported.');
  return result;
 }
 const blobBase64=blob=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob);});
@@ -935,7 +939,7 @@ const blobBase64=blob=>new Promise((resolve,reject)=>{const reader=new FileReade
 function checkImages(images){
  if(images==null)return [];
  const refuse=why=>{throw new Error(why+' Nothing was imported.');};
- if(!Array.isArray(images)||images.length>40)refuse('The images in this file are not valid.');
+ if(!Array.isArray(images)||images.length>200)refuse('The images in this file are not valid.');
  return images.map(image=>{
   if(!/^[a-f0-9]{16}$/.test(image?.id)||!['image/png','image/jpeg','image/webp'].includes(image.type)||typeof image.data!=='string')refuse('An image in this file is not valid.');
   if(image.data.length>4.2e6)refuse('An image in this file is larger than 3 MB.');
@@ -1056,7 +1060,7 @@ document.addEventListener('click',async ev=>{
 function moveLive(delta,reveal=false){if(!live.slides.length)return;if(live.blank)toast('The screen is hidden. Press B to bring it back.');publishChange({...clone(live),index:Math.max(0,Math.min(live.slides.length-1,live.index+delta))}).then(ok=>{if(ok&&reveal)$('.slide-card .live-pin')?.closest('.slide-card')?.scrollIntoView({block:'nearest',inline:'nearest'});});}
 $('#importFile').addEventListener('change',async ev=>{
  const file=ev.target.files[0];if(!file)return;
- try{if(file.size>60e6)throw new Error('That file is too large (maximum 60 MB).');const raw=JSON.parse(await file.text());
+ try{if(file.size>EXPORT_LIMIT)throw new Error('That file is too large (maximum 250 MB).');const raw=JSON.parse(await file.text());
   // Check the shows first, then restore their images, so a bad file stores nothing.
   const shows=raw?.format==='wordlight-library'?cleanLibrary(raw).shows:[],images=checkImages(raw?.images);
   const used=raw?.format==='wordlight-library'?[...backgroundAssetIds({shows})]:[assetId((raw?.draft||raw)?.backgroundAssetId)].filter(Boolean);
@@ -1067,10 +1071,11 @@ $('#importFile').addEventListener('change',async ev=>{
  catch(err){toast(err.message||'That session could not be opened.');}ev.target.value='';
 });
 // Shift+Enter (or Alt+Enter) sends what is in the preview, after any song or verse still on its way has arrived.
-async function sendPreview(){
+// base: the screen as it stood when the operator asked, so a song still loading cannot undo a Hide made meanwhile.
+async function sendPreview(base=live.updated){
  await songState.peeking.catch(()=>{});
  if(lookupBusy){toast('Still finding that passage. Press again in a moment.');return;}
- if(deckFor(draft).length)publish(currentSnapshot());
+ if(deckFor(draft).length)publish(currentSnapshot(),base);
 }
 document.addEventListener('keydown',ev=>{
  if(document.querySelector('dialog[open]'))return;
@@ -1400,7 +1405,13 @@ async function adoptServerLibrary(){
   // The library holds 100 shows. Copies that do not fit are saved as a file at once (Import shows brings them back),
   // so no change is lost and the message never claims more than was kept.
   const room=Math.max(0,MAX_SHOWS-next.shows.length),copies=changed.slice(0,room),overflow=changed.slice(room);
-  if(overflow.length){try{downloadJSON(await withImages({format:'wordlight-library',version:1,savedAt:Date.now(),activeShowId:overflow[0].id,shows:overflow},overflow),'Wordlight changes kept from this tab');}catch{}}
+  if(overflow.length){
+   const kept={format:'wordlight-library',version:1,savedAt:Date.now(),activeShowId:overflow[0].id,shows:overflow};
+   // With its images if they can be read; otherwise without them (they stay in this computer's image store).
+   let file;try{file=await withImages(kept,overflow);}catch{file=kept;}
+   try{downloadJSON(file,'Wordlight changes kept from this tab');}
+   catch{setSaveStatus('Not saved: the library is full');toast('The library is full and your changed shows could not be saved as a file, so this tab kept them. Export them (Shows, Export library), remove some shows, then reload.');return;}
+  }
   // Only the companion's own library is agreed. The copies are not on disk until a save says so, so a second conflict
   // keeps them too.
   confirmSave(next.savedAt||0,agreed);next.shows.push(...copies);library=next;draft=activeShow(library).draft;savedRevision=saveRevision;summaryCache=new WeakMap();songState.peekEntryId='';
@@ -1454,7 +1465,7 @@ async function connectLocal(){
   if(events)events.close();
   events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output')+(isProjector?'&projector=1':''):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings){if(isOutput)applySettings(data.settings);else receiveSettings(data.settings);}if(data.build)followBuild(data.build);if(data.reload==='projector'&&isProjector)reloadOutputWhenReady();if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();paintLiveWords();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
   // The first open follows the startup load; later opens are reconnects, which reconcile and retry saves.
-  let opened=false;events.onopen=()=>{localReachable=true;if(opened)reconcileWithCompanion(true);opened=true;};
+  let opened=false;events.onopen=()=>{localReachable=true;if(opened){reconcileWithCompanion(true);if(!isOutput)loadNotices();}opened=true;};
  }catch{
   // The companion may still be starting: retry with backoff (1 s, 2 s, 4 s … up to 30 s), and stop once connected.
   // A connected page keeps its stream, which the browser reconnects by itself, unless the browser gave the stream up
@@ -1894,9 +1905,9 @@ function songWentLive(){
  const entry=(draft.songs||[]).find(x=>x.entryId===id);if(entry)markSongUsed(entry.song.id);
  songState.peekEntryId='';
 }
-async function sendPeeked(hit){
+async function sendPeeked(hit,base){
  if(hit.status==='reserve'&&settings().checkFirst){toast('Read these words first, then press Shift+Enter. This song has not been checked.');return;}
- const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(hit.name,sent));
+ const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(hit.name,sent));
 }
 async function keepSong(hit){
  // The song being looked at only needs to stop being temporary.
@@ -1908,14 +1919,15 @@ async function keepSong(hit){
 // Enter in the search box looks at the best match; Ctrl+Enter keeps it in the show.
 async function topResult(keep,send=false){
  if(!songState.query.trim()){if(send)sendPreview();return;}
+ const base=live.updated;
  // Typing again while this search runs makes its answer old, and an old list must not choose the song.
  try{
   if(!await searchSongLibrary(false))return;
   const hit=songState.items[0];if(!hit)return;
   // The song already in the preview has been read, so a second Shift+Enter sends even a Check first song.
   const peeked=(draft.songs||[]).find(x=>x.entryId===songState.peekEntryId);
-  if(send&&peeked?.song.id===hit.id){showMatch(peeked.entryId,hit);remember();renderPreview();renderDeck();await sendPreview();return;}
-  if(keep)await keepSong(hit);else if(await peekSong(hit)&&(send||settings().resultClick==='send'))await sendPeeked(hit);
+  if(send&&peeked?.song.id===hit.id){showMatch(peeked.entryId,hit);remember();renderPreview();renderDeck();await sendPreview(base);return;}
+  if(keep)await keepSong(hit);else if(await peekSong(hit)&&(send||settings().resultClick==='send'))await sendPeeked(hit,base);
   $('#songQuery')?.focus();
  }catch(err){toast(err.message);}
 }
@@ -2007,13 +2019,14 @@ async function handleSongAction(action,t,ev){
    const hit=songHit(t);if(!hit)return;
    // Our own double-click check, as on the slides: the first click redraws the list.
    const last=songState.lastClick,double=last?.id===hit.id&&ev.timeStamp-last.time<450;songState.lastClick=double?null:{id:hit.id,time:ev.timeStamp};
-   if(double){if(await songState.peeking.catch(()=>false)!==false)await sendPeeked(hit);return;}
-   if(await peekSong(hit)&&settings().resultClick==='send')await sendPeeked(hit);
+   const base=live.updated;
+   if(double){if(await songState.peeking.catch(()=>false)!==false)await sendPeeked(hit,base);return;}
+   if(await peekSong(hit)&&settings().resultClick==='send')await sendPeeked(hit,base);
    return;
   }
   if(action==='song-keep'){const hit=songHit(t);if(hit)await keepSong(hit);return;}
   if(action==='song-send'){
-   const hit=songHit(t);if(hit&&await peekSong(hit))await sendPeeked(hit);return;
+   const hit=songHit(t),base=live.updated;if(hit&&await peekSong(hit))await sendPeeked(hit,base);return;
   }
   if(action==='song-capture-query'){const text=songState.query;songState.query='';await captureSend(text);if(tab==='songs')renderSongs();return;}
   if(action==='song-capture-again'){await captureAgain(Number(t.dataset.captureIndex));return;}

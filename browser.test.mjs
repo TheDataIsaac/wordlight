@@ -546,3 +546,41 @@ test('Getting started lists the first steps, ticks what is done, and goes away w
  assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true,'it stays hidden after a reload');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Hiding the screen while a song is still loading keeps it hidden: the late song is not sent',{skip},async()=>{
+ await open();
+ await run("document.querySelector('#screenToggle').textContent.includes('Show')&&document.querySelector('#screenToggle').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.live.blank)",'the screen shown');
+ await searchFor('fourth unique');
+ await run("window.realFetch=window.fetch;window.fetch=(url,options)=>String(url).includes('/api/songs/item')?new Promise(r=>setTimeout(r,1200)).then(()=>window.realFetch(url,options)):window.realFetch(url,options)");
+ await key('Enter',{modifiers:ALT});await wait(150);
+ await run("document.querySelector('#screenToggle').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.blank)",'the screen hidden');
+ await wait(1800);
+ const state=await liveState();
+ assert.equal(state.blank,true,'still hidden after the song arrived');
+ assert.ok(!state.text.includes('Fourth unique'),'the late song was not sent');
+ await run('window.fetch=window.realFetch');await run("document.querySelector('#screenToggle').click()");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
+test('A full library with a stale tab whose show has an unreadable picture still saves the changes as a file',{skip},async()=>{
+ await open();
+ await run("window.__downloads=[];HTMLAnchorElement.prototype.click=function(){window.__downloads.push(this.download);}");
+ const file=path.join(dir,'Unreadable.png');
+ await writeFile(file,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64'));
+ const {root}=await cdp('DOM.getDocument');const {nodeId}=await cdp('DOM.querySelector',{nodeId:root.nodeId,selector:'#pictureFiles'});
+ await cdp('DOM.setFileInputFiles',{nodeId,files:[file]});
+ await until("document.querySelector('#preview .text-picture')!==null",'the picture slide');
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>JSON.stringify(s.library).includes('\"image\":\"'))",'the picture saved');
+ const original=await run("fetch('/api/state').then(r=>r.json()).then(s=>s.library.shows.length)");
+ // Images cannot be read from now on, and another tab fills the library.
+ await run("window.realFetch=window.fetch;window.fetch=(url,options)=>String(url).includes('/api/assets/')?Promise.reject(new Error('offline')):window.realFetch(url,options)");
+ await run("fetch('/api/state').then(r=>r.json()).then(s=>{const next=structuredClone(s.library);while(next.shows.length<100)next.shows.push({...structuredClone(next.shows[0]),id:'full-'+next.shows.length});next.savedAt=Date.now()+1000;return fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:next,baseSavedAt:s.library.savedAt||0})});})");
+ await run("document.querySelector('#sessionTitle').value='Edited with a picture';document.querySelector('#sessionTitle').dispatchEvent(new Event('input',{bubbles:true}))");
+ await until("window.__downloads.length>0",'the changes saved as a file anyway');
+ assert.match(await run("document.querySelector('#toast').textContent"),/library is full/);
+ await run('window.fetch=window.realFetch');
+ await run("fetch('/api/state').then(r=>r.json()).then(s=>{const next=structuredClone(s.library);next.shows=next.shows.filter(x=>!String(x.id).startsWith('full-')).slice(0,"+original+");next.activeShowId=next.shows[0].id;next.savedAt=Date.now()+2000;return fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:next,baseSavedAt:s.library.savedAt||0})});})");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

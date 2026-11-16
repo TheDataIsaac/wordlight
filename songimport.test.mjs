@@ -58,7 +58,7 @@ test('OpenLyrics keeps the verse order, splits slides at <lines>, joins v1a and 
  const song=fromOpenLyrics(xml);
  assert.equal(song.title,'River & Stone');
  assert.deepEqual(sections(song),[['Verse 1',['First line\nSecond line','Third line\nFourth line']],['Chorus',['Chorus one\nChorus two','Chorus three']],['Verse 2',['Verse two line']]]);
- assert.equal(order(song),'Verse 1, Chorus, Verse 2, Chorus','repeats kept, a doubled chorus sung once');
+ assert.equal(order(song),'Verse 1, Chorus, Verse 2, Chorus, Chorus','a chorus written twice is sung twice');
  assert.deepEqual([song.meta.author,song.meta.ccli],['Ann Writer, Ben Composer','222333']);
 });
 
