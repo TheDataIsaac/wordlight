@@ -226,3 +226,8 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .verse-results .small-note{margin:6px 4px 2px}
 /* A second Bible version under the verse (Settings): smaller and softer, sized together with the verse when it is fitted. */
 .verse-second{display:block;margin-top:.5em;padding-top:.42em;border-top:2px solid var(--line);font-size:.8em;line-height:1.4;opacity:.84}
+/* Outputs fade between slides: the old slide is laid over the new one and faded out (see fadeCover in app.js). */
+.fade-cover{position:absolute;inset:0;pointer-events:none;z-index:2;animation:wordlight-fade-out .4s ease-in-out forwards}
+.fade-in{animation:wordlight-fade-in .4s ease-in-out}
+@keyframes wordlight-fade-out{from{opacity:1}to{opacity:0}}
+@keyframes wordlight-fade-in{from{opacity:0}to{opacity:1}}

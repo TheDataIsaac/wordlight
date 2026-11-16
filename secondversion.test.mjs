@@ -54,8 +54,10 @@ test('The reference for the second lookup is built from book ids, so a Yoruba bo
  assert.equal(versesReference([]),'');
 });
 
-test('Settings accept only built-in versions for the second version',()=>{
+test('Settings accept only built-in versions for the second version, and the fade is on unless turned off',()=>{
  assert.equal(cleanSettings({secondVersion:'oycb'}).secondVersion,'oycb');
  assert.equal(cleanSettings({secondVersion:'ao:BSB'}).secondVersion,'');
  assert.equal(cleanSettings({secondVersion:'<script>'}).secondVersion,'');
+ assert.equal(cleanSettings({}).fadeSlides,true);
+ assert.equal(cleanSettings({fadeSlides:false}).fadeSlides,false);
 });

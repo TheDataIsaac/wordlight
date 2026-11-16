@@ -320,10 +320,12 @@ function drawStage(frame,slide,style,blank=false,words=[]){
  // Edits that don't show on the slide, and repeated live messages, used to redraw the screen each time.
  const key=html+'|'+(credit||'');
  if(drawnStages.get(frame)===key&&frame.firstElementChild){if(frame.id==='preview')showFitNotice(frame);return;}
+ const cover=fadeCover(frame);
  drawnStages.set(frame,key);frame.innerHTML=html;
  // A missing image (removed, or the companion is not running) leaves the theme color.
  frame.querySelector('.stage-background')?.addEventListener('error',ev=>{ev.target.hidden=true;ev.target.nextElementSibling.hidden=true;},{once:true});
  if(credit){const note=document.createElement('div');note.className='scripture-credit';note.textContent=credit+(credit.includes('CC BY-SA')?' · open.bible · creativecommons.org/licenses/by-sa/4.0':'');frame.firstElementChild.append(note);}
+ startFade(frame,cover);
  if(!observer)observer=new ResizeObserver(entries=>{for(const entry of entries)scaleFrame(entry.target);});
  if(!observed.has(frame)){observer.observe(frame);observed.add(frame);}
  requestAnimationFrame(()=>{scaleFrame(frame);fitText(frame);});
@@ -429,10 +431,28 @@ function drawLowerThird(frame,slide,style,blank,words,settings){
   (reference?'<div class="lower-ref" style="font-size:'+lowerReferenceSize(style.lowerReferenceSize)+'px">'+e(reference)+'</div>':'')+(content.credit?'<div class="lower-credit">'+e(content.credit)+(content.credit.includes('CC BY-SA')?' · open.bible · creativecommons.org/licenses/by-sa/4.0':'')+'</div>':'')+'</div>':'';
  mountStage(frame,'<div class="stage-canvas lower-canvas'+(blank?' blank':'')+'" style="--accent:'+accent+';--slide-font:'+font.replaceAll('"','')+'">'+band+'</div>');
 }
+// The projector and OBS outputs fade from one slide to the next (0.4 s), as presentation apps do; Settings can turn it
+// off. A copy of the old slide is laid over the new one and faded out, so two opaque slides never dip to black halfway.
+// The transparent lower third also fades its new band in. The studio's own preview and live view always change at once.
+function fadeCover(frame){
+ const old=frame.firstElementChild;
+ if(!isOutput||isGraphics||!settings().fadeSlides||!old||document.visibilityState!=='visible')return null;
+ const copy=old.cloneNode(true);copy.classList.remove('fade-in');
+ const cover=document.createElement('div');cover.className='fade-cover';cover.append(copy);
+ return cover;
+}
+function startFade(frame,cover){
+ if(!cover)return;
+ frame.append(cover);
+ if(isLower)frame.firstElementChild.classList.add('fade-in');
+ const done=()=>cover.remove();
+ cover.addEventListener('animationend',done,{once:true});setTimeout(done,800);
+}
 // Puts stage markup in a frame unless the same markup is already there, then scales and fits it.
 function mountStage(frame,html){
  if(drawnStages.get(frame)===html&&frame.firstElementChild)return;
- drawnStages.set(frame,html);frame.innerHTML=html;
+ const cover=fadeCover(frame);
+ drawnStages.set(frame,html);frame.innerHTML=html;startFade(frame,cover);
  if(!observer)observer=new ResizeObserver(entries=>{for(const entry of entries)scaleFrame(entry.target);});
  if(!observed.has(frame)){observer.observe(frame);observed.add(frame);}
  requestAnimationFrame(()=>{scaleFrame(frame);fitText(frame);});
@@ -1364,7 +1384,7 @@ async function connectLocal(){
   try{render();}catch(err){console.error(err);}
   if(!isOutput&&!installedBibles)refreshInstalledBibles();
   if(events)events.close();
-  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output')+(isProjector?'&projector=1':''):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings&&!isOutput)receiveSettings(data.settings);if(data.build)followBuild(data.build);if(data.reload==='projector'&&isProjector)reloadOutputWhenReady();if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();paintLiveWords();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
+  events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output')+(isProjector?'&projector=1':''):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings){if(isOutput)applySettings(data.settings);else receiveSettings(data.settings);}if(data.build)followBuild(data.build);if(data.reload==='projector'&&isProjector)reloadOutputWhenReady();if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();paintLiveWords();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
   // The first open follows the startup load; later opens are reconnects, which reconcile and retry saves.
   let opened=false;events.onopen=()=>{localReachable=true;if(opened)reconcileWithCompanion(true);opened=true;};
  }catch{
@@ -1989,13 +2009,14 @@ function renderSettings(){
  $('#settingsDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">SETTINGS</span><button class="icon-button" data-action="settings-close" aria-label="Close settings">×</button></div><h2 id="settingsTitle">Settings</h2><p class="small-note">Shared with the phone remote. Saved on this computer as soon as you change them.</p>'+
  '<section class="settings-group"><h3>Songs on screen</h3><p class="small-note">Songs only: Bible verses and text slides are not affected. The saved words never change. The preview updates at once; a song already on screen changes when it is sent again.</p><label>Lines per slide <select id="setLines">'+LINES_PER_SLIDE.map(n=>'<option value="'+n+'" '+(n===s.linesPerSlide?'selected':'')+'>'+(n||'As typed')+'</option>').join('')+'</select></label>'+settingRow('setRepeat','Hide repeat marks like (2x)',s.hideRepeatMarks)+settingRow('setCaps','All capitals',s.allCaps)+settingRow('setFooter','Show song name and section at the bottom',s.songFooter)+'</section>'+
  '<section class="settings-group"><h3>Sending</h3><label>One click on a search result <select id="setResultClick"><option value="preview" '+(s.resultClick==='preview'?'selected':'')+'>Shows it in the preview</option><option value="send" '+(s.resultClick==='send'?'selected':'')+'>Sends it to the screen</option></select></label><label>One tap on the phone <select id="setPhoneTap"><option value="select" '+(s.phoneTap==='select'?'selected':'')+'>Selects it</option><option value="send" '+(s.phoneTap==='send'?'selected':'')+'>Sends it to the screen</option></select></label>'+settingRow('setCheckFirst','Songs marked Check first always stop at the preview',s.checkFirst)+'</section>'+
+ '<section class="settings-group"><h3>Screens</h3>'+settingRow('setFade','Fade between slides on the projector and OBS (0.4 s)',s.fadeSlides)+'</section>'+
  '<section class="settings-group"><h3>Song search</h3>'+settingRow('setFreeShow','Include FreeShow songs, by title',s.searchFreeShow)+settingRow('setReserve','Include Check first songs',s.searchReserve)+'</section>'+
  '<section class="settings-group"><h3>Keys</h3>'+keysTable()+'</section><p id="settingsError" class="small-note status-error" aria-live="polite"></p>'+button('Back to defaults','settings-reset');
  const send=change=>changeSettings(change);
  $('#setLines').addEventListener('change',ev=>send({linesPerSlide:Number(ev.target.value)}));
  $('#setResultClick').addEventListener('change',ev=>send({resultClick:ev.target.value}));
  $('#setPhoneTap').addEventListener('change',ev=>send({phoneTap:ev.target.value}));
- for(const [id,key] of [['setRepeat','hideRepeatMarks'],['setCaps','allCaps'],['setFooter','songFooter'],['setCheckFirst','checkFirst'],['setFreeShow','searchFreeShow'],['setReserve','searchReserve']])$('#'+id).addEventListener('change',ev=>send({[key]:ev.target.checked}));
+ for(const [id,key] of [['setRepeat','hideRepeatMarks'],['setCaps','allCaps'],['setFooter','songFooter'],['setCheckFirst','checkFirst'],['setFreeShow','searchFreeShow'],['setReserve','searchReserve'],['setFade','fadeSlides']])$('#'+id).addEventListener('change',ev=>send({[key]:ev.target.checked}));
 }
 function openSettings(){if(!isLocal)return;renderSettings();if(!$('#settingsDialog').open)$('#settingsDialog').showModal();}
 async function changeSettings(change){
