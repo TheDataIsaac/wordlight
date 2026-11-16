@@ -188,7 +188,14 @@ Validation: core/model tests cover migration, independent copies, bulk ordering/
 
 
 ## Timer overlay
-Click **Timer** above the preview. Choose Countdown or Stopwatch, a countdown duration in minutes (decimals accepted), and one of four corners, then apply settings. Start/resume, pause, and reset act on the live timer. **Show overlay** makes it visible; **Hide overlay** removes only the timer. The audience screen's blank control hides everything, including the timer. The timer is independent of shows and continues when switching shows or sending a new deck. It uses timestamps shared with the presentation/OBS output, so both displays show the same time. A countdown stops visually at 00:00 with a red background; there is no sound alarm. Changing only position leaves it running, while changing mode or duration resets it to paused.
+Click **Timer** above the preview. Choose a mode, then apply settings:
+- **Countdown**: a duration in minutes (decimals accepted). Start/resume, pause and reset act on the live timer.
+- **Count down to a time of day**: for example 10:00 for the start of the service, on this computer's clock. It always runs; Reset finds the time again. A time set less than 6 hours after it has passed (10:00 set at 10:05) counts as today, so the screen shows the service is late; otherwise it means tomorrow (08:00 set the evening before).
+- **Stopwatch**: counts up from 00:00.
+
+**Keep counting past zero** lets a countdown run over and show how far over it is (−01:20) in red, instead of stopping at 00:00. **Warning colour in the last … seconds** (60 by default, 0 for none) turns the timer amber near zero in the studio, on the stage display and on the phone; the audience outputs only turn red, at and past zero, so a countdown on the projector looks the same as before until it ends. There is no sound alarm.
+
+Pick one of four corners for the overlay. **Show overlay** makes it visible; **Hide overlay** removes only the timer. The audience screen's blank control hides everything, including the timer. The timer is independent of shows and continues when switching shows or sending a new deck. It uses timestamps shared with the presentation/OBS output, so both displays show the same time. Changing only position, appearance, the warning or overrun leaves it running, while changing mode, duration or time of day resets it. The phone's timer card has the same three modes. A graphics timer set to hide at zero keeps showing when the timer runs over.
 
 
 ## Yoruba and passage layout

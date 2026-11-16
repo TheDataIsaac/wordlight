@@ -1,7 +1,7 @@
 // Stage display page, for a monitor or tablet facing the singers or the preacher. It only reads: nothing here can
 // change the screen. The laptop sends the stage state over one event stream, which reconnects by itself.
 // On the laptop it is /stage; on the phone remote's address it is /remote/stage and needs the remote's sign-in.
-import {timerValue,formatTimer} from './timer.mjs';
+import {timerSigned,timerState,formatTimer} from './timer.mjs';
 import {largestFitting} from './fit.mjs';
 
 const $=id=>document.getElementById(id);
@@ -41,14 +41,15 @@ function paint(){
  fitNow();paintTimer();
 }
 
-// The timer shows while it runs or while it is shown on the outputs. It turns amber in the last minute and red at 0.
+// The timer shows while it runs or while it is shown on the outputs. It turns amber near zero (the timer's warning
+// time) and red at zero and past it.
 function paintTimer(){
  const timer=stage?.timer,el=$('timer');
  if(!timer||!(timer.running||timer.visible)){el.hidden=true;return;}
- const value=timerValue(timer,Date.now()+clockOffset);
- el.hidden=false;el.textContent=formatTimer(value);
- el.classList.toggle('warn',timer.mode==='countdown'&&value>0&&value<=60000);
- el.classList.toggle('over',timer.mode==='countdown'&&value<=0);
+ const now=Date.now()+clockOffset,state=timerState(timer,now);
+ el.hidden=false;el.textContent=formatTimer(timerSigned(timer,now));
+ el.classList.toggle('warn',state==='warning');
+ el.classList.toggle('over',state==='expired'||state==='over');
 }
 function paintClock(){$('clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 

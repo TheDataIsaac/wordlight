@@ -255,6 +255,13 @@ test('Hide/show and the countdown go through the same live state',async()=>{
  assert.equal((await command(cookie,{action:'timer',timer:'explode'})).status,400,'only the known timer actions');
  assert.equal((await command(cookie,{action:'timer',timer:'show'})).body.live.timer.visible,true);
  assert.equal((await command(cookie,{action:'timer',timer:'hide'})).body.live.timer.visible,false);
+ // Counting down to a time of day, on the laptop's clock; the phone gets what it needs to show it.
+ const until=await command(cookie,{action:'timer-set',mode:'until',until:'23:59'});
+ assert.equal(until.status,200);
+ t=(await state()).live.timer;assert.equal(t.mode,'until');assert.equal(t.untilTime,'23:59');assert.ok(t.targetAt>0);
+ assert.equal(until.body.live.timer.targetAt,t.targetAt,'the phone summary carries the target time');
+ assert.equal((await command(cookie,{action:'timer-set',mode:'until',until:'9am'})).status,400,'a time must look like 10:00');
+ assert.equal((await command(cookie,{action:'timer-set',mode:'countdown',minutes:2})).status,200);
  assert.equal((await command(cookie,{action:'timer',timer:'start'})).status,200);
 });
 

@@ -2,6 +2,7 @@
 // builds the screen and sends it out. Live updates arrive over one event stream that reconnects on its own; closing the
 // phone or losing Wi-Fi never changes the screen. Browsing never changes the screen; only Send, Go, a tap in Slides and
 // the controls at the bottom do. A double tap on a song part or a show's slide sends it at once.
+import {timerSigned,timerState,formatTimer} from './remote/timer.mjs';
 const $=id=>document.getElementById(id);
 let live=null,clockOffset=0,events=null,busy=false,shows=[],picked=null,messageTimer,retryTimer,books=[],versions=[],versionsLoaded=false,tab='bible',deckShown='';
 const browse={showId:'',sceneId:'',offset:0,total:0};
@@ -98,19 +99,24 @@ function updateButtons(){
 }
 
 // ---- Timer: shown from the last timer state; the ticking itself needs no network ----
-function timerValue(t){
- const elapsed=t.running?Math.max(0,Date.now()+clockOffset-t.startedAt):0;
- return Math.max(0,t.mode==='stopwatch'?t.valueMs+elapsed:t.valueMs-elapsed);
-}
-function formatTimer(ms){
- const seconds=Math.ceil(ms/1000),h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;
- return (h?h+':':'')+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+function tickTimer(){
+ const now=Date.now()+clockOffset;
+ $('timerValue').textContent=formatTimer(timerSigned(live.timer,now));
+ $('timerValue').dataset.state=timerState(live.timer,now);
 }
 function paintTimer(){
- $('timerValue').textContent=live?formatTimer(timerValue(live.timer)):'--:--';
- if(live){$('timerShow').textContent=live.timer.visible?'Hide from screen':'Show on screen';$('timerShow').classList.toggle('on',live.timer.visible);if(document.activeElement!==$('timerMinutes')&&!$('timerMinutes').value)$('timerMinutes').value=live.timer.durationMs/60000;$('timerMode').value=live.timer.mode;}
+ if(!live){$('timerValue').textContent='--:--';return;}
+ tickTimer();
+ $('timerShow').textContent=live.timer.visible?'Hide from screen':'Show on screen';$('timerShow').classList.toggle('on',live.timer.visible);
+ if(document.activeElement!==$('timerMinutes')&&!$('timerMinutes').value)$('timerMinutes').value=live.timer.durationMs/60000;
+ if(document.activeElement!==$('timerUntil')&&!$('timerUntil').value)$('timerUntil').value=live.timer.untilTime;
+ if(document.activeElement!==$('timerMode'))$('timerMode').value=live.timer.mode;
+ showTimerFields();
 }
-setInterval(()=>{if(live?.timer.running&&!document.hidden)$('timerValue').textContent=formatTimer(timerValue(live.timer));},250);
+// Minutes for a countdown or stopwatch, a time of day for "until".
+function showTimerFields(){const until=$('timerMode').value==='until';$('timerMinutesField').hidden=until;$('timerUntilField').hidden=!until;}
+$('timerMode').addEventListener('change',showTimerFields);
+setInterval(()=>{if(live?.timer.running&&!document.hidden)tickTimer();},250);
 
 // ---- Commands: one at a time. A retry after a timeout or network error sends the same id, so the companion
 // applies the command at most once and answers a retry with the first result. ----
@@ -405,7 +411,7 @@ $('textForm').addEventListener('submit',async ev=>{
 });
 for(const b of document.querySelectorAll('[data-timer]'))b.addEventListener('click',()=>command({action:'timer',timer:b.dataset.timer}));
 $('timerShow').addEventListener('click',()=>live&&command({action:'timer',timer:live.timer.visible?'hide':'show'}));
-$('timerForm').addEventListener('submit',ev=>{ev.preventDefault();command({action:'timer-set',minutes:$('timerMinutes').value,mode:$('timerMode').value});});
+$('timerForm').addEventListener('submit',ev=>{ev.preventDefault();command({action:'timer-set',minutes:$('timerMinutes').value,until:$('timerUntil').value,mode:$('timerMode').value});});
 for(const b of document.querySelectorAll('[data-graphics]'))b.addEventListener('click',()=>{
  const element=b.dataset.graphics,shown=!!live?.graphics[element].visible;
  command({action:'graphics',element,visible:!shown,title:$('cardTitle').value,subtitle:$('cardSubtitle').value});

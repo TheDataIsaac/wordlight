@@ -84,3 +84,5 @@ textarea{padding:10px 12px;resize:vertical}
 /* Second Bible version under each verse, beside the reference box. */
 .second-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:#aebdb2}
 .second-row select{flex:1;min-height:38px;font-size:14px}
+/* Timer near zero (amber), at zero and past zero (red). */
+.timer-value[data-state=warning]{color:#f2b544}.timer-value[data-state=expired],.timer-value[data-state=over]{color:#ff6b5e}

@@ -40,8 +40,9 @@ export function graphicsMarkup(raw,assetUrl=id=>'/api/assets/'+id){
  if(g.timer.visible)parts.push('<div class="graphics-timer timer-overlay" data-graphics-timer="true" style="'+placement(g.timer.position,g.timer.margin)+'"></div>');
  return '<div class="stage-canvas graphics-canvas">'+parts.join('')+'</div>';
 }
-// Whether the graphics timer shows right now: on, and not hidden because a countdown reached zero.
+// Whether the graphics timer shows right now: on, and not hidden because a countdown reached zero. A timer set to
+// carry on past zero (overrun) keeps showing, since the time over is the point.
 export function graphicsTimerShown(raw,timer,value){
  const g=cleanGraphics(raw);
- return g.timer.visible&&!(g.timer.hideAtZero&&timer?.mode!=='stopwatch'&&value===0);
+ return g.timer.visible&&!(g.timer.hideAtZero&&timer?.mode!=='stopwatch'&&!timer?.overrun&&value===0);
 }

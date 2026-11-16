@@ -381,3 +381,21 @@ test('Words typed in the Bible box find the verse: Enter previews it, and Shift+
  await until("document.querySelector('#verseResults')?.innerHTML===''",'the list to close');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('The timer counts down to a time of day, warns the operator in amber, and the audience overlay stays plain until zero',{skip},async()=>{
+ await open();
+ await run("document.querySelector('[data-action=timer]').click()");await until("document.querySelector('#timerDialog')?.open",'the timer dialog');
+ // A time a few minutes from now, inside a 10-minute warning, so the readout is amber straight away.
+ await run("{const d=new Date(Date.now()+3*60000);const s=document.querySelector('#timerMode');s.value='until';s.dispatchEvent(new Event('change'));document.querySelector('#timerUntil').value=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');document.querySelector('#timerWarn').value='600';document.querySelector('#timerOverrun').checked=true;}");
+ assert.equal(await run("document.querySelector('#timerMinutesField').hidden"),true,'minutes are hidden for a time of day');
+ await run("document.querySelector('[data-action=timer-apply]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.mode==='until'&&s.live.timer.targetAt>0&&s.live.timer.overrun&&s.live.timer.warnMs===600000)",'the time-of-day timer on air');
+ await until("document.querySelector('#timerReadout')?.classList.contains('warning')",'the amber readout');
+ await until("/^0[23]:[0-9][0-9]$/.test(document.querySelector('#timerReadout').textContent)",'about three minutes left');
+ await run("document.querySelector('[data-action=timer-show]').click()");
+ await until("document.querySelector('#liveStage .timer-overlay')!==null",'the overlay in the live view');
+ assert.equal(await run("document.querySelector('#liveStage .timer-overlay').classList.contains('warning')"),false,'no amber on the audience output');
+ assert.match(await run("document.querySelector('#timerStatus').textContent"),/^Counting to \d\d:\d\d/);
+ await run("document.querySelector('[data-action=timer-hide]').click()");await run("document.querySelector('#timerDialog').close()");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

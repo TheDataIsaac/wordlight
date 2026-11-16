@@ -102,8 +102,9 @@
     <div class="timer-buttons"><button type="button" data-timer="start">Start</button><button type="button" data-timer="pause">Pause</button><button type="button" data-timer="reset">Reset</button></div></div>
    <button id="timerShow" class="wide" type="button">Show on screen</button>
    <form id="timerForm" class="field-row">
-    <div><label for="timerMinutes">Minutes</label><input id="timerMinutes" type="number" min="0.02" max="1440" step="any" inputmode="decimal"></div>
-    <div><label for="timerMode">Mode</label><select id="timerMode"><option value="countdown">Countdown</option><option value="stopwatch">Stopwatch</option></select></div>
+    <div><label for="timerMode">Mode</label><select id="timerMode"><option value="countdown">Countdown</option><option value="until">Count down to a time</option><option value="stopwatch">Stopwatch</option></select></div>
+    <div id="timerMinutesField"><label for="timerMinutes">Minutes</label><input id="timerMinutes" type="number" min="0.02" max="1440" step="any" inputmode="decimal"></div>
+    <div id="timerUntilField" hidden><label for="timerUntil">Time</label><input id="timerUntil" type="time"></div>
     <button type="submit">Set</button>
    </form>
   </section>

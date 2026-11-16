@@ -237,3 +237,6 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .update-notes{white-space:pre-wrap;font:12px/1.45 'DM Sans',Segoe UI,sans-serif;background:#f2f3eb;border-radius:6px;padding:8px 10px;max-height:160px;overflow:auto;margin:6px 0}
 .button.has-update{position:relative}
 .button.has-update::after{content:'';position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:#c0712c}
+/* Timer near zero, at zero and past zero. The look is set inline from the timer settings, so these colours need !important. */
+.timer-overlay.warning{background:#f2b544!important;color:#1b1300!important}.timer-overlay.expired,.timer-overlay.over{background:#b3261e!important;color:#fff!important}
+.timer-readout.warning{color:#a86a00!important}.timer-readout.expired,.timer-readout.over{color:#b3261e!important}

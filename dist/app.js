@@ -2,7 +2,7 @@ import {freshPresentationFiles,refreshedOutputURL} from './refresh.mjs';
 import {fitStage} from './fit.mjs';
 import {readLibrary,saveLibrary,chooseLocalLibrary,libraryTime} from './storage.mjs';
 import {lookupYoruba,YORUBA_CREDIT} from './yoruba.mjs';
-import {cleanTimer,timerValue,formatTimer,changeTimer,cleanTimerAppearance,timerAppearanceStyle} from './timer.mjs';
+import {cleanTimer,timerValue,timerSigned,timerState,formatTimer,changeTimer,nextOccurrence,cleanTimerAppearance,timerAppearanceStyle} from './timer.mjs';
 import {applyPastedNKJV,applyBiblePassage,applySecondVersion,cleanLibrary,createShow,activeShow,mergeShows,slideGroups,moveGroups,removeGroups,copyGroups,groupKey,MAX_SHOWS,MAIN_SCENE,activeScene,sceneDraft,switchScene,addScene,renameScene,removeScene,restoreScene,copyShow,moveSlides,removeSlides,copySlides,itemSummary,isEmptyDraft,addItem,moveScene,applyDesignToAll,undoDesignToAll,backgroundAssetIds,wordsToAll,undoWordsToAll,planSplit,splitItem,undoSplit,addContent} from './library.mjs';
 import {parseReference,suggestBooks,withBook} from './reference.mjs';
 import {lowerThirdFlow,cleanLowerThird,lowerThirdBandStyle,lowerThirdContent} from './lowerthird.mjs';
@@ -1236,7 +1236,10 @@ function timerAppearanceControls(timer){
  '<div class="field-row">'+number('Distance from side (px)','offsetX',0,300)+number('Distance from top / bottom (px)','offsetY',0,300)+'</div>';
 }
 function paintTimers(){
- const timer=cleanTimer(live.timer),value=timerValue(timer),formatted=formatTimer(value);
+ const timer=cleanTimer(live.timer),now=Date.now(),value=timerValue(timer,now),state=timerState(timer,now),formatted=formatTimer(timerSigned(timer,now));
+ // warning near zero, expired at zero, over once a timer set to overrun is past zero (see timerState). The audience
+ // outputs only turn red at and past zero; the amber warning is for the operator and the stage display.
+ const paintState=(el,warn=true)=>{for(const name of ['warning','expired','over'])el.classList.toggle(name,state===name&&(warn||name!=='warning'));};
  for(const canvas of document.querySelectorAll('.stage-canvas')){
   if(canvas.classList.contains('graphics-canvas'))continue;
   let overlay=canvas.querySelector('.timer-overlay');const visible=timer.visible&&!canvas.classList.contains('blank');
@@ -1244,7 +1247,7 @@ function paintTimers(){
   if(!overlay){overlay=document.createElement('div');overlay.className='timer-overlay';canvas.append(overlay);}
   const look=JSON.stringify(cleanTimerAppearance(timer))+timer.position;
   if(overlay.dataset.look!==look){applyTimerAppearance(overlay,timer);overlay.dataset.position=timer.position;overlay.dataset.look=look;}
-  overlay.classList.toggle('expired',timer.mode==='countdown'&&value===0);if(overlay.textContent!==formatted)overlay.textContent=formatted;
+  paintState(overlay,false);if(overlay.textContent!==formatted)overlay.textContent=formatted;
  }
  // Graphics timers: same clock and look; shown per the graphics settings of their canvas, never hidden by blanking.
  for(const el of document.querySelectorAll('[data-graphics-timer]')){
@@ -1252,16 +1255,20 @@ function paintTimers(){
   if(el.hidden!==!shown)el.hidden=!shown;
   const appearance=cleanTimerAppearance(timer),scale=cleanGraphics(settings).timer.size/appearance.fontSize,look=JSON.stringify(appearance)+scale;
   if(el.dataset.look!==look){applyTimerAppearance(el,timer,scale);el.dataset.look=look;}
-  el.classList.toggle('expired',timer.mode==='countdown'&&value===0);if(el.textContent!==formatted)el.textContent=formatted;
+  paintState(el,false);if(el.textContent!==formatted)el.textContent=formatted;
  }
- const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;readout.classList.toggle('expired',timer.mode==='countdown'&&value===0);}
- const gState=$('#gTimerState');if(gState){const t=timer.running&&!(timer.mode==='countdown'&&value===0)?'Running':timer.mode==='countdown'&&value===0?'Finished':'Paused';if(gState.textContent!==t+' · '+formatted)gState.textContent=t+' · '+formatted;}
- const status=$('#timerStatus');if(status)status.textContent=(timer.running&&!(timer.mode==='countdown'&&value===0)?'Running':value===0&&timer.mode==='countdown'?'Finished':'Paused')+' · '+(timer.visible?'Overlay enabled':'Overlay hidden')+(live.blank?' · audience screen blank':'');
+ const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;paintState(readout);}
+ const condition=state==='over'?'Over time':state==='expired'?'Finished':timer.mode==='until'?'Counting to '+timer.untilTime:timer.running?'Running':'Paused';
+ const gState=$('#gTimerState');if(gState&&gState.textContent!==condition+' · '+formatted)gState.textContent=condition+' · '+formatted;
+ const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(timer.visible?'Overlay enabled':'Overlay hidden')+(live.blank?' · audience screen blank':'');
 }
 function showTimer(){
  const timer=cleanTimer(live.timer);
- $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="timer-actions">'+button('Start / resume','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note">These controls update the live timer immediately. Hiding the audience screen also hides the overlay. Switching shows keeps the timer running.</p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div>'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Apply timer settings','timer-apply')+'</div><p class="small-note">Applying a new mode or duration resets the timer to paused. Changing only its appearance or position keeps it running. Use Show overlay when you want the audience to see it.</p>';
+ $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="timer-actions">'+button('Start / resume','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note">These controls update the live timer immediately. Hiding the audience screen also hides the overlay. Switching shows keeps the timer running.</p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="until" '+(timer.mode==='until'?'selected':'')+'>Count down to a time of day</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div id="timerMinutesField">'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div><div id="timerUntilField">'+label('Time of day (this computer\'s clock)','timerUntil')+input('timerUntil',timer.untilTime,'type="time"')+'</div></div>'+
+ '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Apply timer settings','timer-apply')+'</div><p class="small-note">Applying a new mode or duration resets the timer to paused. Changing only its appearance or position keeps it running. Use Show overlay when you want the audience to see it.</p>';
  $('#timerPosition').insertAdjacentHTML('afterend',timerAppearanceControls(timer));
+ const showFields=()=>{const mode=$('#timerMode').value;$('#timerMinutesField').hidden=mode==='until';$('#timerUntilField').hidden=mode!=='until';$('#timerOverrun').closest('label').hidden=mode==='stopwatch';};
+ $('#timerMode').addEventListener('change',showFields);showFields();
  for(const id of Object.values(timerAppearanceFields))$('#'+id).addEventListener('input',paintTimers);
  if(!$('#timerDialog').open)$('#timerDialog').showModal();paintTimers();
 }
@@ -1269,11 +1276,18 @@ async function handleTimerAction(action){
  if(action==='timer'){showTimer();return;}if(action==='timer-close'){$('#timerDialog').close();return;}
  let timer=cleanTimer(live.timer);
  if(action==='timer-apply'){
-  const duration=Number($('#timerMinutes').value),mode=$('#timerMode').value;
-  if(!Number.isFinite(duration)||duration<1/60||duration>1440){toast('Enter a duration from 1 second to 1,440 minutes.');return;}
-  const durationMs=Math.round(duration*60000);
-  if(mode!==timer.mode||durationMs!==timer.durationMs)timer=changeTimer({...timer,mode,durationMs},'reset');
-  timer={...timer,...timerFormAppearance(),position:$('#timerPosition').value};
+  const duration=Number($('#timerMinutes').value),mode=$('#timerMode').value,untilTime=$('#timerUntil').value,warn=Number($('#timerWarn').value);
+  if(!Number.isFinite(warn)||warn<0||warn>3600){toast('Enter a warning time from 0 to 3,600 seconds.');return;}
+  const options={overrun:$('#timerOverrun').checked,warnMs:Math.round(warn*1000)};
+  if(mode==='until'){
+   if(!/^\d\d:\d\d$/.test(untilTime)){toast('Enter the time of day, for example 10:00.');return;}
+   if(mode!==timer.mode||untilTime!==timer.untilTime)timer={...timer,mode,untilTime,targetAt:nextOccurrence(untilTime)};
+  }else{
+   if(!Number.isFinite(duration)||duration<1/60||duration>1440){toast('Enter a duration from 1 second to 1,440 minutes.');return;}
+   const durationMs=Math.round(duration*60000);
+   if(mode!==timer.mode||durationMs!==timer.durationMs)timer=changeTimer({...timer,mode,durationMs,...options},'reset');
+  }
+  timer=cleanTimer({...timer,...options,...timerFormAppearance(),position:$('#timerPosition').value});
  }else timer=changeTimer(timer,action.slice(6));
  if(await publishChange({...clone(live),timer})){showTimer();}
 }

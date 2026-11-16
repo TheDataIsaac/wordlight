@@ -20,7 +20,7 @@ import {readFile,writeFile,rename,mkdir,unlink} from 'node:fs/promises';
 import {scrypt,randomBytes,timingSafeEqual,createHash} from 'node:crypto';
 import {snapshot,deckFor,validLive} from './dist/core.mjs';
 import {sceneDraft,MAIN_SCENE} from './dist/library.mjs';
-import {cleanTimer,changeTimer} from './dist/timer.mjs';
+import {cleanTimer,changeTimer,timerSummary,nextOccurrence} from './dist/timer.mjs';
 import {cleanLowerThird} from './dist/lowerthird.mjs';
 import {cleanGraphics} from './dist/graphics.mjs';
 import {songSlides} from './dist/songs.mjs';
@@ -144,7 +144,7 @@ export function liveSummary(live){
   updated:Number(live?.updated)||0,deck:slideTag(slides[0])+'|'+slideTag(slides.at(-1)),blank:!!live?.blank,showId:live?.showId||'',showTitle:clip(live?.showTitle,100),
   sceneId:live?.showId?live.sceneId||MAIN_SCENE:'',sceneName:clip(live?.sceneName,80),index,count:slides.length,
   current:brief(slides[index],600),previous:brief(slides[index-1],140),next:brief(slides[index+1],140),
-  timer:{mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,visible:t.visible},
+  timer:timerSummary(t),
   version,verseSteps:!!version,graphics:graphicsSummary(live?.graphics),words:(Array.isArray(live?.style?.highlights)?live.style.highlights:[]).slice(0,30).map(h=>clip(h.word,60)),
   serverNow:Date.now()
  };
@@ -313,9 +313,17 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    if(!['start','pause','reset','show','hide'].includes(body.timer))return {status:400,body:{error:'Unknown timer action.'}};
    next={...live,timer:changeTimer(cleanTimer(live.timer),body.timer,now)};
   }else if(body.action==='timer-set'){
-   const minutes=Number(body.minutes),mode=body.mode==='stopwatch'?'stopwatch':'countdown';
-   if(!Number.isFinite(minutes)||minutes<1/60||minutes>1440)return {status:400,body:{error:'Enter from 1 second to 1,440 minutes.'}};
-   next={...live,timer:changeTimer({...cleanTimer(live.timer),mode,durationMs:Math.round(minutes*60000)},'reset',now)};
+   const mode=['stopwatch','until'].includes(body.mode)?body.mode:'countdown';
+   if(mode==='until'){
+    // Count down to a time of day ("10:00"), on this computer's clock.
+    const untilTime=String(body.until||'');
+    if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(untilTime))return {status:400,body:{error:'Enter a time such as 10:00.'}};
+    next={...live,timer:cleanTimer({...cleanTimer(live.timer),mode,untilTime,targetAt:nextOccurrence(untilTime,now)})};
+   }else{
+    const minutes=Number(body.minutes);
+    if(!Number.isFinite(minutes)||minutes<1/60||minutes>1440)return {status:400,body:{error:'Enter from 1 second to 1,440 minutes.'}};
+    next={...live,timer:changeTimer({...cleanTimer(live.timer),mode,durationMs:Math.round(minutes*60000)},'reset',now)};
+   }
   }else if(body.action==='graphics'){
    const element=body.element;
    if(!['logo','timer','background','card'].includes(element)||typeof body.visible!=='boolean')return {status:400,body:{error:'Unknown graphics action.'}};
