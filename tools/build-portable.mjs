@@ -58,7 +58,9 @@ for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md'
 // The launcher with crash recovery, the same one Start Wordlight.cmd uses, and the step that installs a downloaded update.
 for(const name of ['start.mjs','supervisor.mjs','shared.mjs','update.mjs'])await add('tools/launcher/'+name,'app/tools/launcher/'+name);
 for(const name of (await readdir(path.join(repo,'dist'))).filter(n=>/\.(html|css|js|mjs)$/.test(n)).sort())await add('dist/'+name,'app/dist/'+name);
+// The .cmd files do the same as the .vbs ones, for computers where VBScript is off or blocked (they show a window).
 for(const name of ['Start Wordlight.vbs','Stop Wordlight.vbs','Start with Windows.vbs'])await add('tools/portable/'+name,name);
+for(const name of ['Start Wordlight.cmd','Stop Wordlight.cmd'])await add('tools/portable/'+name,'Other ways to start/'+name);
 files[top+'runtime/node.exe']=pick('node.exe');
 files[top+'runtime/LICENSE.txt']=pick('LICENSE');
 files[top+'README.txt']=Buffer.from(`Wordlight · Church Media ${version} (build ${build}, portable, Windows)
@@ -68,6 +70,8 @@ Start:  double-click "Start Wordlight". It starts Wordlight in the background an
         If Wordlight stops unexpectedly, it is started again by itself within a few seconds.
 Stop:   double-click "Stop Wordlight". Closing the Wordlight window does not stop it, so OBS outputs keep working.
 Start with Windows (optional): double-click "Start with Windows" to turn it on or off.
+If Start does nothing (some computers turn VBScript off or an antivirus blocks it), use the files in
+"Other ways to start": they do the same, in a small window you can close once Wordlight is running.
 
 First time:
   1. Bible: the Bible tab looks up references (John 3:16, john 3 16) or the words of a verse.
