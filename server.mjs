@@ -15,6 +15,7 @@ import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
 import {createBibleSearch} from './bible-search.mjs';
 import {createListener} from './listen.mjs';
+import {readNotices,addNotice,dismissNotice} from './notices.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
@@ -39,6 +40,8 @@ async function retryBusy(work){
   catch(err){if(attempt>=4||!['EPERM','EBUSY','EACCES'].includes(err.code))throw err;await new Promise(r=>setTimeout(r,150*(attempt+1)));}
  }
 }
+// When a backup in backups/ was made, in local time (its name, session-2026-11-16T10-23-45-123Z.json, is in UTC).
+const backupTime=name=>{const m=/^session-(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)/.exec(name);return m?new Date(m[1]+'T'+m[2]+':'+m[3]+':'+m[4]+'Z').toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):name;};
 // A damaged session.json is kept under a new name and the newest readable backup is loaded instead,
 // so a bad write never silently starts the companion with an empty library. A missing or unreadable session.json
 // also falls back to the newest backup, if there is one.
@@ -49,6 +52,7 @@ async function retryBusy(work){
  if(damaged){
   const kept=path.join(dataDir,'session-damaged-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');
   await rename(file,kept).catch(()=>{});console.error('session.json could not be read. It was kept as '+path.basename(kept)+'.');
+  await addNotice(dataDir,{kind:'recovery',level:'warning',text:'Your saved shows could not be read when Wordlight started, so the damaged file was kept as '+path.basename(kept)+'. Check your shows.'}).catch(()=>{});
  }
  if(damaged||readError){
   const dir=path.join(dataDir,'backups');let names=[];try{names=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().reverse();}catch{}
@@ -57,7 +61,9 @@ async function retryBusy(work){
   for(const name of names){
    try{loadSaved(JSON.parse(await readFile(path.join(dir,name),'utf8')));}catch{continue;}
    // An unreadable (not missing) session.json is left in place: the next save keeps a copy in backups/ first.
-   console.error('Loaded the backup '+name+'.');if(damaged||readError?.code==='ENOENT')await copyFile(path.join(dir,name),file).catch(()=>{});break;
+   console.error('Loaded the backup '+name+'.');
+   await addNotice(dataDir,{kind:'recovery',level:'warning',text:'Wordlight opened your shows from the backup made '+backupTime(name)+'. Changes made after that may be missing.'}).catch(()=>{});
+   if(damaged||readError?.code==='ENOENT')await copyFile(path.join(dir,name),file).catch(()=>{});break;
   }
  }
 }
@@ -583,7 +589,7 @@ function broadcastStage(){
  const message='data: '+JSON.stringify(stageNow())+'\n\n';
  for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
 }
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/listen-panel.mjs','listen-panel.mjs'],['/listen-worklet.js','listen-worklet.js'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/listen-panel.mjs','listen-panel.mjs'],['/notices-bar.mjs','notices-bar.mjs'],['/listen-worklet.js','listen-worklet.js'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}
@@ -680,6 +686,14 @@ async function handle(req,res){
    json(res,404,{error:'Not found'});
   }catch(err){json(res,err.status>=400&&err.status<600?err.status:500,{error:err.message||'Listening did not work.'});}
   return;
+ }
+ // Notices for the operator (local studio only): updates installed or refused, shows opened from a backup.
+ if(url.pathname==='/api/notices'&&req.method==='GET'){json(res,200,{notices:await readNotices(dataDir)});return;}
+ if(url.pathname==='/api/notices/dismiss'&&req.method==='POST'){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
+  if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+  let body;try{body=await readJSON(req,1000);}catch{json(res,400,{error:'Invalid JSON.'});return;}
+  json(res,200,{notices:await dismissNotice(dataDir,String(body?.id||''))});return;
  }
  if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}
  if(url.pathname==='/api/settings'&&req.method==='POST'){

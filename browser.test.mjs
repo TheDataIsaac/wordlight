@@ -470,3 +470,13 @@ test('When the library is full, changes from a stale tab are saved as a file ins
  await run("fetch('/api/state').then(r=>r.json()).then(s=>{const next=structuredClone(s.library);next.shows=next.shows.filter(x=>!String(x.id).startsWith('full-')).slice(0,"+original+");next.activeShowId=next.shows[0].id;next.savedAt=Date.now()+2000;return fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:next,baseSavedAt:s.library.savedAt||0})});})");
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('A notice from the companion shows at the top of the studio until it is dismissed',{skip},async()=>{
+ await writeFile(path.join(dir,'data','notices.json'),JSON.stringify([{id:'n1',at:Date.now(),kind:'update',level:'info',text:'Wordlight was updated to 9.9.9.'}]));
+ await open();
+ await until("document.querySelector('#noticeBar')&&!document.querySelector('#noticeBar').hidden&&document.querySelector('#noticeBar').textContent.includes('updated to 9.9.9')",'the notice');
+ await run("document.querySelector('[data-notice=n1]').click()");
+ await until("document.querySelector('#noticeBar').hidden",'the bar to close');
+ await until("fetch('/api/notices').then(r=>r.json()).then(s=>s.notices.length===0)",'the notice dismissed on the companion');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

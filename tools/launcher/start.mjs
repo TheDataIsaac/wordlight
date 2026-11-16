@@ -13,6 +13,7 @@ import {fileURLToPath} from 'node:url';
 import {askToQuit,clearStop,loadCompanionEnv,loadConfig,requestStop,sleep,supervisorAlive,tailLines,whoIsThere,writeLog} from './shared.mjs';
 import {supervise} from './supervisor.mjs';
 import {applyPending} from './update.mjs';
+import {addNotice} from '../../notices.mjs';
 
 const [command='start',...flags]=process.argv.slice(2);
 let cfg;
@@ -81,7 +82,14 @@ async function start(){
   // The supervisor started below runs the code from app\, whichever version that now is.
   if(isPackage&&there.kind==='nothing'){
    const done=await applyPending({top:packageTop,dataDir:cfg.dataDir}).catch(err=>({result:'failed',why:err.message}));
-   if(done.result!=='none')await writeLog(cfg,'launcher','Update: '+done.result+(done.version?' to '+done.version:'')+(done.from?' from '+done.from:'')+(done.why?' ('+done.why+')':'')+(done.backup?'; data copied to '+done.backup:''));
+   if(done.result!=='none'){
+    await writeLog(cfg,'launcher','Update: '+done.result+(done.version?' to '+done.version:'')+(done.from?' from '+done.from:'')+(done.why?' ('+done.why+')':'')+(done.backup?'; data copied to '+done.backup:''));
+    // The studio says so too, once: the operator may not be the one who pressed Restart.
+    const notice=done.result==='updated'?{kind:'update',text:'Wordlight was updated to '+done.version+'. Your shows and settings were copied to '+path.basename(done.backup||'backups')+' first. Settings → Updates says what changed and can go back.'}
+     :done.result==='rolled-back'?{kind:'update',text:'Wordlight went back to the version you had before.'}
+     :{kind:'update',level:'warning',text:'The downloaded update could not be installed ('+(done.why||'unknown reason')+'). Wordlight started with the version you had; it will try again at the next start.'};
+    await addNotice(cfg.dataDir,notice).catch(()=>{});
+   }
   }
   // The supervisor outlives this window, so closing it does not stop Wordlight.
   const child=spawn(process.execPath,[fileURLToPath(import.meta.url),'supervise'],{cwd:cfg.root,detached:true,windowsHide:true,stdio:'ignore',env:{...process.env,WORDLIGHT_PORT:String(cfg.port),WORDLIGHT_DATA_DIR:cfg.dataDir}});

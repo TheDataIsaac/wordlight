@@ -14,7 +14,7 @@ const commit=process.argv[2]||'HEAD',out=process.argv[3]||path.join(repo,'dist',
 const git=args=>execFileSync('git',args,{cwd:repo,maxBuffer:64e6});
 const tracked=String(git(['ls-tree','-r','--name-only',commit])).split('\n').filter(Boolean);
 // The companion itself, its start script, licence and notices; the studio pages; no tests, data, tools or this ZIP.
-const top=['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','updates.mjs','Start Wordlight.cmd','Stop Wordlight.cmd',
+const top=['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','notices.mjs','updates.mjs','Start Wordlight.cmd','Stop Wordlight.cmd',
  // Start and Stop Wordlight.cmd run the launcher with crash recovery from tools/launcher.
  'tools/launcher/run.cmd','tools/launcher/start.mjs','tools/launcher/supervisor.mjs','tools/launcher/shared.mjs','tools/launcher/update.mjs'];
 const names=[...top,...tracked.filter(n=>/^dist\/[^/]+\.(html|css|js|mjs)$/.test(n)).sort()];

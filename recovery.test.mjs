@@ -33,6 +33,16 @@ test('A damaged session is kept aside and the newest readable backup is loaded',
   const files=await readdir(dataDir);assert.ok(files.some(f=>/^session-damaged-.*\.json$/.test(f)),'damaged file kept');
   const kept=files.find(f=>f.startsWith('session-damaged-'));assert.match(await readFile(path.join(dataDir,kept),'utf8'),/"id":"x"/);
   assert.equal(JSON.parse(await readFile(path.join(dataDir,'session.json'),'utf8')).library.shows[0].draft.title,'Newest good backup');
+  // The studio is told, not only the log: one notice for the damaged file, one for the backup that was opened.
+  const {notices}=await (await fetch('http://127.0.0.1:'+port+'/api/notices')).json();
+  assert.equal(notices.length,2);
+  assert.match(notices[0].text,/damaged file was kept as session-damaged-/);
+  assert.match(notices[1].text,/opened your shows from the backup made 2 Oct/);
+  assert.ok(notices.every(n=>n.level==='warning'&&n.kind==='recovery'));
+  // Dismissing one leaves the other, and only the local studio may dismiss.
+  assert.equal((await fetch('http://127.0.0.1:'+port+'/api/notices/dismiss',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://evil.example'},body:JSON.stringify({id:notices[0].id})})).status,403);
+  const after=await (await fetch('http://127.0.0.1:'+port+'/api/notices/dismiss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:notices[0].id})})).json();
+  assert.deepEqual(after.notices.map(n=>n.id),[notices[1].id]);
  }finally{server.kill();await new Promise(r=>setTimeout(r,200));await rm(dataDir,{recursive:true,force:true});}
 });
 
