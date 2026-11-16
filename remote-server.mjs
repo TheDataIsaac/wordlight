@@ -420,6 +420,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(p==='/remote/api/bible/books'){send(res,200,{books:bibleBooks()});return;}
   try{
    if(p==='/remote/api/bible/versions'){send(res,200,{versions:await bible.versions()});return;}
+   if(p==='/remote/api/bible/search'){
+    const found=await bible.search(String(url.searchParams.get('q')||'').slice(0,200));
+    send(res,200,{searched:found.searched,results:found.results.slice(0,12).map(r=>({reference:r.reference,translation:r.translation,text:clip(r.text,200),exact:r.exact}))});return;
+   }
    if(p==='/remote/api/bible/look'){
     const version=url.searchParams.get('version')||'',found=phoneReference(url.searchParams.get('q'),state.live.slides[state.live.index]?.versePoint),data=await bible.passage(version,found);
     send(res,200,{reference:found.reference,version:version.toUpperCase(),total:data.verses.length,verses:data.verses.slice(0,20).map(v=>({chapter:v.chapter,verse:v.verse,text:clip(v.text,300)}))});return;

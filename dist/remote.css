@@ -79,3 +79,5 @@ textarea{padding:10px 12px;resize:vertical}
 .step.hide{font-size:13px;font-weight:600;line-height:1.2}
 .step.hide.restore{background:#e7c68a;border-color:#e7c68a;color:#1b241f}
 #next{background:#2c5a4b;border-color:#3f7a66}
+/* Verses found by their words: two lines of each verse, so the right one can be told apart. */
+.preview .slides .text{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}

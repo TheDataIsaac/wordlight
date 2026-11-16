@@ -35,7 +35,7 @@ export function phoneReference(input,onScreen=null){
  return parseReference(text);
 }
 
-export function createBibleLookup({bibles,apiBible,request=fetch}){
+export function createBibleLookup({bibles,apiBible,search=null,request=fetch}){
  const chapters=new Map();
  function keep(key,value){chapters.delete(key);chapters.set(key,value);while(chapters.size>CHAPTERS_KEPT)chapters.delete(chapters.keys().next().value);return value;}
  async function online(url){
@@ -81,6 +81,11 @@ export function createBibleLookup({bibles,apiBible,request=fetch}){
    const data=await lookup(version,p);
    if(!Array.isArray(data?.verses)||!data.verses.length)throw fail(404,'No passage found.');
    return {...data,reference:p.reference,text:data.verses.map(v=>v.text).join('\n')};
+  },
+  // Verses that contain the typed words, from the Bibles installed on the laptop.
+  async search(query){
+   if(!search)return {results:[],searched:[]};
+   return search.search(query);
   },
   // The verse before or after a point, or null at either end of the Bible.
   async adjacent(version,point,delta){

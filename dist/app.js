@@ -14,6 +14,7 @@ import {matchingBooks,completeBook} from './reference.mjs';
 import {newSong,editSong,songToText,arrangementText,readSongFile,songFile,captureSong,addCapturedLine,setlistLines,settings,applySettings,cleanSettings,matchedSlide,LINES_PER_SLIDE} from './songs.mjs';
 import {adjacentVerse,adjacentByChapter,rangeFromResponse,TRANSLATIONS,isLookupKey} from './scripture.mjs';
 import {readLimitedJSON} from './readlimit.mjs';
+import {looksLikeWords,verseResultsMarkup} from './verse-search.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
 import {openPhoneRemote} from './remote-setup.mjs';
 import {FONTS,THEMES,DEFAULT,cleanDraft,deckFor,snapshot,validLive,occurrences,matchRegex,safeColor,getHighlights,nextHighlightColor,highlightPalette,highlightSegments,safeEmphasis,contrastInk,cleanTextSlide,fitPadding,FIT_PADDING,assetId,referenceSize,lowerReferenceSize,REFERENCE_SIZE,LOWER_REFERENCE_SIZE} from './core.mjs';
@@ -147,7 +148,7 @@ function renderPanel(){
  if(tab==='slides')renderSlides();else if(tab==='passage')renderPassage();else if(tab==='songs')renderSongs();else if(tab==='words')renderWords();else renderDesign();
 }
 function renderPassage(){
- $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="e.g. Romans 12:1-2" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div><p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow','primary')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
+ $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="Romans 12:1-2, or words from the verse" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div><div id="verseResults" class="verse-results"></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div><p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow','primary')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
  $('#lookupStatus').insertAdjacentHTML('beforebegin',label('Passage layout','passageLayout')+'<select id="passageLayout"><option value="verses" '+(draft.passageLayout!=='flow'?'selected':'')+'>One verse per slide</option><option value="flow" '+(draft.passageLayout==='flow'?'selected':'')+'>Flowing text (split by length)</option></select>'+tip('Choose how this show displays a range. You can switch after lookup without downloading it again.')+'');
  $('#passageLayout').addEventListener('change',ev=>{draft.passageLayout=ev.target.value;draft.previewId='';remember();renderPreview();renderDeck();renderVerseNavigation();updateStats();});
  $('#lookupStatus').insertAdjacentHTML('afterend','<div id="panelVerseNav"></div>'+button('Add passage as new item','keep-passage','plus')+''+tip('Looks up the reference above as a separate Scripture item, for example a second reading. Look up changes the current Scripture item.')+'');renderVerseNavigation();
@@ -157,7 +158,7 @@ function renderPassage(){
  $('#lookupTranslation').addEventListener('change',()=>{++lookupId;lookupBusy=false;updateTranslationMode();});$('#lookupTranslation').addEventListener('nkjv-state',updateTranslationMode);updateTranslationMode();
  if(companionReady()&&!nkjvState)refreshNKJV();
  if(companionReady()&&!installedBibles)refreshInstalledBibles();
- setupBookAutocomplete($('#referenceLookup'));
+ setupBookAutocomplete($('#referenceLookup'));paintVerseResults();
  for(const [id,key] of [['passageText','passage'],['referenceLabel','reference'],['versionLabel','translation']]){
   $('#'+id).addEventListener('input',ev=>{
    if(key==='passage'&&ev.target.value.trim()&&['Song','Presentation'].includes(itemSummary(draft,deckFor(draft)).kind)){
@@ -668,8 +669,8 @@ async function lookupPassage(delta=0,options={}){
  if(!isLookupKey(tr))return toast('Choose a lookup translation in the Bible tab.');
  let normalized=query;
  if(!delta){
-  try{normalized=parseReference(query).reference;}
-  catch(err){const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return toast(err.message);}
+  try{normalized=parseReference(query).reference;if(!options.fromResult&&verseSearch){verseSearch=null;paintVerseResults();}}
+  catch(err){if(looksLikeWords(query))return searchVerses(query);const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return toast(err.message);}
   const field=$('#referenceLookup');if(field)field.value=normalized;
  }
  const request=++lookupId,showId=library.activeShowId,sceneId=activeShow(library).activeSceneId,oldText=draft.passage,oldReference=draft.reference,oldPreview=draft.previewId;
@@ -708,6 +709,35 @@ async function lookupPassage(delta=0,options={}){
   return true;
  }catch(err){if(request===lookupId&&showId===library.activeShowId){const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';offerInstalledBibles(el,tr);}toast(err.message);}}
  finally{if(request===lookupId){lookupBusy=false;renderVerseNavigation();}}
+}
+// Finding a verse by its words ("for God so loved"), in the Bibles installed on the companion. The best match loads in
+// the preview in the version chosen for lookups; the screen does not change. Returns true only when that best match is
+// the one verse with the typed words exactly, so Shift+Enter sends a sure match straight away and stops at the preview
+// for a guess or for a short quote found word for word in several verses ("fear not").
+let verseSearch=null,verseSearchId=0,lastVerseClick=null,verseLoading=Promise.resolve(false);
+function paintVerseResults(){const el=$('#verseResults');if(el)el.innerHTML=verseResultsMarkup(verseSearch,draft.reference);}
+async function searchVerses(query){
+ const request=++verseSearchId;
+ if(!companionReady()){verseSearch={query,results:[],searched:[],error:'Finding a verse by its words needs the Wordlight companion with an installed Bible. Type the reference instead.'};paintVerseResults();return false;}
+ verseSearch={query,results:[],searched:[],busy:true};paintVerseResults();
+ let data;
+ try{data=await nkjvRequest('/api/bibles/search?'+new URLSearchParams({q:query}));}
+ catch(err){if(request===verseSearchId){verseSearch={query,results:[],searched:[],error:err.message||'The verse search did not work.'};paintVerseResults();}return false;}
+ if(request!==verseSearchId)return false;
+ verseSearch={query,results:data.results||[],searched:data.searched||[]};
+ if(!verseSearch.searched.length)verseSearch.error='No Bible is installed on this computer yet. Install KJV or another version below, then search again.';
+ paintVerseResults();
+ const top=verseSearch.results[0];if(!top)return false;
+ const found=await loadVerseResult(0),exactCount=verseSearch.results.filter(r=>r.exact).length;
+ if(found&&!top.exact)toast(top.reference+' is the closest match. Check it in the preview before sending.');
+ else if(found&&exactCount>1)toast(exactCount+' verses have these exact words. Pick the right one in the list.');
+ return found&&top.exact&&exactCount===1;
+}
+async function loadVerseResult(index){
+ const hit=verseSearch?.results[index];if(!hit)return false;
+ const field=$('#referenceLookup');if(field)field.value=hit.reference;
+ const found=await lookupPassage(0,{fromResult:true});
+ paintVerseResults();return found;
 }
 // An online version can fail mid-service. Another version is never used on its own; the operator gets one click to choose it.
 function offerInstalledBibles(el,tr){
@@ -877,6 +907,14 @@ document.addEventListener('click',async ev=>{
  if(a.startsWith('graphics-')){handleGraphicsAction(a,t);return;}
  if(a.startsWith('companion-')){handleCompanionAction(a);return;}
  if(a==='verse-prev'||a==='verse-next'){stepVerse(a==='verse-prev'?-1:1);return;}
+ if(a==='verse-results-close'){verseSearch=null;++verseSearchId;paintVerseResults();return;}
+ if(a==='verse-result'){
+  const index=Number(t.dataset.resultIndex),double=ev.detail>0&&lastVerseClick?.index===index&&ev.timeStamp-lastVerseClick.time<450;
+  lastVerseClick=double||!ev.detail?null:{index,time:ev.timeStamp};
+  // The second click waits for the first click's verse to arrive, then sends it.
+  if(double){await verseLoading;if(draft.reference!==verseSearch?.results[index]?.reference&&!await loadVerseResult(index))return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));return;}
+  verseLoading=loadVerseResult(index);return;
+ }
  if(a==='keep-passage'){lookupPassage(0,{newItem:true});return;}
  if(a.startsWith('item-')){handleItemAction(a,t);return;}
  if(a==='phone-remote'){openPhoneRemote();return;}

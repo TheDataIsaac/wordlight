@@ -13,6 +13,7 @@ import {DEFAULT,cleanDraft,snapshot,validLive} from './dist/core.mjs';
 import {cleanLibrary,activeShow,backgroundAssetIds} from './dist/library.mjs';
 import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
+import {createBibleSearch} from './bible-search.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
@@ -458,6 +459,8 @@ const apiBible=createApiBible({dataDir,...(testBase?{base:testBase+'/v1',fumsUrl
 // by WORDLIGHT_BIBLE_SEEDS. Missing translations are installed from them on start; installed copies are never replaced.
 const seedDir=process.env.WORDLIGHT_BIBLE_SEEDS||path.join(root,'..','bibles');
 const bibleLibrary=createBibleLibrary({dataDir,seedDir,...(testBase?{base:testBase+'/ebible/'}:{})});
+// Finding a verse by its words, in the Bibles installed on this computer.
+const bibleSearch=createBibleSearch({root:path.join(dataDir,'bibles'),listInstalled:()=>bibleLibrary.list()});
 // Installed Bibles: list, install from the official archive, remove, and offline lookups. Local studio only.
 async function handleBibles(req,res,url,trusted=false){
  const origin=req.headers.origin;if(!trusted&&origin&&!localOrigins().includes(origin)){json(res,403,{error:'Installed Bibles are only available in the local studio.'});return;}
@@ -476,6 +479,7 @@ async function handleBibles(req,res,url,trusted=false){
    if(url.pathname==='/api/bibles/install'){json(res,202,{bibles:await bibleLibrary.install(String(body?.id||''))});return;}
    if(url.pathname==='/api/bibles/remove'){json(res,200,{bibles:await bibleLibrary.remove(String(body?.id||''))});return;}
   }
+  if(url.pathname==='/api/bibles/search'&&req.method==='GET'){json(res,200,await bibleSearch.search(q.get('q')||''));return;}
   if(url.pathname==='/api/bibles/passage'&&req.method==='GET'){
    const chapter=int('chapter'),verse=int('verse'),endChapter=int('endChapter')??chapter,endVerse=int('endVerse')??(verse!==null&&endChapter===chapter?verse:null);
    json(res,200,await bibleLibrary.passage(q.get('translation')||'',{bookId:q.get('book')||'',chapter,verse,endChapter,endVerse}));return;
@@ -551,11 +555,11 @@ async function handleBridge(req,res,url){
  }
  json(res,404,{error:'Not found'},cors);
 }
-const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library(\/used)?$/],['GET',/^\/api\/bibles(\/passage)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
+const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library(\/used)?$/],['GET',/^\/api\/bibles(\/passage|\/search)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
 // A page that stopped reading its live stream (a frozen OBS, a sleeping computer) would make every screen pile up in
 // memory here. Past 16 MB unread, its stream is closed; the browser reconnects and gets the latest screen.
 function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients){if(client.writableLength>16e6){client.destroy();continue;}client.write(message);}remote.liveChanged(state.live);}
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}
@@ -661,7 +665,7 @@ function saveNewest(){
 // locked or full disk never holds up the next slide.
 const keepScreen=()=>{const saved=saveNewest();return saveProblem?true:Promise.race([saved,new Promise(resolve=>setTimeout(resolve,SAVE_WAIT_MS,true))]);};
 const projector=createProjector({url:'http://127.0.0.1:'+port+'/?view=output&projector=1',dataDir});
-const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible}),findSongs,readSong,settings:{get:settings,change:changeSettings}});
+const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible,search:bibleSearch}),findSongs,readSong,settings:{get:settings,change:changeSettings}});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});
@@ -670,6 +674,8 @@ server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
  // Line search loads here, so the first song search during a service doesn't have to wait for it.
  songbook().then(entries=>{songList??=[...entries.values()];songWords??=vocabulary(songList);}).catch(err=>console.error('Song search: '+(err?.message||err)));
+ // Verse search builds its word index a little later, so it never slows the start, and is ready before it is needed.
+ setTimeout(()=>bibleSearch.warm().catch(err=>console.error('Verse search: '+(err?.message||err))),8000).unref();
  const url='http://127.0.0.1:'+port;
  console.log('Wordlight is ready: '+url);console.log('OBS full screen: '+url+'/?view=output&obs=1');console.log('OBS lower third: '+url+'/?view=lower&obs=1');console.log('Keep this app running during projection. Press Ctrl+C to stop.');
  // The phone remote starts only after the companion itself is running, and only if it was turned on. If it cannot

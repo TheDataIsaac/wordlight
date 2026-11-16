@@ -185,8 +185,33 @@ function lookSoon(){
  clearTimeout(lookTimer);lookRequest++;clearPicked();
  const text=$('reference').value.trim();paintHints(text);
  if(!text){$('preview').replaceChildren();return;}
- // A book name with no number yet is still being typed.
+ // A book name with no number yet is still being typed. Words that are not the start of a book name are a quote.
  if(/\d/.test(text))lookTimer=setTimeout(()=>look(text),180);
+ else if(isQuote(text))lookTimer=setTimeout(()=>searchWords(text),400);
+}
+// "for God so loved" is a quote to search for: no digits, two or more words, and not the start of a book name.
+function isQuote(text){
+ const name=text.toLowerCase();
+ return !/\d/.test(text)&&text.split(/\s+/).filter(w=>w.length>1).length>=2&&!books.some(b=>b.name.toLowerCase().startsWith(name));
+}
+// Verses that contain the typed words, from the Bibles installed on the laptop. A tap picks a verse, a double tap sends
+// it, in the version chosen above. With pickTop, the best match is picked (never sent) so Go never sends a guess.
+async function searchWords(text,pickTop=false){
+ const mine=++lookRequest;
+ let r;try{r=await request('/remote/api/bible/search?q='+encodeURIComponent(text));}catch{if(mine===lookRequest)note('Could not reach Wordlight.');return;}
+ if(mine!==lookRequest)return;
+ if(r.status!==200){note(r.data.error||'The verse search did not work.');return;}
+ if(!r.data.searched.length){note('Finding a verse by its words needs a Bible installed on the laptop.');return;}
+ if(!r.data.results.length){note('No verse in '+r.data.searched.join(', ')+' has these words. Try fewer words.');return;}
+ const version=$('version').value,list=element('ol','slides');
+ for(const hit of r.data.results){
+  const li=element('li'),b=listButton(hit.reference+(hit.exact?' · exact words':''),hit.text);li.append(b);
+  const send={action:'bible',reference:hit.reference,version};
+  b.addEventListener('click',()=>{tapped(b,hit.reference+' · '+version.toUpperCase(),send);for(const other of list.querySelectorAll('button'))other.setAttribute('aria-pressed',String(other===b));});
+  list.append(li);
+ }
+ $('preview').replaceChildren(element('h3','','Verses with these words'),list);
+ if(pickTop){const first=list.querySelector('button');first.setAttribute('aria-pressed','true');pick(r.data.results[0].reference+' · '+version.toUpperCase(),{action:'bible',reference:r.data.results[0].reference,version});say('Check the verse, then tap Send to live.');}
 }
 async function look(text){
  const mine=++lookRequest;
@@ -217,6 +242,7 @@ $('bibleForm').addEventListener('submit',async ev=>{
  if(!$('reference').value.trim())return;
  $('reference').blur();
  const text=$('reference').value;
+ if(isQuote(text.trim())){searchWords(text.trim(),true);return;}
  if(await command(bibleCommand())){say('Sent: '+live.showTitle);bibleSent();clearPicked();}
  else{note($('message').textContent||'That verse was not sent.');offerInstalled(text);}
 });

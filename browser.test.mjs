@@ -364,3 +364,20 @@ test('A reference typed while a slow one is still loading takes its place, and S
  await run('window.fetch=window.realFetch');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Words typed in the Bible box find the verse: Enter previews it, and Shift+Enter sends an exact match',{skip},async()=>{
+ await open();await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')!==null",'the Bible panel');
+ await until("[...document.querySelector('#lookupTranslation').options].some(o=>o.value==='kjv')",'the versions');
+ await run("const s=document.querySelector('#lookupTranslation');s.value='kjv';s.dispatchEvent(new Event('change',{bubbles:true}))");
+ const before=await liveState();
+ await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text:'beginning was the word'});await key('Enter');
+ await until("(document.querySelector('.verse-result.active')?.innerText||'').includes('John 1:1')",'the found verse marked in the list');
+ await until("(document.querySelector('#preview .verse-text')?.textContent||'')==='In the beginning was the Word'",'the verse in the preview');
+ assert.deepEqual(await liveState(),before,'Enter never changes the screen');
+ await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text:'In the beginning was the Word'});await key('Enter',{modifiers:SHIFT});
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'')==='In the beginning was the Word')",'the exact match on screen');
+ // A reference typed afterwards closes the list.
+ await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text:'John 3:2'});await key('Enter');
+ await until("document.querySelector('#verseResults')?.innerHTML===''",'the list to close');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

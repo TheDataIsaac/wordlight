@@ -210,3 +210,17 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .stage-canvas.has-background::before,.stage-canvas.has-background::after{display:none}
 /* The bar with the next and previous buttons stays in view on laptop screens, where the slides below the preview need scrolling. */
 @media(min-width:761px){#liveBar{position:sticky;bottom:0;z-index:5;background:var(--paper);padding-bottom:2px}}
+/* Verses found by their words, under the Bible box. Matched words are bold; the verse in the preview is marked. */
+.verse-results:empty{display:none}
+.verse-results{margin:8px 0 4px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:6px}
+.verse-results-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 4px 6px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.02em}
+.verse-results-head .icon-button{width:26px;height:26px;font-size:17px}
+.verse-results-list{list-style:none;margin:0;padding:0;max-height:300px;overflow:auto}
+.verse-result{display:block;width:100%;padding:7px 8px;border:0;border-radius:5px;background:none;text-align:left;font:13px/1.4 'DM Sans',Segoe UI,sans-serif;color:var(--ink);cursor:pointer}
+.verse-result:hover,.verse-result.active{background:#e7eee2}
+.verse-result.active{box-shadow:inset 3px 0 0 var(--green)}
+.verse-result-ref{display:block;font-weight:600}
+.verse-result-version{font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
+.verse-result-text{display:block;color:#4d5a52;font-size:12px}
+.verse-result-text b{color:var(--ink);font-weight:700}
+.verse-results .small-note{margin:6px 4px 2px}
