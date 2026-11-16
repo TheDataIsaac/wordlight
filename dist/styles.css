@@ -264,3 +264,11 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .text-picture{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
 .text-picture.fit-contain{object-fit:contain}.text-picture.fit-cover{object-fit:cover}
 .text-picture~.text-slide-layout,.text-picture~.slide-footer{position:relative;z-index:1}
+/* Getting started: the first-time checklist at the top of the studio (see getting-started.mjs). */
+.getting-started{margin:8px 16px 0;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:#fff}
+.gs-head{display:flex;align-items:center;gap:10px}.gs-head span{flex:1;color:var(--muted);font-size:13px}
+.gs-steps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gs-steps li{display:flex;align-items:center;gap:10px;font-size:13px}
+.gs-text{flex:1}.gs-mark{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#eef1ea;color:var(--muted);font-weight:700}
+.gs-steps li.done .gs-mark{background:#2e7d52;color:#fff}.gs-steps li.done .gs-text{color:var(--muted)}
+.gs-steps li.warn .gs-mark{background:#e0b25a;color:#1b1300}

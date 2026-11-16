@@ -21,6 +21,7 @@ import {songFromImportedFile} from './song-import.mjs';
 import {openStageDisplay} from './stage-setup.mjs';
 import {setupListening,openListening,paintBar as paintListenBar} from './listen-panel.mjs';
 import {loadNotices,paintNotices} from './notices-bar.mjs';
+import {setupGettingStarted,paintGettingStarted} from './getting-started.mjs';
 import {showUpdates,refreshUpdates} from './update-setup.mjs';
 import {FONTS,THEMES,DEFAULT,cleanDraft,deckFor,snapshot,validLive,occurrences,matchRegex,safeColor,getHighlights,nextHighlightColor,highlightPalette,highlightSegments,safeEmphasis,contrastInk,cleanTextSlide,fitPadding,FIT_PADDING,assetId,referenceSize,lowerReferenceSize,REFERENCE_SIZE,LOWER_REFERENCE_SIZE} from './core.mjs';
 const $=s=>document.querySelector(s);
@@ -95,6 +96,18 @@ let otherTabTimer;
 // A change made from the screen as it stands (next slide, hide, timer) says so. If the screen moved first, the companion
 // refuses it rather than bring an old deck back.
 const publishChange=next=>publish(next,live.updated);
+// Getting started (local studio, until hidden): each step's button does that step here.
+let gettingStartedOn=false;
+function startGettingStarted(){
+ if(gettingStartedOn)return;gettingStartedOn=true;
+ setupGettingStarted(action=>{
+  if(action==='goto-bible'){tab='passage';render();}
+  else if(action==='present')present();
+  else if(action==='help')showHelp();
+  else if(action==='song-import')chooseFile($('#songFile'));
+  else if(action==='phone-remote')openPhoneRemote();
+ });
+}
 // Verse listening (local studio): a suggestion previews like a typed reference, and a double-click sends it.
 let listeningHooked=false;
 function startListeningHooks(){
@@ -163,10 +176,10 @@ let renderedTab=null;
 function renderStudio(){
  document.title=APP_NAME+(appInfo?.preview?' (preview)':'');
  $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Save show','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Refresh presentation</button>'+'</div></header>'+
- '<div id="noticeBar" class="notice-bar" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
+ '<div id="noticeBar" class="notice-bar" hidden></div><div id="gettingStarted" class="getting-started" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
  '<main class="main"><div class="main-heading">'+button('Timer','timer')+button('Graphics','graphics-open')+button('OBS & screens','help','screen')+(isLocal?button('Listen','listen-open')+button('Stage','stage-open')+button('Phone remote','phone-remote')+button('Settings','settings-open'):'')+'</div><div class="stage-pair"><section class="stage-column"><div class="preview-header"><span class="preview-label"><span class="dot"></span> PREVIEW</span><span class="aspect-badge">16:9 &nbsp; / &nbsp; 1920 × 1080</span></div><div id="verseNav"></div><div id="preview" class="stage-frame" aria-label="Slide preview"></div></section>'+
  '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view"><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button><button class="button" data-action="lower-open-settings">Lower third settings</button></div><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
- renderPanel();renderPreview();renderSceneBar();renderDeck();renderLive();paintListenBar();paintNotices();
+ renderPanel();renderPreview();renderSceneBar();renderDeck();renderLive();paintListenBar();paintNotices();paintGettingStarted();
  $('#showSwitcher').addEventListener('change',ev=>switchShow(ev.target.value));
  $('#sessionTitle').addEventListener('input',ev=>{draft.title=ev.target.value;remember();});
 }
@@ -1423,7 +1436,7 @@ async function connectLocal(){
  try{
   const r=await fetch(stateUrl(),{signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error('not ready');const s=await r.json();if(s.app!=='wordlight')return;
   connectTry=0;isLocal=true;localReachable=true;
-  if(!isOutput){showAppInfo();refreshUpdates();startListeningHooks();loadNotices();}
+  if(!isOutput){showAppInfo();refreshUpdates();startListeningHooks();loadNotices();startGettingStarted();}
   if(!isOutput&&(s.library||s.draft)){
    const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(s.library?.savedAt||0),hasCopy=!libraryError&&Number(library.savedAt)>0,knownBase=!!acked;
    // Edits this tab made that the companion never confirmed, and whether it moved on without them.

@@ -531,3 +531,18 @@ test('Pictures become slides that show the picture, can fill the screen, and can
  await until("document.querySelector('#preview .text-picture')===null",'the picture removed from the slide');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Getting started lists the first steps, ticks what is done, and goes away when hidden',{skip},async()=>{
+ await run("localStorage.removeItem('wordlight-getting-started-hidden')");
+ await open();
+ await until("document.querySelector('#gettingStarted')&&!document.querySelector('#gettingStarted').hidden&&document.querySelector('.gs-steps')",'the checklist');
+ const text=await run("document.querySelector('#gettingStarted').textContent");
+ assert.match(text,/Bibles on this computer/);assert.match(text,/Your songs/);assert.match(text,/of 4 done/);
+ assert.equal(await run("document.querySelector('.gs-steps li').classList.contains('done')"),true,'the test Bible counts as installed');
+ await run("document.querySelector('[data-gs-action=goto-bible]')?.click()");
+ await run("document.querySelector('[data-gs=hide]').click()");
+ assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true);
+ await open();await wait(500);
+ assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true,'it stays hidden after a reload');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
