@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat} from 'node:fs/promises';
 import os from 'node:os';
-import {freeShowToSong,searchSongs,foldText,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
+import {freeShowToSong,searchSongs,foldText,foldWords,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
 import {searchEntry,entryForCache,entryFromCache,findInSongbook,vocabulary} from './song-search.mjs';
 import {createHash} from 'node:crypto';
 import {cleanGraphics} from './dist/graphics.mjs';
@@ -343,8 +343,16 @@ async function saveNativeSong(raw,expectedModified){
 async function importNativeSongs(rows){
  return inSongQueue(async()=>{
   const list=await readSongIndex(),seen=new Set(list.map(e=>e.id)),added=[],errors=[],modified=Date.now();let skipped=0;
+  // A song already in the library (same title and first line, ignoring case and punctuation) is not added again, so
+  // importing the same folder twice does not double every song.
+  const sameSong=(title,line)=>foldWords(title)+'|'+foldWords(line);
+  const known=new Set([...(await songbook()).values()].map(e=>sameSong(e.name,e.lines[0]?.text||'')));
+  const firstLine=raw=>{const a=raw?.arrangements?.find?.(x=>x.id===raw.arrangementId)||raw?.arrangements?.[0],s=raw?.sections?.find?.(x=>x.id===a?.order?.[0])||raw?.sections?.[0];return String(s?.slides?.[0]||'').split('\n')[0];};
   for(const raw of rows){
    if(nativeId(raw?.id)&&seen.has(raw.id)){skipped++;continue;}
+   const key=sameSong(raw?.title||'',firstLine(raw));
+   if(known.has(key)){skipped++;continue;}
+   known.add(key);
    const id=nativeId(raw?.id)?raw.id:'wl-'+crypto.randomUUID();
    try{added.push(librarySong(raw,id,modified));seen.add(id);}
    catch(err){errors.push((typeof raw?.title==='string'&&raw.title.trim()?raw.title.slice(0,80):'A song without a title')+': '+err.message);}
@@ -599,7 +607,7 @@ function broadcastStage(){
  const message='data: '+JSON.stringify(stageNow())+'\n\n';
  for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
 }
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/listen-panel.mjs','listen-panel.mjs'],['/notices-bar.mjs','notices-bar.mjs'],['/listen-worklet.js','listen-worklet.js'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/listen-panel.mjs','listen-panel.mjs'],['/notices-bar.mjs','notices-bar.mjs'],['/song-import.mjs','song-import.mjs'],['/listen-worklet.js','listen-worklet.js'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}

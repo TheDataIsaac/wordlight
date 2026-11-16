@@ -493,3 +493,21 @@ test('Typing writes the browser copy of the library a few times, not once per ke
  assert.match(await run("JSON.parse(localStorage.getItem('wordlight-library')).shows.find(s=>s.draft.title.includes('Typed quickly')).draft.title"),/thirty letters$/);
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Song files from other programs: one goes into the show, several go into the song library',{skip},async()=>{
+ await open();
+ const folder=path.join(dir,'imports');await mkdir(folder,{recursive:true});
+ const usr=path.join(folder,'River Song.usr'),cho=path.join(folder,'Open Door.cho'),txt=path.join(folder,'Plain Song.txt');
+ await writeFile(usr,'[File]\r\nType=SongSelect Import File\r\n[S A123]\r\nTitle=River Song\r\nFields=Verse 1/tChorus\r\nWords=River line one/nRiver line two/tRiver chorus\r\n');
+ await writeFile(cho,'{title: Open Door}\n[G]Door line one\nDoor line two\n');
+ await writeFile(txt,'Plain words here\nMore plain words\n');
+ const pick=async files=>{const {root}=await cdp('DOM.getDocument');const {nodeId}=await cdp('DOM.querySelector',{nodeId:root.nodeId,selector:'#songFile'});await cdp('DOM.setFileInputFiles',{nodeId,files});};
+ await pick([usr,cho]);
+ await until("document.querySelector('#toast').textContent.includes('Added 2 songs to the library')",'the two songs in the library');
+ await until("fetch('/api/songs?q=river%20chorus').then(r=>r.json()).then(s=>s.items.some(i=>i.name==='River Song'))",'River Song findable by its words');
+ await pick([usr,cho]);
+ await until("document.querySelector('#toast').textContent.includes('2 already there were skipped')",'the second import skipped');
+ await pick([txt]);
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.draft.songs?.some(x=>x.song.title==='Plain Song'))",'the single song in the show');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

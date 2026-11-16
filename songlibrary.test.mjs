@@ -112,6 +112,13 @@ test('Export and import: existing ids are skipped, other songs added, bad files 
  assert.equal((await noFs('/api/songs/library/import',{method:'POST',body:{format:'other',songs:[]}})).status,400);
  const mixed=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:[{title:''},song('Fresh')]}});
  assert.equal(mixed.body.added,1);assert.equal(mixed.body.errors.length,1);
+ // Songs from another program have no Wordlight id: the same title and first line already in the library is skipped,
+ // so importing a folder twice does not double it.
+ const fromElsewhere=[song('Brought Along'),song('Brought Along Too')].map(({id,...s})=>s);
+ const first=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:fromElsewhere}});
+ assert.deepEqual([first.body.added,first.body.skipped],[2,0]);
+ const twice=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:fromElsewhere}});
+ assert.deepEqual([twice.body.added,twice.body.skipped],[0,2]);
 });
 test('Import keeps library ids: the same file twice adds once, and repeats within one file are skipped',async()=>{
  const file={format:'wordlight-song-library',version:1,songs:[{...song('Identity'),id:'wl-identity-12345678'}]};
@@ -124,7 +131,8 @@ test('Import keeps library ids: the same file twice adds once, and repeats withi
 });
 test('An import over the library limit is refused whole',async()=>{
  const before=(await noFs('/api/songs')).body.native,tiny=song('Bulk');
- const big=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:Array.from({length:6000},()=>({...tiny,id:undefined}))}});
+ // 6,000 different songs (the same song repeated would be skipped as a duplicate).
+ const big=await noFs('/api/songs/library/import',{method:'POST',body:{format:'wordlight-song-library',version:1,songs:Array.from({length:6000},(_,i)=>({...tiny,title:'Bulk '+i,id:undefined}))}});
  assert.equal(big.status,409);assert.match(big.body.error,/Nothing was imported/);assert.equal(big.body.added,0);
  assert.equal((await noFs('/api/songs')).body.native,before);
  assert.equal((await readdir(path.join(dir,'data-alone','songs'))).filter(f=>f.endsWith('.json')&&f!=='index.json').length,before,'no song files were left behind');

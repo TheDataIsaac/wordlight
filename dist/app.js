@@ -17,6 +17,7 @@ import {readLimitedJSON} from './readlimit.mjs';
 import {looksLikeWords,verseResultsMarkup} from './verse-search.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
 import {openPhoneRemote} from './remote-setup.mjs';
+import {songFromImportedFile} from './song-import.mjs';
 import {openStageDisplay} from './stage-setup.mjs';
 import {setupListening,openListening,paintBar as paintListenBar} from './listen-panel.mjs';
 import {loadNotices,paintNotices} from './notices-bar.mjs';
@@ -2115,10 +2116,30 @@ function addSongEntry(song,edit=false,hit=null,quiet=false){
  remember();render();
  if(edit)openSongEditor(entry.entryId);else if(!quiet)toast(song.title+' added as its own item. Send to screen when ready.');
 }
+// Song files: Wordlight and FreeShow files, and other programs' formats (SongSelect, OpenLyrics, ChordPro, plain text;
+// see song-import.mjs). One file goes into this show as its own item. Several go into the song library, which is how a
+// church brings the songs it already has; songs already in the library (same title and first line) are skipped.
+async function readImportedSong(file){
+ if(file.size>5e6)throw new Error('the file is too large for one song');
+ const text=await file.text();
+ return /\.(json|show)$/i.test(file.name)?readSongFile(JSON.parse(text)):songFromImportedFile(file.name,text);
+}
 $('#songFile')?.addEventListener('change',async ev=>{
- const file=ev.target.files[0];ev.target.value='';if(!file)return;
- try{if(file.size>5e6)throw new Error('That file is too large for one song.');addSongEntry(readSongFile(JSON.parse(await file.text())));}
- catch(err){toast(err.message||'That song file could not be read.');}
+ const files=[...ev.target.files];ev.target.value='';if(!files.length)return;
+ if(files.length===1){try{addSongEntry(await readImportedSong(files[0]));}catch(err){toast(files[0].name+' could not be read: '+(err.message||'unknown format')+'.');}return;}
+ if(!companionReady()){toast('Adding several songs at once needs the Wordlight companion. Start Wordlight on this computer, or import one song at a time.');return;}
+ const songs=[],problems=[];
+ for(const file of files.slice(0,3000)){try{songs.push(await readImportedSong(file));}catch(err){problems.push(file.name+' ('+(err.message||'unknown format')+')');}}
+ if(!songs.length){toast('None of these files could be read, for example '+problems[0]+'.');return;}
+ toast('Adding '+songs.length+' songs to the song library…');
+ try{
+  const r=await localFetch('/api/songs/library/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format:'wordlight-song-library',version:1,songs:songs.map(({id,...song})=>song)})});
+  const result=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(result.error||'The songs could not be added.');
+  const unread=problems.length+(result.failed||0);
+  toast('Added '+result.added+' song'+(result.added===1?'':'s')+' to the library.'+(result.skipped?' '+result.skipped+' already there were skipped.':'')+(unread?' '+unread+' could not be read'+(problems[0]?', for example '+problems[0]:'')+'.':''));
+  forgetCompanionSongs();if(tab==='songs')searchSongLibrary(false);
+ }catch(err){toast(err.message);}
 });
 // A song made here has no library copy yet. Saving it keeps it, so it can be found next time.
 const notInLibrary=song=>/^native-/.test(song.id)&&companionReady();
