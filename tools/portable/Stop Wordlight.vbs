@@ -4,6 +4,8 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 folder = fso.GetParentFolderName(WScript.ScriptFullName)
 dataDir = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Wordlight\data"
 sh.CurrentDirectory = folder
+' An update cut short leaves the version that ran last in app-swap. Put it back so Wordlight can start.
+If Not fso.FolderExists(folder & "\app") And fso.FolderExists(folder & "\app-swap") Then fso.MoveFolder folder & "\app-swap", folder & "\app"
 sh.Environment("PROCESS")("WORDLIGHT_DATA_DIR") = dataDir
 If MsgBox("Stop Wordlight? OBS and the projector stop updating until you start it again.", vbYesNo + vbQuestion, "Wordlight") = vbYes Then
   code = sh.Run("""" & folder & "\runtime\node.exe"" """ & folder & "\app\tools\launcher\start.mjs"" stop", 0, True)

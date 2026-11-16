@@ -130,3 +130,33 @@ test('While something runs inside app, the update waits and the app is left as i
   assert.equal(await exists(path.join(top,'update','ready.json')),true,'the update still waits for the next start');
  }finally{busy.kill();gh.close();await new Promise(r=>setTimeout(r,300));await rm(top,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
+
+test('A swap cut short is finished or undone at the next start, and nothing kept is lost',async()=>{
+ const {top,data,root}=await packageFolder(),gh=await fakeGitHub(appZip('1.2.0'));
+ const version=folder=>readFile(path.join(top,folder,'package.json'),'utf8').then(t=>JSON.parse(t).version,()=>null);
+ try{
+  await createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed}).download();
+  // Cut short after the running version was moved aside: app\ is missing. The Start script puts app-swap\ back,
+  // the same step finishInterrupted takes, and the update is still waiting.
+  const {rename}=await import('node:fs/promises');
+  await rename(path.join(top,'app'),path.join(top,'app-swap'));
+  const done=await applyPending({top,dataDir:data});
+  assert.equal(done.result,'updated');
+  assert.equal(await version('app'),'1.2.0');assert.equal(await version('app-previous'),'1.1.0');
+  // Cut short after the new version went in: app\ works and app-swap\ holds the old one, which becomes the kept version.
+  await rename(path.join(top,'app-previous'),path.join(top,'app-swap'));
+  assert.deepEqual(await applyPending({top,dataDir:data}),{result:'none'});
+  assert.equal(await version('app-previous'),'1.1.0');assert.equal(await exists(path.join(top,'app-swap')),false);
+ }finally{gh.close();await rm(top,{recursive:true,force:true});}
+});
+
+test('Two starts at once install the update once and keep the previous version',async()=>{
+ const {top,data,root}=await packageFolder(),gh=await fakeGitHub(appZip('1.2.0'));
+ try{
+  await createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed}).download();
+  const results=(await Promise.all([applyPending({top,dataDir:data}),applyPending({top,dataDir:data})])).map(r=>r.result).sort();
+  assert.deepEqual(results,['none','updated']);
+  assert.equal(JSON.parse(await readFile(path.join(top,'app-previous','package.json'),'utf8')).version,'1.1.0');
+  assert.equal(await exists(path.join(top,'update.lock')),false);
+ }finally{gh.close();await rm(top,{recursive:true,force:true});}
+});
