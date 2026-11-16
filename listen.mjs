@@ -43,12 +43,16 @@ export function sharedWords(heard,verse){
 }
 const QUOTE_WORDS=24,KEEP_PHRASES=12,KEEP_SUGGESTIONS=8,SAME_VERSE_MS=90000,QUIET_STOP_MS=20000,MAX_BEHIND=12;
 // A speech process that was running and then dies (Windows ends it when the computer runs out of memory) is started
-// again after RESTART_MS, up to MAX_RESTARTS times in RESTART_WINDOW_MS; after that listening stays off with a reason.
-const RESTART_MS=1000,MAX_RESTARTS=3,RESTART_WINDOW_MS=10*60000;
+// again after a growing wait (RESTART_DELAYS), up to that many times in RESTART_WINDOW_MS; after that listening stays
+// off with a reason. While less than RESTART_FREE_BYTES of memory is free it waits longer, so the restart does not
+// take memory OBS needs: missing verse suggestions costs less than dropped frames on the stream.
+const RESTART_DELAYS=[5000,30000,120000],RESTART_WINDOW_MS=10*60000,RESTART_FREE_BYTES=1.2e9,RESTART_WAIT_MS=15000;
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 
 // workerFile and workerArgs let tests stand in for the speech process.
-export function createListener({dataDir,search,notify=()=>{},request=fetch,downloads=LISTEN_DOWNLOADS,workerFile=fileURLToPath(new URL('./listen-worker.mjs',import.meta.url)),workerArgs=null}){
+// restartDelays, restartWaitMs and freeMemory let tests run restarts quickly and pretend memory is short.
+export function createListener({dataDir,search,notify=()=>{},request=fetch,downloads=LISTEN_DOWNLOADS,workerFile=fileURLToPath(new URL('./listen-worker.mjs',import.meta.url)),workerArgs=null,
+ restartDelays=RESTART_DELAYS,restartWaitMs=RESTART_WAIT_MS,freeMemory=os.freemem}){
  const folder=path.join(dataDir,'listen'),marker=path.join(folder,'installed.json');
  let installing=null,progress=null,error='',worker=null,ready=false,behind=0,skipped=false,quietTimer=null,startedAt=0;
  let restartTimer=null,restarts=[],ranOnce=false;
@@ -56,7 +60,7 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
 
  const installed=()=>existsSync(marker)&&existsSync(path.join(folder,'model','tokens.txt'));
  function state(){
-  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker||!!restartTimer,ready,skipped,
+  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker||!!restartTimer,restarting:!!restartTimer,ready,skipped,
    downloadMB:Math.round(downloads.reduce((n,d)=>n+d.size,0)/1e6),phrases:phrases.slice(-KEEP_PHRASES),partial,suggestions};
  }
  const changed=()=>notify(state());
@@ -136,25 +140,35 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
   mine.stderr?.on('data',()=>{});
   mine.on('message',message=>{if(worker===mine)receive(message);});
   // However the speech process ends (exit, lost connection, failure to start), nothing it does can stop the companion.
-  // Once listening has worked this session, a process that dies is started again (see RESTART_MS) while the studio
+  // Once listening has worked this session, a process that dies is started again (see RESTART_DELAYS) while the studio
   // keeps sending audio; the quiet timer still stops everything if the studio goes away. Otherwise listening stops.
   const ended=message=>{
    if(worker!==mine)return;
    worker=null;ready=false;try{mine.kill();}catch{}
    const now=Date.now();restarts=restarts.filter(t=>now-t<RESTART_WINDOW_MS);
-   if(message&&ranOnce&&restarts.length<MAX_RESTARTS){
-    restarts.push(now);
-    restartTimer=setTimeout(()=>{restartTimer=null;launch();changed();},RESTART_MS);restartTimer.unref?.();
-   }else{
-    clearTimeout(quietTimer);
-    if(message&&!error)error=ranOnce?'Listening stopped '+(MAX_RESTARTS+1)+' times in a few minutes, so it was left off. The computer may be short of memory: close other programs, then start it again.':message;
-   }
+   if(message&&ranOnce&&restarts.length<restartDelays.length){
+    restarts.push(now);partial='';
+    restartLater(restartDelays[restarts.length-1]);
+   }else if(message){
+    giveUp(ranOnce?'Listening stopped '+(restartDelays.length+1)+' times in a few minutes, so it was left off. The computer may be short of memory: close other programs, then start it again.':message);
+   }else clearTimeout(quietTimer);
    changed();
   };
-  mine.on('exit',code=>ended(code?'Listening stopped unexpectedly. Start it again.':''));
+  mine.on('exit',(code,signal)=>ended(code||signal?'Listening stopped unexpectedly. Start it again.':''));
   mine.on('disconnect',()=>ended('Listening stopped unexpectedly. Start it again.'));
   mine.on('error',()=>ended('The speech process could not run. Start listening again.'));
  }
+ function restartLater(ms){
+  restartTimer=setTimeout(()=>{
+   restartTimer=null;
+   if(freeMemory()<RESTART_FREE_BYTES){restartLater(restartWaitMs);changed();return;}
+   // fork can throw when the computer is out of memory; that must not stop the companion.
+   try{launch();}catch{giveUp('The speech process could not start again. The computer may be short of memory: close other programs, then start listening again.');}
+   changed();
+  },ms);
+  restartTimer.unref?.();
+ }
+ function giveUp(message){clearTimeout(quietTimer);error=message;}
  function stop(){
   clearTimeout(quietTimer);clearTimeout(restartTimer);restartTimer=null;
   if(worker){const w=worker;worker=null;ready=false;w.kill();}
@@ -176,7 +190,8 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
   return {ok:true};
  }
  function receive(message){
-  if(message.type==='ready'){ready=true;ranOnce=true;changed();return;}
+  // Running again after a restart: an error from before no longer applies.
+  if(message.type==='ready'){ready=true;ranOnce=true;error='';changed();return;}
   if(message.type==='ack'){behind=Math.max(0,behind-1);if(skipped&&behind===0){skipped=false;changed();}return;}
   if(message.type==='error'){error=message.message;changed();return;}
   if(message.type==='partial'){partial=message.text;changed();return;}

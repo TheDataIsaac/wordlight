@@ -165,14 +165,21 @@ test('A speech process that dies is started again, a few times; one that never s
  const fake=path.join(dataDir,'drops.mjs');
  // Ready, then it drops its connection but keeps running for a moment.
  await writeFile(fake,"process.send({type:'ready'});setTimeout(()=>process.disconnect(),200);setTimeout(()=>{},1500);");
- const listener=createListener({dataDir,search:null,workerFile:fake,workerArgs:[]});
+ let free=8e9;
+ const listener=createListener({dataDir,search:null,workerFile:fake,workerArgs:[],restartDelays:[50,50,50],restartWaitMs:50,freeMemory:()=>free});
  try{
   listener.start();
   assert.ok(await until(()=>listener.state().ready));
-  await wait(300);
+  await wait(260);
   assert.equal(listener.state().listening,true,'still listening while the speech process starts again');
   assert.deepEqual(listener.audio(Buffer.alloc(8000)),{ok:true},'audio is taken (and dropped) meanwhile');
   assert.ok(await until(()=>listener.state().ready),'and it is running again');
+  // While memory is short it waits instead of starting again.
+  free=5e8;
+  assert.ok(await until(()=>listener.state().restarting),'it dies again');
+  await wait(400);
+  assert.equal(listener.state().restarting,true,'still waiting for memory');
+  free=8e9;
   // It keeps dying: after three restarts listening is left off, with the reason.
   assert.ok(await until(()=>!listener.state().listening,8000),'listening ends');
   assert.match(listener.state().error,/stopped 4 times.*short of memory/);
