@@ -210,6 +210,25 @@ function addWord(word,onAir=false){
  if(!n){n={id:crypto.randomUUID(),word,original:'',transliteration:'',strong:'',meaning:'',source:'',color:nextHighlightColor(draft),emphasis:'highlight',slideId:scope};draft.notes.push(n);}
  draft.selectedNoteId=n.id;const passageSlide=deckFor(draft).find(s=>s.type==='passage'&&occurrences(s.text,n.word));if(!activeTextSlide()&&!onVerse)draft.previewId=passageSlide?.id||'passage-0';tab='words';remember();render();
 }
+// A click on a word of the verse showing now lights it; a click on a lit word clears it, from the item's words and
+// from the screen straight away.
+function toggleLiveWord(word){
+ const key=word.trim().toLowerCase(),noted=n=>!n.slideId&&n.word.trim().toLowerCase()===key;
+ const onScreen=live.style.highlights||[],lit=onScreen.some(h=>h.word.toLowerCase()===key);
+ const show=highlights=>publishChange({...clone(live),style:{...live.style,highlights,highlightWords:highlights.map(h=>h.word)}}).then(paintLiveWords);
+ if(lit){
+  if(draft.notes.some(noted)){
+   draft.notes=draft.notes.filter(n=>!noted(n));
+   if(!draft.notes.some(n=>n.id===draft.selectedNoteId))draft.selectedNoteId=draft.notes[0]?.id||'';
+   remember();render();
+  }
+  return show(onScreen.filter(h=>h.word.toLowerCase()!==key));
+ }
+ // The word is kept with the item, and goes to the screen now rather than with the next save.
+ if(!draft.notes.some(noted))addWord(word,true);
+ const kept=getHighlights(draft).find(h=>!h.slideId&&h.word.toLowerCase()===key);
+ if(kept)show([...onScreen,kept]);
+}
 // Highlights for the words in the current scope (the selected text slide, or the passage), by lowercase word.
 // The first matching entry wins, as the old per-word find() did.
 function scopeHighlights(){
@@ -224,7 +243,8 @@ function wordChips(){
 function refreshWordChips(){
  if($('#noteChips'))$('#noteChips').innerHTML=wordChips();
  const highlights=scopeHighlights();
- document.querySelectorAll('.word-token').forEach(b=>{
+ // Only the passage's own words: the "On screen now" words follow the screen, not this list.
+ document.querySelectorAll('#wordPicker .word-token').forEach(b=>{
   const h=highlights.get(b.dataset.word.toLowerCase());
   b.classList.toggle('highlighted',!!h);if(h)applyTokenStyle(b,h);else {b.removeAttribute('data-emphasis');b.style.removeProperty('--word-color');}
  });
@@ -385,7 +405,8 @@ function renderOutput(){
  const words=live.style.highlights||live.style.highlightWords||[];
  if(isGraphics)mountStage($('#outputStage'),graphicsMarkup(live.graphics));
  else if(isLower)drawLowerThird($('#outputStage'),live.slides[live.index],live.style,live.blank,words,live.lowerThird);
- else drawStage($('#outputStage'),live.slides[live.index],live.style,live.blank,words);
+ // With nothing sent yet the audience sees a dark screen, not the studio's "add text" hint.
+ else drawStage($('#outputStage'),live.slides[live.index],live.style,live.blank||!live.slides[live.index],words);
  paintTimers();
 }
 // The live slide in a band over a transparent canvas. Blank, or nothing sent, leaves the canvas fully transparent.
@@ -635,7 +656,8 @@ async function stepVerse(delta){
 async function lookupPassage(delta=0,options={}){
  // A manual lookup replaces any verse steps still loading.
  if(!options.quiet){verseIntent++;if(verseStepping){++lookupId;lookupBusy=false;}}
- if(lookupBusy)return false;
+ // A new reference typed while an earlier one is still loading takes its place; the late answer is dropped below.
+ if(lookupBusy&&options.quiet)return false;
  const selected=deckFor(draft).find(s=>s.id===draft.previewId);
  const verseOrder=new Map((draft.bibleVerses||[]).map((v,i)=>['passage-'+v.bookId+'-'+v.chapter+'-'+v.verse,i]));
  const verseSlides=deckFor(draft).filter(s=>s.type==='passage'&&s.versePoint).sort((a,b)=>verseOrder.get(a.id)-verseOrder.get(b.id));
@@ -743,14 +765,14 @@ async function projectorRequest(action){
 async function present(){
  let problem='';
  if(isLocal){
-  try{const done=await projectorRequest('open');toast(done.already?'The projector window is already open.':'Opening full screen on the projector. Use Send to screen when you’re ready.');setTimeout(refreshCompanion,2500);return;}
+  try{const done=await projectorRequest('open');toast(done.already?'The projector window is already open. If it is on the wrong screen, press Close projector window, then Present.':'Opening full screen on the projector. Use Send to screen when you’re ready.');setTimeout(refreshCompanion,2500);return;}
   catch(err){problem=err.message+' ';}
  }
  const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');
  if(!w)toast(problem+'Allow pop-ups for this site to open the presentation window.');else toast(problem+'Presentation window opened. Use Send to screen when you’re ready.');
 }
 // The same list in the projection guide and in Settings, so there is one place to look.
-const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Alt+Enter anywhere','Send it to the screen.'],['Ctrl+Enter in song search, or +','Keep the song in this show for later.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
+const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Shift+Enter (Alt+Enter also works)','Send it to the screen.'],['Ctrl+Enter in song search, or +','Keep the song in this show for later.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
 function keysTable(){return '<table class="keys-table">'+KEYS.map(([keys,what])=>'<tr><td>'+e(keys)+'</td><td>'+e(what)+'</td></tr>').join('')+'</table>';}
 function showHelp(){
  const full=(isLocal?location.origin:COMPANION_URL)+'/?view=output&obs=1',lower=(isLocal?location.origin:COMPANION_URL)+'/?view=lower&obs=1';
@@ -828,7 +850,7 @@ document.addEventListener('click',async ev=>{
  const t=ev.target.closest('button,a');if(!t)return;
  if(t.dataset.tab){tab=t.dataset.tab;render();return;}
  if(t.dataset.word){addWord(t.dataset.word);return;}
- if(t.dataset.liveWord){addWord(t.dataset.liveWord,true);return;}
+ if(t.dataset.liveWord){toggleLiveWord(t.dataset.liveWord);return;}
  if(t.dataset.note){draft.selectedNoteId=t.dataset.note;if(!draft.previewId.startsWith('passage-')&&!activeTextSlide())draft.previewId='study-'+t.dataset.note+'-0';remember();render();return;}
  if(t.dataset.wordColor){setWordColor(t.dataset.wordColor);renderWords();return;}
  if(t.dataset.theme){draft.theme=t.dataset.theme;draft.accent='';remember();render();return;}
@@ -867,7 +889,11 @@ document.addEventListener('click',async ev=>{
  if(a==='slide-earlier'||a==='slide-later'){movePreparedSlide(a==='slide-earlier'?-1:1);return;}
  if(a==='mark-selection'){markSelectedText();return;}
  if(a==='words'){tab='words';render();}
- else if(a==='send'){const next=currentSnapshot(),sent=await publish(next);if(sent)toast(sentMessage('Your preview',sent));}
+ else if(a==='send'){
+  // While a passage is still loading, the preview holds the one before it, which must not go up in its place.
+  if(lookupBusy&&!verseStepping&&draft.previewId.startsWith('passage'))return toast('Still finding that passage. Press again in a moment.');
+  const next=currentSnapshot(),sent=await publish(next);if(sent)toast(sentMessage('Your preview',sent));
+ }
  else if(a==='present')present();
  else if(a==='refresh-presentation')refreshPresentation();
  else if(a==='projector-close'){try{await projectorRequest('close');toast('Projector window closed.');setTimeout(refreshCompanion,1000);}catch(err){toast(err.message);}}
@@ -902,7 +928,7 @@ $('#importFile').addEventListener('change',async ev=>{
   toast(count+' show'+(count===1?'':'s')+' imported'+(images.length?' with '+images.length+' background image'+(images.length===1?'':'s'):'')+'. Existing shows and the audience screen were kept.');if($('#showsDialog').open)renderShows();}
  catch(err){toast(err.message||'That session could not be opened.');}ev.target.value='';
 });
-// Alt+Enter sends what is in the preview, after any song or verse still on its way has arrived.
+// Shift+Enter (or Alt+Enter) sends what is in the preview, after any song or verse still on its way has arrived.
 async function sendPreview(){
  await songState.peeking.catch(()=>{});
  if(lookupBusy){toast('Still finding that passage. Press again in a moment.');return;}
@@ -910,7 +936,8 @@ async function sendPreview(){
 }
 document.addEventListener('keydown',ev=>{
  if(document.querySelector('dialog[open]'))return;
- if(ev.altKey&&ev.key==='Enter'&&!isOutput){ev.preventDefault();sendPreview();return;}
+ // In a multi-line box Shift+Enter still starts a new line, so only Alt+Enter sends from there.
+ if(ev.key==='Enter'&&(ev.altKey||(ev.shiftKey&&!ev.target.closest?.('textarea,[contenteditable=true]')))&&!isOutput){ev.preventDefault();sendPreview();return;}
  // A clicker sends Page Up and Page Down, so they work from any box or list, except where text is being edited.
  if((ev.key==='PageDown'||ev.key==='PageUp')&&!ev.shiftKey&&!isOutput&&!ev.target.closest('textarea:not(#captureLine),[contenteditable=true]')){ev.preventDefault();moveLive(ev.key==='PageDown'?1:-1,true);return;}
  if(ev.target.closest('input,textarea,select,[contenteditable=true]')||$('#helpDialog').open)return;
@@ -964,6 +991,8 @@ function addTextSlide(layout){
   draft.textSlides.push(s);
  }
  draft.previewId='text-'+s.id;tab='slides';selectedTextPhrase='';remember();render();
+ // Ready to type: letters typed on the page itself would be shortcuts.
+ $('#textHeading')?.focus();
 }
 function duplicateTextSlide(){duplicatePreviewSlide();}
 
@@ -1220,6 +1249,8 @@ async function adoptServerLibrary(){
 }
 // afterOutage: the companion restarted or the link came back, so a newer browser copy is the one to keep and save.
 async function reconcileWithCompanion(afterOutage=false){
+ // A slide that arrives while this answer is on its way is newer than the answer, so the answer must not replace it.
+ const liveBefore=live;
  try{
   const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)});if(!r.ok)throw new Error();const s=await r.json();
   if(!isOutput&&(s.library||s.draft)){
@@ -1233,7 +1264,7 @@ async function reconcileWithCompanion(afterOutage=false){
    // The companion is level or went back, for example after a restart from an older save. This tab's copy is the one to keep.
    else{if(server<serverSavedAt)serverSavedAt=server;if(afterOutage&&server<Number(library.savedAt))saveRevision++;if(unsaved())await flushLocalSave();else setSaveStatus('Saved on this computer');}
   }
-  if(validLive(s.live)){live=s.live;cacheLive();if(isOutput)renderOutput();else{renderLive();renderDeck();}}
+  if(validLive(s.live)&&live===liveBefore){live=s.live;cacheLive();if(isOutput)renderOutput();else{renderLive();renderDeck();}}
  }catch{setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');}
 }
 async function connectLocal(){
@@ -1251,7 +1282,9 @@ async function connectLocal(){
    else if(edited)await adoptServerLibrary();
    else{library=serverLibrary;draft=activeShow(library).draft;confirmSave(server,showStamps(library));try{saveLibrary(localStorage,library);}catch{}setSaveStatus('Saved on this computer');}
   }
-  if(validLive(s.live)){live=s.live;cacheLive();}render();
+  if(validLive(s.live)){live=s.live;cacheLive();}
+  // A slide that cannot be drawn must not stop the page from following the screens after it.
+  try{render();}catch(err){console.error(err);}
   if(!isOutput&&!installedBibles)refreshInstalledBibles();
   if(events)events.close();
   events=new EventSource('/api/events'+(isOutput?'?view='+(isGraphics?'graphics':isLower?'lower':'output')+(isProjector?'&projector=1':''):''));events.onmessage=ev=>{try{const data=JSON.parse(ev.data);if(data.settings&&!isOutput)receiveSettings(data.settings);if(data.build)followBuild(data.build);if(data.reload==='projector'&&isProjector)reloadOutputWhenReady();if(typeof data.saveProblem==='boolean'&&!isOutput)showSaveProblem(data.saveProblem);if(validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else {renderLive();renderDeck();paintLiveWords();}}}catch{}};events.onerror=()=>{localReachable=false;setSaveStatus(unsaved()?'Not saved to this computer yet · kept in this browser':'Reconnecting to local app…');if(events.readyState===EventSource.CLOSED)setTimeout(connectLocal,1000);};
@@ -1445,11 +1478,16 @@ function setupBookAutocomplete(field){
    const full=completeBook(field.value);if(full){ev.preventDefault();field.value=full;close();field.setSelectionRange(full.length,full.length);return;}
   }
   if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){if(!open){update();if(!books.length)return;}ev.preventDefault();active=(active+(ev.key==='ArrowDown'?1:-1)+books.length)%books.length;paint();}
-  else if(ev.key==='Enter'){if(open&&active>=0&&!ev.altKey){ev.preventDefault();choose(active);}else{
+  else if(ev.key==='Enter'){const send=ev.altKey||ev.shiftKey;if(open&&active>=0&&!send){ev.preventDefault();choose(active);}else{
    ev.preventDefault();ev.stopPropagation();close();
-   // Alt+Enter on the reference and version already loaded sends the slide in the preview, not the start of the passage again.
-   if(ev.altKey&&field.value.trim()&&field.value.trim().toLowerCase()===String(draft.reference).toLowerCase()&&currentKey()===$('#lookupTranslation')?.value){sendPreview();return;}
-   const send=ev.altKey;lookupPassage().then(async found=>{if(!found||!send)return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));});
+   // Shift+Enter on the reference and version already loaded sends the slide in the preview, not the start of the passage again.
+   if(send&&field.value.trim()&&field.value.trim().toLowerCase()===String(draft.reference).toLowerCase()&&currentKey()===$('#lookupTranslation')?.value){sendPreview();return;}
+   lookupPassage().then(async found=>{
+    // Loading a passage rebuilds the panel. The cursor goes back into the new box with its text selected, so the
+    // next reference can be typed straight away and no letter lands on the page as a shortcut (B hides the screen).
+    const box=$('#referenceLookup');if(box&&document.activeElement===document.body){box.focus();box.select();}
+    if(!found||!send)return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));
+   });
   }}
   else if(ev.key==='Escape'&&open){ev.preventDefault();close();}
  });
@@ -1458,7 +1496,7 @@ function setupBookAutocomplete(field){
 }
 
 // Lower third: settings dialog, windows and the studio's live view choice.
-const lowerFields=[['height','Band height (px)','number',120,700],['width','Band width (%)','number',30,100],['bottom','Distance from bottom (px)','number',0,400],['side','Side margin (px)','number',0,400],['background','Background color','color'],['opacity','Background opacity (%)','number',0,100],['textColor','Text color','color'],['fontSize','Text size (px)','number',20,110]];
+const lowerFields=[['height','Largest band height (px)','number',120,700],['width','Band width (%)','number',30,100],['bottom','Distance from bottom (px)','number',0,400],['side','Side margin (px)','number',0,400],['background','Background color','color'],['opacity','Background opacity (%)','number',0,100],['textColor','Text color','color'],['fontSize','Text size (px)','number',20,110]];
 function lowerThirdURL(){return (isLocal?location.origin:'http://127.0.0.1:18765')+'/?view=lower&obs=1';}
 function showLowerThirdDialog(){
  const lt=cleanLowerThird(live.lowerThird),field=([key,name,type,min,max])=>'<div>'+label(name,'lower-'+key)+input('lower-'+key,lt[key],'type="'+type+'"'+(type==='number'?' min="'+min+'" max="'+max+'" step="1"':''))+'</div>';
@@ -1562,7 +1600,7 @@ function renderPicker(){
   '<div class="picker-books" role="group" aria-label="Books">'+SECTIONS.map(([id,name])=>'<div class="picker-section sec-'+id+'" title="'+e(name)+'">'+books.filter(b=>b.section===id).map(b=>'<button type="button" class="book-chip'+(b.id===picker.book?' active':'')+(matches.has(b.id)?'':' dim')+'" data-action="picker-book" data-picker-book="'+b.id+'" title="'+e(b.english+(b.name!==b.english?' · '+b.name:''))+'" aria-pressed="'+(b.id===picker.book)+'">'+e(b.short)+'</button>').join('')+'</div>').join('')+'</div>'+
   '<div class="picker-body"><div><h3>'+(book?e(book.english)+' · chapter':'Chapter')+'</h3><div class="picker-grid" role="group" aria-label="Chapters">'+(book?Array.from({length:book.chapters},(_,i)=>'<button type="button" class="'+(picker.chapter===i+1?'active':'')+'" data-action="picker-chapter" data-picker-chapter="'+(i+1)+'" aria-pressed="'+(picker.chapter===i+1)+'">'+(i+1)+'</button>').join(''):'<p class="small-note">Choose a book.</p>')+'</div></div>'+
   '<div><h3>Verse</h3><div class="picker-grid" role="group" aria-label="Verses">'+(book&&picker.chapter?Array.from({length:versesIn(book.id,picker.chapter,tr)},(_,i)=>{const v=i+1,edge=sel?.start&&((sel.start.chapter===picker.chapter&&sel.start.verse===v)||(sel.end&&sel.end.chapter===picker.chapter&&sel.end.verse===v));return '<button type="button" class="'+(edge?'edge':inRange(picker.chapter,v)?'range':'')+'" data-action="picker-verse" data-picker-verse="'+v+'" aria-pressed="'+inRange(picker.chapter,v)+'">'+v+'</button>';}).join(''):'<p class="small-note">Choose a chapter.</p>')+'</div></div></div>'+
-  '<div class="picker-footer"><strong id="pickerReference">'+e(reference||'No passage chosen')+'</strong><span class="small-note">Click the first and last verse (Shift extends). Select only a chapter to load it all.</span>'+button('Clear','picker-clear')+'<button class="button primary" data-action="picker-load"'+(reference?'':' disabled')+'>Load preview</button></div>'+
+  '<div class="picker-footer"><strong id="pickerReference">'+e(reference||'No passage chosen')+'</strong><span class="small-note">Click the first and last verse (Shift extends). Select only a chapter to load it all. Shift+Enter sends it to the screen.</span>'+button('Clear','picker-clear')+'<button class="button primary" data-action="picker-load"'+(reference?'':' disabled')+'>Load preview</button><button class="button gold" data-action="picker-send"'+(reference?'':' disabled')+'>'+icon('arrow')+'Send to screen</button></div>'+
   (recent.length?'<div class="picker-recent"><span class="small-note">Recent</span>'+recent.map((r,i)=>'<button type="button" class="note-chip" data-action="picker-recent" data-picker-recent="'+i+'">'+e(r.reference)+' <small>'+e(r.translation.toUpperCase())+'</small></button>').join('')+'</div>':'');
  const filter=$('#pickerFilter');
  filter.addEventListener('input',()=>{picker.filter=filter.value;renderPicker();});
@@ -1578,13 +1616,25 @@ document.addEventListener('keydown',ev=>{
  const next=items[{ArrowRight:i+1,ArrowLeft:i-1,ArrowDown:i+columns,ArrowUp:i-columns}[ev.key]];
  if(next){ev.preventDefault();next.focus();}
 });
-async function loadPickedReference(reference,translation){
+async function loadPickedReference(reference,translation,send=false){
  $('#pickerDialog').close();
  if(tab!=='passage'){tab='passage';render();}
  const select=$('#lookupTranslation');if(select&&translation&&[...select.options].some(o=>o.value===translation)&&select.value!==translation){select.value=translation;select.dispatchEvent(new Event('change'));}
  const field=$('#referenceLookup');if(field)field.value=reference;
- await lookupPassage();
+ const found=await lookupPassage();
+ if(!found||!send)return;
+ const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));
 }
+const pickedReference=()=>picker.selection?selectionReference(picker.book,picker.selection):chapterReference(picker.book,picker.chapter);
+// Shift+Enter (or Alt+Enter) anywhere in the picker loads the chosen passage and sends it to the screen.
+$('#pickerDialog').addEventListener('keydown',ev=>{
+ if(ev.key!=='Enter'||!(ev.shiftKey||ev.altKey))return;
+ // On a Recent button it sends that passage, in the version it was read in.
+ const chip=ev.target.closest?.('[data-picker-recent]'),recent=chip&&readRecent(localStorage)[Number(chip.dataset.pickerRecent)];
+ if(recent){ev.preventDefault();ev.stopPropagation();loadPickedReference(recent.reference,recent.translation,true);return;}
+ const ref=pickedReference();if(!ref)return;
+ ev.preventDefault();ev.stopPropagation();loadPickedReference(ref,undefined,true);
+});
 function handlePickerAction(action,t,ev){
  if(action==='picker-open'){openPicker();return;}
  if(action==='picker-close'){$('#pickerDialog').close();return;}
@@ -1592,7 +1642,7 @@ function handlePickerAction(action,t,ev){
  if(action==='picker-chapter'){picker.chapter=Number(t.dataset.pickerChapter);renderPicker();return;}
  if(action==='picker-verse'){picker.selection=pickVerse(picker.selection,{chapter:picker.chapter,verse:Number(t.dataset.pickerVerse)},ev.shiftKey);renderPicker();return;}
  if(action==='picker-clear'){picker.selection=null;renderPicker();return;}
- if(action==='picker-load'){const ref=picker.selection?selectionReference(picker.book,picker.selection):chapterReference(picker.book,picker.chapter);if(ref)loadPickedReference(ref);return;}
+ if(action==='picker-load'||action==='picker-send'){const ref=pickedReference();if(ref)loadPickedReference(ref,undefined,action==='picker-send');return;}
  if(action==='picker-recent'){const r=readRecent(localStorage)[Number(t.dataset.pickerRecent)];if(r)loadPickedReference(r.reference,r.translation);}
 }
 
@@ -1607,11 +1657,11 @@ function songsInShow(){
 function renderSongs(){
  const panel=$('#panel');
  if(!companionReady()){panel.innerHTML='<h3 class="section-title">Songs</h3><p class="hint">Connect OBS to search the song library on this computer. Songs already in this item still play here.</p>'+button('Connect OBS','help','screen')+songsInShow();bindSongEntries();return;}
- panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Type any line you hear" maxlength="100" autocomplete="off" aria-label="Search songs by any line"')+'</div>'+tip('One click or Enter shows a song in the preview, at the line that matched. Another result replaces it, so the show stays tidy. Double-click, Alt+Enter or Send puts it on screen. Ctrl+Enter or + keeps it in the show for later.')+
+ panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Type any line you hear" maxlength="100" autocomplete="off" aria-label="Search songs by any line"')+'</div>'+tip('One click or Enter shows a song in the preview, at the line that matched. Another result replaces it, so the show stays tidy. Double-click, Shift+Enter or Send puts it on screen. Ctrl+Enter or + keeps it in the show for later.')+
   '<select id="songSource" aria-label="Song source">'+[['all','All songs'],['wordlight','My library'],['drafts','Drafts to check'],['freeshow','FreeShow']].map(([v,n])=>'<option value="'+v+'" '+(songState.source===v?'selected':'')+'>'+n+'</option>').join('')+'</select><select id="songCategory" aria-label="Song category">'+songCategoryOptions()+'</select>'+
   '<p id="songStatus" class="small-note" aria-live="polite"></p><div id="songResults" class="song-results"></div><div id="songDetail"></div>'+captureTools()+songsInShow();
  $('#songQuery').addEventListener('input',ev=>{songState.query=ev.target.value;clearTimeout(songState.timer);songState.timer=setTimeout(()=>searchSongLibrary(false),120);});
- $('#songQuery').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.stopPropagation();clearTimeout(songState.timer);topResult(ev.ctrlKey||ev.metaKey,ev.altKey);}});
+ $('#songQuery').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.stopPropagation();clearTimeout(songState.timer);topResult(ev.ctrlKey||ev.metaKey,ev.altKey||ev.shiftKey);}});
  bindCaptureTools();
  $('#songCategory').addEventListener('change',ev=>{songState.category=ev.target.value;searchSongLibrary(false);});
  $('#songSource').addEventListener('change',ev=>{songState.source=ev.target.value;songState.category='';searchSongLibrary(false);});
@@ -1645,7 +1695,7 @@ function paintSongResults(){
 function songBadge(s){return s.source!=='wordlight'?'':s.status==='reserve'?'<b class="song-badge warn">Check first</b> ':s.status==='draft'?'<b class="song-badge warn">Draft</b> ':'<b class="song-badge">Library</b> ';}
 function songHit(t){return songState.items[Number(t.dataset.songIndex)];}
 function markSongUsed(id){if(/^wl-/.test(id))localFetch('/api/songs/library/used',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>{});}
-// One rule for everything: one click or Enter looks, double-click or Alt+Enter goes to the screen.
+// One rule for everything: one click or Enter looks, double-click or Shift+Enter goes to the screen.
 // Looking at a song puts it in a temporary item, which the next look replaces, so browsing leaves no trail in the show.
 // Sending it or pressing + makes it a normal item.
 function showMatch(entryId,hit){
@@ -1678,7 +1728,7 @@ function songWentLive(){
  songState.peekEntryId='';
 }
 async function sendPeeked(hit){
- if(hit.status==='reserve'&&settings().checkFirst){toast('Read these words first, then press Alt+Enter. This song has not been checked.');return;}
+ if(hit.status==='reserve'&&settings().checkFirst){toast('Read these words first, then press Shift+Enter. This song has not been checked.');return;}
  const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(hit.name,sent));
 }
 async function keepSong(hit){
@@ -1695,7 +1745,7 @@ async function topResult(keep,send=false){
  try{
   if(!await searchSongLibrary(false))return;
   const hit=songState.items[0];if(!hit)return;
-  // The song already in the preview has been read, so a second Alt+Enter sends even a Check first song.
+  // The song already in the preview has been read, so a second Shift+Enter sends even a Check first song.
   const peeked=(draft.songs||[]).find(x=>x.entryId===songState.peekEntryId);
   if(send&&peeked?.song.id===hit.id){showMatch(peeked.entryId,hit);remember();renderPreview();renderDeck();await sendPreview();return;}
   if(keep)await keepSong(hit);else if(await peekSong(hit)&&(send||settings().resultClick==='send'))await sendPeeked(hit);

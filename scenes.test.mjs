@@ -93,6 +93,10 @@ test('References normalize separators, dashes, spacing and "to" without changing
   'Ps 23':'Psalms 23','Psalm 23:1-6':'Psalms 23:1-6','Psalms 1-2':'Psalms 1-2','Luku 10:42-11:2':'Luke 10:42-11:2','Gẹnẹsisi 1:1':'Genesis 1:1','genesisi 1:1':'Genesis 1:1','Ìṣe àwọn Aposteli 2:1':'Acts 2:1','Song 2:1':'Song of Solomon 2:1','JHN 3:16':'John 3:16','Phil 4:13':'Philippians 4:13','Phlm 1':'Philemon 1','Jude 1:3':'Jude 1:3','Rev 22:21':'Revelation 22:21','Isaiah 9:6':'Isaiah 9:6','Luke 10:18-18':'Luke 10:18'};
  for(const [input,expected] of Object.entries(cases))assert.equal(parseReference(input).reference,expected,input);
  const r=parseReference('Luke 10:42-11:2');assert.deepEqual([r.chapter,r.verse,r.endChapter,r.endVerse],[10,42,11,2]);
+ // Typed in a hurry, without the colon.
+ const quick={'john 3 16':'John 3:16','1 cor 13 4 7':'1 Corinthians 13:4-7','ps 119 105':'Psalms 119:105','john 3.16':'John 3:16','John 3 16-18':'John 3:16-18','Jude 1 3':'Jude 1:3','luke 10 18 to 20':'Luke 10:18-20'};
+ for(const [input,expected] of Object.entries(quick))assert.equal(parseReference(input).reference,expected,input);
+ assert.equal(parseReference('Jude 3').reference,'Jude 1:3');assert.throws(()=>parseReference('john 3 16 18 20'),/format/);
 });
 test('Ambiguous, unknown and invalid references give clear errors instead of guesses',()=>{
  assert.throws(()=>parseReference('Jo 3:16'),/could be Joshua, Job, Joel, Jonah, John/);

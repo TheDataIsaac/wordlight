@@ -86,9 +86,9 @@ test('A song is its own organizer item: delete, duplicate, page deletion and cop
  const one=createShow('One').draft;copySlides(d,one,[pages[3].id]);assert.equal(one.textSlides.length,1);assert.equal(one.textSlides[0].attribution,'© 2001 Example · CCLI Song # 1234567');assert.equal(makeDeck(one).length,1);
  moveGroups(d,['song-e1'],-1);moveGroups(d,['song-e1'],-1);assert.equal(groupKey(makeDeck(d)[0]),'song-e1','two moves earlier put the song first');
 });
-test('The lower third shows song text, title and section, and the credit',()=>{
+test('The lower third shows song text and the credit, without the title, section or slide count',()=>{
  const d=withSong(cleanDraft({...DEFAULT,notes:[]})),slide=makeDeck(d).find(s=>s.song),c=lowerThirdContent(slide,snapshot(d).style);
- assert.equal(c.text,'Ẹ ṣé o, Olúwa\nline two');assert.equal(c.reference,'Test Song · Verse 1 (1/3)');assert.equal(c.credit,'© 2001 Example · CCLI Song # 1234567');
+ assert.equal(c.text,'Ẹ ṣé o, Olúwa\nline two');assert.equal(c.reference,'');assert.equal(c.credit,'© 2001 Example · CCLI Song # 1234567');
 });
 test('Song search is accent- and case-insensitive, paged, and filtered by category',()=>{
  const index=['Ẹ ṣé o','Amazing Grace','Grace Alone','Ọlọrun Ọba'].map((name,i)=>({id:'s'+i,name,category:i<2?'Hymns':'Other',modified:0,folded:foldText(name)}));

@@ -83,7 +83,7 @@ test('A live stream that stops reading is closed instead of filling memory, and 
   stalled.res.resume();
   for(let i=0;i<100&&!closed;i++)await wait(50);
   assert.ok(closed,'stalled stream closed');stalled.req.destroy();
-  const latest=await new Promise((resolve,reject)=>{const req=http.get('http://127.0.0.1:'+port+'/api/events?view=output',res=>{let text='';res.on('data',c=>{text+=c;const i=text.indexOf('\n\n');if(i>=0){req.destroy();resolve(JSON.parse(text.slice(6,i)).live);}});});req.on('error',reject);});
+  const latest=await new Promise((resolve,reject)=>{const req=http.get('http://127.0.0.1:'+port+'/api/events?view=output',res=>{let text='';res.on('data',c=>{text+=c;const i=text.indexOf('\n\n');if(i>=0){req.destroy();resolve(JSON.parse(text.slice(text.indexOf('data: ')+6,i)).live);}});});req.on('error',reject);});
   assert.match(latest.slides[0].text,/^Screen \d+ /);
   assert.equal((await (await fetch('http://127.0.0.1:'+port+'/api/health')).json()).app,'wordlight');
  }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}

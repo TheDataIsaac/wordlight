@@ -208,3 +208,5 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 /* The fade uses the theme color, so text keeps the theme contrast on any photo. */
 .stage-dim{position:absolute;inset:0;background:var(--bg)}
 .stage-canvas.has-background::before,.stage-canvas.has-background::after{display:none}
+/* The bar with the next and previous buttons stays in view on laptop screens, where the slides below the preview need scrolling. */
+@media(min-width:761px){#liveBar{position:sticky;bottom:0;z-index:5;background:var(--paper);padding-bottom:2px}}

@@ -19,11 +19,12 @@ export function cleanLowerThird(raw={}){
  t.bottom=Math.min(t.bottom,1080-TOP_SAFE-t.height);
  return t;
 }
-// Inline style for the band, in canvas pixels.
+// Inline style for the band, in canvas pixels. The band is as tall as its text: the height setting is the most
+// the text may take before Fit makes it smaller, so a one-line song or heading gets a slim band.
 export function lowerThirdBandStyle(raw){
  const t=cleanLowerThird(raw),hex=t.background.slice(1),rgb=[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)).join(',');
  const horizontal=t.align==='center'?'left:'+(100-t.width)/2+'%':t.align==='left'?'left:'+t.side+'px':'right:'+t.side+'px';
- return 'position:absolute;'+horizontal+';bottom:'+t.bottom+'px;width:'+(t.align==='center'?t.width+'%':'calc('+t.width+'% - '+t.side+'px)')+';min-height:'+t.height+'px;max-height:'+(1080-TOP_SAFE-t.bottom)+'px;background:rgba('+rgb+','+t.opacity/100+');color:'+t.textColor;
+ return 'position:absolute;'+horizontal+';bottom:'+t.bottom+'px;width:'+(t.align==='center'?t.width+'%':'calc('+t.width+'% - '+t.side+'px)')+';max-height:'+(1080-TOP_SAFE-t.bottom)+'px;background:rgba('+rgb+','+t.opacity/100+');color:'+t.textColor;
 }
 // The band is wider and shorter than a slide, so its text rewraps: line breaks made for the full screen (poetry
 // lines, pasted lines) become spaces. Song lyrics keep their lines, which are part of how they are sung.
@@ -36,7 +37,8 @@ export function lowerThirdFlow(text,slide){
 export function lowerThirdContent(slide,style={}){
  if(!slide)return null;
  const f=slide.format||{},credit=slide.type==='text'?f.attribution||'':style.scriptureAttribution||'';
- if(slide.type==='text')return {heading:slide.heading||f.heading||'',subtitle:slide.subtitle||f.subtitle||'',text:slide.text||'',reference:f.footer||slide.reference||'',translation:'',credit};
+ // A song's footer is its title, section and slide count, which the band leaves out: only the words go on camera.
+ if(slide.type==='text')return {heading:slide.heading||f.heading||'',subtitle:slide.subtitle||f.subtitle||'',text:slide.text||'',reference:slide.song?'':f.footer||slide.reference||'',translation:'',credit};
  if(slide.type==='study'&&slide.note){
   const n=slide.note;
   return {heading:n.word||'',subtitle:[n.original,n.transliteration,n.strong].filter(Boolean).join(' · '),text:slide.text||'',detail:n.meaning||'',reference:slide.reference||'',translation:slide.translation||'',credit};

@@ -1,7 +1,7 @@
 import {cleanVerseRange,cleanBibleVerses,cleanScriptureSource} from './scripture.mjs';
 import {cleanSong,songSlides,songCredit,songTextLength,expandedSize,SONG_LIMITS,settings,songSlideId} from './songs.mjs';
 // The Bible reference line: its size on the full screen and on the lower third, in canvas pixels.
-export const REFERENCE_SIZE={min:24,max:90,default:30},LOWER_REFERENCE_SIZE={min:18,max:72,default:32};
+export const REFERENCE_SIZE={min:24,max:90,default:58},LOWER_REFERENCE_SIZE={min:18,max:72,default:32};
 const sizeIn=(v,limits)=>v===''||v==null||!Number.isFinite(Number(v))?limits.default:Math.round(Math.max(limits.min,Math.min(limits.max,Number(v))));
 export function referenceSize(v){return sizeIn(v,REFERENCE_SIZE);}
 export function lowerReferenceSize(v){return sizeIn(v,LOWER_REFERENCE_SIZE);}

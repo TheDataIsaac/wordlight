@@ -53,7 +53,9 @@ export function parseReference(input){
  }
  if(!parts.tail)throw new Error('Add a chapter, such as '+book.english+' 1.');
  // Accept "10;18", "10 : 18", "18 to 20" and Unicode dashes, but nothing that changes what was meant.
- const tail=parts.tail.replace(/(\d)\s*to\s*(\d)/gi,'$1-$2').replace(/\s*([:;-])\s*/g,'$1');
+ // Typed in a hurry: "3 16", "3.16" and "13 4 7" mean 3:16, 3:16 and 13:4-7.
+ const tail=parts.tail.replace(/(\d)\s*to\s*(\d)/gi,'$1-$2').replace(/\s*([:;-])\s*/g,'$1')
+  .replace(/^(\d+)[ .](\d+(?:-\d+)?)(?: (\d+))?$/,(all,chapter,verse,to)=>chapter+':'+verse+(to?'-'+to:''));
  // One-chapter books have only verses, so "Jude 5" and "Jude 3-5" are verses. "Jude 1" stays the whole book.
  const single=book.chapters===1&&!/[:;]/.test(tail)&&tail!=='1';
  const m=(single?'1:'+tail:tail).match(/^(\d+)(?:[:;](\d+))?(?:-(?:(\d+)[:;])?(\d+))?$/);

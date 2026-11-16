@@ -588,7 +588,9 @@ async function handle(req,res){
  if(url.pathname==='/api/assets'||url.pathname.startsWith('/api/assets/')){await handleAssets(req,res,url);return;}
  if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,{...state,writeId:lastWriteId});return;}
  if(req.method==='GET'&&url.pathname==='/api/events'){
-  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});res.write('data: '+JSON.stringify({live:state.live,settings:settings(),build:APP_BUILD,...(saveProblem?{saveProblem:true}:{})})+'\n\n');clients.add(res);
+  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});
+  // "retry" makes a page that lost the stream try again after half a second, not the browser's usual three.
+  res.write('retry: 500\ndata: '+JSON.stringify({live:state.live,settings:settings(),build:APP_BUILD,...(saveProblem?{saveProblem:true}:{})})+'\n\n');clients.add(res);
   const view=['output','lower','graphics'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'studio',isProjector=view==='output'&&url.searchParams.has('projector');viewers[view]++;if(isProjector)viewers.projector++;
   const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);clients.delete(res);viewers[view]--;if(isProjector)viewers.projector--;});return;
  }

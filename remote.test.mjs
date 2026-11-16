@@ -150,7 +150,7 @@ test('Sign-in needs JSON from the remote page itself and sets an HttpOnly SameSi
  const ok=await remote('POST','/remote/api/login',{body:{password}});
  assert.equal(ok.status,200);
  const cookie=ok.headers['set-cookie'][0];
- assert.match(cookie,/^wordlight_remote=[A-Za-z0-9_-]{40,};/);assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.match(cookie,/Max-Age=43200/);
+ assert.match(cookie,/^wordlight_remote=[A-Za-z0-9_-]{40,};/);assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.match(cookie,/Max-Age=604800/);
  assert.deepEqual(ok.body,{ok:true});
  assert.equal((await remote('GET','/remote/api/live',{cookie:cookie.split(';')[0]})).status,200);
 });
@@ -219,6 +219,25 @@ test('Next and previous: a resent command id is applied once and a stale screen 
  assert.equal((await command(cookie,{action:'jump'})).status,400);
 });
 
+test('A send repeated after a network gap goes through on the same screen and is refused once the screen has moved on',async()=>{
+ const cookie=await login();
+ await command(cookie,{action:'send',showId:fixture.service.id,sceneId:fixture.service.activeSceneId,slideId:'text-w'});
+ const seen=(await state()).live.updated;
+ assert.equal((await command(cookie,{action:'text',heading:'Sample repeated heading',body:'Sample repeated text',seen})).status,200);
+ // The screen changed after the tap (here by that first send), so a send still carrying the old screen is late.
+ const moved=(await state()).live;
+ const late=await command(cookie,{action:'text',heading:'Sample late heading',body:'Sample late text',seen});
+ assert.equal(late.status,409);assert.match(late.body.error,/reconnecting/);
+ assert.equal((await state()).live.updated,moved.updated,'the newer screen stayed');
+ await command(cookie,{action:'send',showId:fixture.service.id,sceneId:fixture.service.activeSceneId,slideId:'text-w'});
+});
+test('Phones stay signed in when Wordlight is stopped and started again',async()=>{
+ const cookie=await login(),gone=new Promise(r=>server.once('exit',r));
+ assert.equal((await request(port,'POST','/api/app/quit',{body:{},headers:{Origin:'http://127.0.0.1:'+port}})).status,200);
+ await gone;await startServer();
+ assert.ok(await until(()=>portOpen(remotePort),3000),'the remote came back');
+ assert.equal((await remote('GET','/remote/api/live',{cookie})).status,200,'the same phone is still signed in');
+});
 test('Hide/show and the countdown go through the same live state',async()=>{
  const cookie=await login();
  assert.equal((await command(cookie,{action:'blank',blank:true})).status,200);
@@ -333,7 +352,7 @@ test('Words highlighted in the studio stay highlighted on verses from the phone,
 });
 
 test('The Bible reference look set in the studio stays on verses from the phone, and sizes stay in range',async()=>{
- assert.equal(referenceSize(500),90);assert.equal(referenceSize(undefined),30);assert.equal(lowerReferenceSize(1),18);assert.equal(lowerReferenceSize('44'),44);
+ assert.equal(referenceSize(500),90);assert.equal(referenceSize(undefined),58);assert.equal(lowerReferenceSize(1),18);assert.equal(lowerReferenceSize('44'),44);
  const cookie=await login(),{draft}=await state(),headers={Origin:'http://127.0.0.1:'+port};
  const look=cleanDraft({...draft,referenceSize:60,lowerReferenceSize:44,referenceColor:'#112233'});
  await request(port,'POST','/api/state',{body:{live:{...snapshot(look),updated:Date.now()+5}},headers});

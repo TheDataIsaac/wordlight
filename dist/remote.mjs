@@ -58,6 +58,7 @@ $('setTap').addEventListener('change',ev=>changeSettings({phoneTap:ev.target.che
 function showTab(name){
  tab=name;save('wordlight-remote-tab',name);clearPicked();
  for(const t of TABS){$('panel-'+t).hidden=t!==name;$('tab-'+t).setAttribute('aria-selected',String(t===name));}
+ if(name==='bible')loadBible();
  if(name==='shows')loadShows();
  if(name==='screen')loadScreen(0);
  if(name==='songs'&&!$('songResults').children.length)searchSongs();
@@ -116,8 +117,12 @@ async function command(body){
  if(busy&&!urgent)return false;
  if(!urgent){busy=true;updateButtons();}
  body.id=commandId();
+ // A send repeated after a network gap carries the screen seen at the tap, so the companion can refuse it if the
+ // screen has moved on since. Next, Previous and Back already say so with base. Hide is never held back.
+ const seen=live?.updated;
  try{
   for(let attempt=0;;attempt++){
+   if(attempt&&!urgent&&body.base===undefined&&seen!==undefined)body.seen=seen;
    try{
     const r=await request('/remote/api/command',body);
     if(r.data.live)applyLive(r.data.live,r.status===409);
@@ -385,10 +390,11 @@ function paintGraphics(){
 // ---- Connection ----
 function connectEvents(){
  events?.close();
- events=new EventSource('/remote/api/events');
+ events=new EventSource('/remote/api/events');heard=Date.now();
  let fresh=true;
- events.onopen=()=>{setConnection(true);fresh=true;};
- events.onmessage=ev=>{try{applyLive(JSON.parse(ev.data),fresh);fresh=false;}catch{}};
+ events.onopen=()=>{setConnection(true);fresh=true;heard=Date.now();};
+ events.onmessage=ev=>{heard=Date.now();try{applyLive(JSON.parse(ev.data),fresh);fresh=false;}catch{}};
+ events.addEventListener('ping',()=>{heard=Date.now();});
  events.onerror=()=>{
   setConnection(false);
   // The browser retries a dropped stream by itself. A refused stream (signed out) is checked here instead.
@@ -403,6 +409,11 @@ async function checkSession(){
  }catch{setConnection(false);clearTimeout(retryTimer);retryTimer=setTimeout(checkSession,5000);}
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!events&&!$('remote').hidden){clearTimeout(retryTimer);checkSession();}});
+// The companion sends something every 25 seconds. A stream that has been silent for a minute is dead even if the
+// browser still shows it open (Wi-Fi dropped, or the phone slept), so it is opened again and brings the current screen.
+let heard=Date.now();
+function reviveStream(){if(events&&!document.hidden&&!$('remote').hidden&&Date.now()-heard>60000){setConnection(false);connectEvents();}}
+setInterval(reviveStream,10000);document.addEventListener('visibilitychange',reviveStream);
 
 $('login').addEventListener('submit',async ev=>{
  ev.preventDefault();$('loginError').textContent='';

@@ -23,7 +23,7 @@ async function key(name,{code=name,text,modifiers=0}={}){
  await cdp('Input.dispatchKeyEvent',{type:text?'keyDown':'rawKeyDown',key:name,code,text,modifiers,windowsVirtualKeyCode:keyCode});
  await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:name,code,modifiers,windowsVirtualKeyCode:keyCode});
 }
-const ALT=1;
+const ALT=1,SHIFT=8;
 async function clickOn(selector){
  const box=await run('(()=>{const r=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');
  for(const type of ['mousePressed','mouseReleased'])await cdp('Input.dispatchMouseEvent',{type,x:box.x,y:box.y,button:'left',clickCount:1});
@@ -105,7 +105,7 @@ test('A new song is saved to the song library as well as the show',{skip},async(
 });
 
 // A verse as the phone sends it: on screen, but not part of any item in the studio.
-const sendPhoneVerse=async text=>{await run("fetch('/api/state').then(r=>r.json()).then(s=>fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({live:{...s.live,blank:false,index:0,showId:undefined,sceneId:undefined,showTitle:'John 3:16',bibleVersion:'kjv',slides:[{...(s.live.slides[0]||{}),id:'passage-0',type:'passage',title:'John 3:16',reference:'John 3:16',text:"+JSON.stringify(text)+"}],style:{...s.live.style,highlights:[],highlightWords:[]},updated:Date.now()+1000}})}))");await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.bibleVersion==='kjv')",'the phone verse');};
+const sendPhoneVerse=async text=>{await run("fetch('/api/state').then(r=>r.json()).then(s=>fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({live:{...s.live,blank:false,index:0,showId:undefined,sceneId:undefined,showTitle:'John 3:16',bibleVersion:'kjv',slides:[{...(s.live.slides[0]||{}),id:'passage-0',type:'passage',title:'John 3:16',reference:'John 3:16',text:"+JSON.stringify(text)+"}],style:{...s.live.style,highlights:[],highlightWords:[]},updated:Math.max(Date.now(),s.live.updated||0)+1000}})}))");await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.bibleVersion==='kjv')",'the phone verse');};
 test('A word on a verse sent from the phone can be clicked in the Words panel and reaches the screen',{skip},async()=>{
  await open();await run("document.querySelector('[data-tab=words]').click()");
  await sendPhoneVerse('For God so loved the world');
@@ -274,4 +274,93 @@ test('A second conflict before the first copy is saved keeps that copy, under on
  const after=await (await fetch(site+'api/state')).json();
  assert.equal(after.library.shows.find(x=>x.id===after.library.activeShowId).draft.brand,'REMOTE TWO');
  assert.ok(!after.library.shows.some(x=>x.draft.title.includes('(copy from this tab) (copy from this tab)')),'one name, not two');
+});
+test('Shift+Enter sends like Alt+Enter, but in a multi-line box it still starts a new line',{skip},async()=>{
+ await open();await searchFor('first unique');await key('Enter',{modifiers:SHIFT});
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'').includes('First unique'))",'Shift+Enter to send the song that was typed');
+ await searchFor('fourth unique');await key('Enter');
+ await until("document.querySelector('#preview').innerText.includes('Fourth unique words')",'the fourth verse in the preview');
+ await run("const box=document.querySelector('#captureLine');box.closest('details')?.setAttribute('open','');box.focus()");
+ assert.equal(await run("document.activeElement.id"),'captureLine');
+ await key('Enter',{modifiers:SHIFT});await wait(300);
+ assert.match((await liveState()).text,/First unique/,'Shift+Enter in the capture box did not send the preview');
+ await run("document.querySelector('[data-tab=songs]').focus()");await key('Enter',{modifiers:SHIFT});
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'').includes('Fourth unique'))",'Shift+Enter outside a box to send the preview');
+});
+test('The passage picker sends to the screen with Shift+Enter or its Send to screen button',{skip},async()=>{
+ await open();await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')!==null",'the Bible panel');
+ await until("[...document.querySelector('#lookupTranslation').options].some(o=>o.value==='kjv')",'the versions');
+ await run("const s=document.querySelector('#lookupTranslation');s.value='kjv';s.dispatchEvent(new Event('change',{bubbles:true}))");
+ const choose=async verse=>{
+  await run("document.querySelector('[data-action=picker-open]').click()");await until("document.querySelector('#pickerDialog').open",'the picker');
+  // The picker remembers the last selection, and a second verse click would extend it into a range.
+  await run("document.querySelector('[data-action=picker-clear]')?.click()");
+  await run("document.querySelector('[data-picker-book=JHN]').click()");await until("document.querySelector('[data-picker-chapter=\"3\"]')!==null",'the chapters');
+  await run("document.querySelector('[data-picker-chapter=\"3\"]').click()");await until("document.querySelector('[data-picker-verse=\""+verse+"\"]')!==null",'the verses');
+  await run("document.querySelector('[data-picker-verse=\""+verse+"\"]').click()");await run("document.querySelector('[data-picker-verse=\""+verse+"\"]').focus()");
+ };
+ await choose(5);await key('Enter',{modifiers:SHIFT});
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'').includes('Sample verse 5'))",'Shift+Enter in the picker to send John 3:5');
+ assert.equal(await run("document.querySelector('#pickerDialog').open"),false,'the picker closed');
+ await choose(7);await run("document.querySelector('[data-action=picker-send]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'').includes('Sample verse 7'))",'the Send to screen button to send John 3:7');
+ await choose(9);await run("document.querySelector('[data-action=picker-load]').click()");
+ await until("document.querySelector('#preview').innerText.includes('Sample verse 9')",'Load preview to show John 3:9');
+ assert.match((await liveState()).text,/Sample verse 7/,'Load preview leaves the screen alone');
+});
+test('A lit word on a verse from the phone goes out with a second click, also while a text slide is selected',{skip},async()=>{
+ const lit=(word,on=true)=>"fetch('/api/state').then(r=>r.json()).then(s=>s.live.style.highlightWords.includes('"+word+"')==="+on+")";
+ const token=word=>"[...document.querySelectorAll('#liveWords .word-token')].find(b=>b.textContent==='"+word+"')";
+ await open();await run("document.querySelector('[data-tab=words]').click()");
+ await sendPhoneVerse('For God so loved the world');await until(token('loved')+'!==undefined','the verse in the Words panel');
+ await run(token('loved')+'.click()');await until(lit('loved'),'the word to light up on screen');
+ await until(token('loved')+"?.classList.contains('highlighted')",'the panel to show the word lit');
+ await run(token('loved')+'.click()');await until(lit('loved',false),'the word to go out on screen');
+ await until('!'+token('loved')+".classList.contains('highlighted')",'the panel to show the word plain');
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.library.shows.find(x=>x.id===s.library.activeShowId).draft.notes.some(n=>n.word==='loved'))",'the word to leave the saved item');
+ // With a text slide in the preview the item's words are not listed, so the click on the verse is the way to clear one.
+ await run("document.querySelector('[data-tab=slides]').click()");await run("document.querySelector('[data-action=new-text]').click()");
+ await until("document.activeElement?.id==='textHeading'",'the new slide ready to type in');
+ await run("document.querySelector('[data-tab=words]').click()");await sendPhoneVerse('For God so loved the world');
+ await until(token('world')+'!==undefined','the verse in the Words panel');
+ await run(token('world')+'.click()');await until(lit('world'),'the second word to light up on screen');
+ await until(token('world')+"?.classList.contains('highlighted')",'the panel to show the second word lit');
+ await run(token('world')+'.click()');await until(lit('world',false),'the second word to go out on screen');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+test('After a lookup the cursor is back in the Bible box, so the next reference is typed there and no letter is a shortcut',{skip},async()=>{
+ await open();await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')!==null",'the Bible panel');
+ await until("[...document.querySelector('#lookupTranslation').options].some(o=>o.value==='kjv')",'the versions');
+ await run("const s=document.querySelector('#lookupTranslation');s.value='kjv';s.dispatchEvent(new Event('change',{bubbles:true}))");
+ const live=text=>"fetch('/api/state').then(r=>r.json()).then(s=>!s.live.blank&&(s.live.slides[s.live.index]?.text||'')==="+JSON.stringify(text)+")";
+ // No colon: the way a reference is typed in a hurry.
+ await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text:'john 3 16'});await key('Enter',{modifiers:SHIFT});
+ await until(live('Sample verse 16'),'John 3:16 on screen');
+ await until("document.activeElement?.id==='referenceLookup'",'the cursor to return to the box');
+ assert.equal(await run("(()=>{const b=document.querySelector('#referenceLookup');return b.selectionStart===0&&b.selectionEnd===b.value.length&&b.value;})()"),'John 3:16','the old reference is selected, ready to be typed over');
+ // B on the page hides the screen. Typed now, it is only a letter in the box.
+ await key('b',{code:'KeyB',text:'b'});await wait(300);
+ assert.equal(await run("document.querySelector('#referenceLookup').value"),'b');assert.equal((await liveState()).blank,false,'the screen was not hidden');
+ await run("document.querySelector('#referenceLookup').select()");await cdp('Input.insertText',{text:'john 3.5'});await key('Enter',{modifiers:SHIFT});
+ await until(live('Sample verse 5'),'John 3:5 on screen');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+test('A reference typed while a slow one is still loading takes its place, and Send waits for it',{skip},async()=>{
+ await open();await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')!==null",'the Bible panel');
+ await until("[...document.querySelector('#lookupTranslation').options].some(o=>o.value==='kjv')",'the versions');
+ await run("const s=document.querySelector('#lookupTranslation');s.value='kjv';s.dispatchEvent(new Event('change',{bubbles:true}))");
+ const type=async(text,modifiers=0)=>{await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text});await key('Enter',{modifiers});};
+ const onScreen=text=>"fetch('/api/state').then(r=>r.json()).then(s=>(s.live.slides[s.live.index]?.text||'')==="+JSON.stringify(text)+")";
+ await type('john 3:2',SHIFT);await until(onScreen('Sample verse 2'),'John 3:2 on screen');
+ // Verse lookups now take over a second, like an online Bible on a slow line.
+ await run("window.realFetch=window.fetch;window.fetch=(url,options)=>String(url).includes('/api/bibles/passage')?new Promise(r=>setTimeout(r,1200)).then(()=>window.realFetch(url,options)):window.realFetch(url,options)");
+ await type('john 3:8',SHIFT);await wait(150);
+ // Send while it loads must not put the earlier verse up again in its place.
+ await run("document.querySelector('[data-action=send]').click()");
+ await type('john 3:11',SHIFT);await until(onScreen('Sample verse 11'),'the second reference on screen');
+ await wait(1500);
+ assert.equal((await liveState()).text,'Sample verse 11','the slow first answer did not come back over it');
+ assert.equal(await run("document.querySelector('#referenceLookup').value"),'John 3:11');
+ await run('window.fetch=window.realFetch');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
 });

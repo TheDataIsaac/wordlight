@@ -27,7 +27,8 @@ import {songSlides} from './dist/songs.mjs';
 import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion,toggleWord} from './remote-content.mjs';
 
 export const REMOTE_PORT=18766;
-const SESSION_MS=12*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
+// A week, so a phone signed in at a rehearsal is still signed in through the service the next day.
+const SESSION_MS=7*24*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
 const SCRYPT={N:16384,r:8,p:1,keylen:32};
 const COOKIE='wordlight_remote';
 
@@ -256,6 +257,9 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   // Anything put on or taken off the screen while the text was loading wins, such as Hide or a send from the studio,
   // however short the wait. A timer change or a lit word leaves the same content on screen, so the send goes ahead.
   if(ready.screen!==undefined&&screenNow(live)!==ready.screen)return conflict('The screen changed while that was loading. Check it and send again.',live);
+  // A send the phone had to repeat after losing the network says which screen it saw at the tap. If the screen has
+  // moved on since, the late send is refused rather than put over the newer one.
+  if(body.seen!==undefined&&Number(body.seen)!==Number(live.updated||0))return conflict('The screen changed while the phone was reconnecting. Check it and send again.',live);
   if(body.action==='next'||body.action==='previous'){
    // The phone sends the screen it saw, so a repeated or late tap never moves past a change made elsewhere.
    if(Number(body.base)!==Number(live.updated||0))return conflict('The screen changed. Check it and tap again.',live);
@@ -435,7 +439,8 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    res.write('retry: 3000\n\ndata: '+JSON.stringify(summary(state.live))+'\n\n');
    const stream={res,key:session.key,generation};streams.add(stream);
    // The keepalive also ends the stream once its session has expired or been revoked.
-   const heartbeat=setInterval(()=>{if(!streamValid(stream)){endStream(stream);return;}res.write(': keepalive\n\n');},25000);
+   // It is sent as a named event so the page can tell a quiet stream from a dead one.
+   const heartbeat=setInterval(()=>{if(!streamValid(stream)){endStream(stream);return;}res.write('event: ping\ndata: 1\n\n');},25000);
    req.on('close',()=>{clearInterval(heartbeat);streams.delete(stream);});return;
   }
   send(res,404,{error:'Not found'});
@@ -450,12 +455,16 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    s.listen(port,bind,()=>{server=s;console.log('Phone remote is on, port '+port+'.');resolve();});
   });
  }
- function stop(){
-  revokeAll();
+ // Wordlight quitting or restarting: phones keep their sign-in, so a restart in a service does not ask for the password.
+ // A command still waiting at that moment is dropped (the generation moves on), as it is when a phone is signed out.
+ function close(){
+  generation++;for(const s of streams)s.res.end();streams.clear();
   if(!server)return Promise.resolve();
   const s=server;server=null;
   return new Promise(resolve=>{s.close(()=>resolve());s.closeAllConnections?.();});
  }
+ // Turning the remote off signs every phone out as well.
+ function stop(){revokeAll();return close();}
 
  // ---- Loopback-only settings, called from the main companion's /api/remote/* routes ----
  function status(){
@@ -497,7 +506,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  }
  return {
   async start(){await loaded;await start();},
-  handleAdmin,liveChanged,close:stop,
+  handleAdmin,liveChanged,close,
   // Settles when every command already queued has finished (used when Wordlight quits).
   idle:()=>queue.catch(()=>{})
  };
