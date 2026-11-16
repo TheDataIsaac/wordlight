@@ -257,3 +257,6 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .notice{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:8px;font-size:14px;background:#e7eee2;border:1px solid #b9cdb0}
 .notice span{flex:1}
 .notice-warning{background:#fbecd2;border-color:#e0b25a}
+/* Phone remote: the list of signed-in phones. */
+.remote-phones{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.remote-phones li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px}

@@ -29,8 +29,9 @@ import {parseReference} from './dist/reference.mjs';
 import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion,toggleWord} from './remote-content.mjs';
 
 export const REMOTE_PORT=18766;
-// A week, so a phone signed in at a rehearsal is still signed in through the service the next day.
-const SECOND_WAIT_MS=2000,SESSION_MS=7*24*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
+// Three days, so a phone signed in at a Friday rehearsal is still signed in through Sunday's service, and a session
+// cookie picked up on a shared network stops working soon after.
+const SECOND_WAIT_MS=2000,SESSION_MS=3*24*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
 const SCRYPT={N:16384,r:8,p:1,keylen:32};
 const COOKIE='wordlight_remote';
 
@@ -175,9 +176,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(saved.password!=null&&!validStoredPassword(saved.password)){configProblem='The saved phone remote password is damaged. Set a new password to use the remote.';return;}
   config={version:1,enabled:saved.enabled===true&&!!saved.password,password:saved.password||null};
   // Phones stay signed in across a restart. Only a hash of each token is kept, so the file cannot be used to sign in.
-  try{const now=Date.now();for(const [key,expires] of Object.entries(JSON.parse(await readFile(sessionFile,'utf8'))))if(/^[a-f0-9]{64}$/.test(key)&&Number(expires)>now&&config.password)sessions.set(key,{expires:Number(expires)});}catch{}
+  // Older files hold only the expiry time; newer ones also the device and address shown in the studio.
+  try{const now=Date.now();for(const [key,saved] of Object.entries(JSON.parse(await readFile(sessionFile,'utf8')))){const s=typeof saved==='object'&&saved?saved:{expires:saved};if(/^[a-f0-9]{64}$/.test(key)&&Number(s.expires)>now&&config.password)sessions.set(key,{expires:Number(s.expires),device:clip(s.device,40),address:clip(s.address,60),signedInAt:Number(s.signedInAt)||0,lastSeen:Number(s.lastSeen)||0});}}catch{}
  }
- function saveSessions(){writeFile(sessionFile,JSON.stringify(Object.fromEntries([...sessions].map(([key,s])=>[key,s.expires]))),'utf8').catch(()=>{});}
+ function saveSessions(){writeFile(sessionFile,JSON.stringify(Object.fromEntries([...sessions].map(([key,s])=>[key,{expires:s.expires,device:s.device,address:s.address,signedInAt:s.signedInAt,lastSeen:s.lastSeen}]))),'utf8').catch(()=>{});}
  const loaded=loadConfig();
  async function saveConfig(next){
   await mkdir(dataDir,{recursive:true});
@@ -198,13 +200,24 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   const key=tokenKey(cookie.slice(COOKIE.length+1)),session=sessions.get(key);
   if(!session)return null;
   if(session.expires<Date.now()){sessions.delete(key);return null;}
+  session.lastSeen=Date.now();
   return {key,...session};
  }
- function newSession(){
-  const token=randomBytes(32).toString('base64url');
+ function newSession(req){
+  const token=randomBytes(32).toString('base64url'),now=Date.now();
   if(sessions.size>=MAX_SESSIONS)sessions.delete(sessions.keys().next().value);
-  sessions.set(tokenKey(token),{expires:Date.now()+SESSION_MS});saveSessions();
+  sessions.set(tokenKey(token),{expires:now+SESSION_MS,device:deviceName(req.headers['user-agent']),address:String(req.socket.remoteAddress||'').replace(/^::ffff:/,''),signedInAt:now,lastSeen:now});saveSessions();
   return token;
+ }
+ // A short name for a phone in the studio's list, from its browser's description of itself.
+ function deviceName(agent=''){
+  const a=String(agent);
+  return /iPhone/.test(a)?'iPhone':/iPad/.test(a)?'iPad':/Android/.test(a)?(/Mobile/.test(a)?'Android phone':'Android tablet'):/Windows/.test(a)?'Windows computer':/Macintosh/.test(a)?'Mac':/Linux/.test(a)?'Linux computer':'Phone or tablet';
+ }
+ // Signs out one phone: its session and any live or stage stream it has open.
+ function signOutOne(id){
+  for(const key of [...sessions.keys()])if(key.startsWith(id)){sessions.delete(key);for(const set of [streams,stageStreams])for(const s of set)if(s.key===key){s.res.end();set.delete(s);}}
+  saveSessions();
  }
 
  const baseHeaders={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Cache-Control':'no-store'};
@@ -404,7 +417,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    // The password may have changed, or the remote been turned off, while this one was being checked.
    if(started!==generation||config.password!==stored||!server){send(res,401,{error:'The password changed. Try again.'});return;}
    limiter.succeed(ip);
-   const token=newSession();
+   const token=newSession(req);
    send(res,200,{ok:true},{'Set-Cookie':COOKIE+'='+token+'; HttpOnly; SameSite=Strict; Path=/; Max-Age='+SESSION_MS/1000});return;
   }
   const session=sessionFor(req);
@@ -505,7 +518,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  // ---- Loopback-only settings, called from the main companion's /api/remote/* routes ----
  function status(){
   const urls=bind==='127.0.0.1'?[{name:'This computer',address:'127.0.0.1'}]:lanAddresses();
-  return {enabled:config.enabled,hasPassword:!!config.password,running:!!server,port,error:configProblem||error,phones:streams.size,urls:urls.map(a=>({name:a.name,url:'http://'+a.address+':'+port+'/remote'}))};
+  const connected=new Set([...streams,...stageStreams].map(s=>s.key));
+  // Each signed-in phone, most recently used first. The id is the start of the session's hash, enough to sign it out.
+  const signedIn=[...sessions].filter(([,s])=>s.expires>Date.now()).sort((a,b)=>(b[1].lastSeen||0)-(a[1].lastSeen||0)).map(([key,s])=>({id:key.slice(0,16),device:s.device||'Phone or tablet',address:s.address||'',signedInAt:s.signedInAt||0,lastSeen:s.lastSeen||0,connected:connected.has(key)}));
+  return {enabled:config.enabled,hasPassword:!!config.password,running:!!server,port,error:configProblem||error,phones:streams.size,signedIn,urls:urls.map(a=>({name:a.name,url:'http://'+a.address+':'+port+'/remote'}))};
  }
  async function handleAdmin(req,res,url){
   await loaded;
@@ -527,7 +543,11 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
     if(body.enabled)await start();else await stop();
     send(res,200,status());return;
    }
-   if(url.pathname==='/api/remote/signout'){revokeAll();send(res,200,status());return;}
+   if(url.pathname==='/api/remote/signout'){
+    // {id} signs out one phone; no id signs out every phone.
+    if(body?.id!==undefined){if(!/^[a-f0-9]{16}$/.test(String(body.id))){send(res,400,{error:'Unknown phone.'});return;}signOutOne(String(body.id));}else revokeAll();
+    send(res,200,status());return;
+   }
   }catch{send(res,500,{error:'The phone remote settings could not be saved.'});return;}
   send(res,404,{error:'Not found'});
  }

@@ -150,7 +150,7 @@ test('Sign-in needs JSON from the remote page itself and sets an HttpOnly SameSi
  const ok=await remote('POST','/remote/api/login',{body:{password}});
  assert.equal(ok.status,200);
  const cookie=ok.headers['set-cookie'][0];
- assert.match(cookie,/^wordlight_remote=[A-Za-z0-9_-]{40,};/);assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.match(cookie,/Max-Age=604800/);
+ assert.match(cookie,/^wordlight_remote=[A-Za-z0-9_-]{40,};/);assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.match(cookie,/Max-Age=259200/);
  assert.deepEqual(ok.body,{ok:true});
  assert.equal((await remote('GET','/remote/api/live',{cookie:cookie.split(';')[0]})).status,200);
 });
@@ -573,4 +573,23 @@ test('A word tapped on the phone lights up on the slide showing, and a second ta
  assert.deepEqual(two.style.highlightWords,['words','Sample']);assert.notEqual(two.style.highlights[0].color,two.style.highlights[1].color);
  assert.deepEqual(toggleWord(two,'WORDS').style.highlightWords,['Sample']);
  assert.deepEqual(two.slides,live.slides,'only the look changes');
+});
+
+test('The studio lists signed-in phones by device, and can sign out one without the others',async()=>{
+ assert.equal((await admin('POST','password',{password})).status,200);assert.equal((await admin('POST','enabled',{enabled:true})).status,200);
+ await wait(300);
+ const iphone=await remote('POST','/remote/api/login',{body:{password},headers:{'User-Agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'}});
+ const android=await remote('POST','/remote/api/login',{body:{password},headers:{'User-Agent':'Mozilla/5.0 (Linux; Android 15) Mobile Safari'}});
+ const a=iphone.headers['set-cookie'][0].split(';')[0],b=android.headers['set-cookie'][0].split(';')[0];
+ assert.match(iphone.headers['set-cookie'][0],/Max-Age=259200/,'signed in for 3 days');
+ await remote('GET','/remote/api/bible/books',{cookie:a});
+ const listed=(await admin('GET','status')).body.signedIn;
+ const phone=listed.find(p=>p.device==='iPhone'),other=listed.find(p=>p.device==='Android phone');
+ assert.ok(phone&&other,'both phones listed by device');
+ assert.equal(phone.address,'127.0.0.1');assert.ok(phone.lastSeen>=phone.signedInAt);
+ assert.equal((await admin('POST','signout',{id:'not-a-phone'})).status,400);
+ const after=(await admin('POST','signout',{id:phone.id})).body;
+ assert.ok(!after.signedIn.some(p=>p.id===phone.id));
+ assert.equal((await remote('GET','/remote/api/bible/books',{cookie:a})).status,401,'that phone is signed out');
+ assert.equal((await remote('GET','/remote/api/bible/books',{cookie:b})).status,200,'the other phone still works');
 });

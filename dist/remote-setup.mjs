@@ -35,8 +35,10 @@ function render(){
  (status?'<div class="remote-section"><label class="label" for="remotePassword">'+(status.hasPassword?'New password':'Password')+'</label><div class="field-row"><input class="input" id="remotePassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters"><input class="input" id="remotePassword2" type="password" autocomplete="new-password" maxlength="128" placeholder="Type it again" aria-label="Type the password again"></div>'+
  '<div class="remote-actions"><button class="button" data-remote="password">'+(status.hasPassword?'Change password':'Set password')+'</button>'+
  (status.hasPassword?'<button class="button '+(status.enabled?'':'primary')+'" data-remote="'+(status.enabled?'off':'on')+'">'+(status.enabled?'Turn off':'Turn on')+'</button>':'')+
- (status.enabled?'<button class="button" data-remote="signout">Sign out all phones</button>':'')+
- '</div><p class="small-note">Changing the password or turning the remote off signs out every phone.</p></div>':'')+
+ (status.enabled&&status.signedIn?.length?'<button class="button" data-remote="signout">Sign out all phones</button>':'')+
+ '</div><p class="small-note">Changing the password or turning the remote off signs out every phone. A phone stays signed in for 3 days.</p>'+
+ (status.signedIn?.length?'<h3 class="section-title">Signed in</h3><ul class="remote-phones">'+status.signedIn.map(p=>'<li><span><strong>'+e(p.device)+'</strong> '+e(p.address)+' · '+(p.connected?'connected now':'last used '+when(p.lastSeen))+'</span><button class="button" data-remote="signout-one" data-id="'+e(p.id)+'">Sign out</button></li>').join('')+'</ul><p class="small-note">Sign out any phone you do not recognise, then change the password.</p>':'')+
+ '</div>':'')+
  (on?'<div class="remote-section"><h3 class="section-title">Open on the phone</h3>'+
   (urls.length?'<div class="remote-urls">'+urls.map(u=>'<figure class="remote-url">'+qrSvg(u.url,170)+'<figcaption><strong>'+e(u.url)+'</strong><span>'+e(u.name)+'</span></figcaption></figure>').join('')+'</div><p class="small-note">Scan the code or type the address, then enter the password. The code holds only the address.</p>'
   :'<p class="small-note">This computer has no Wi-Fi or Ethernet network address right now. Connect it to the same network as the phone.</p>')+
@@ -45,7 +47,9 @@ function render(){
  const fields=[dialog.querySelector('#remotePassword'),dialog.querySelector('#remotePassword2')];
  if(fields[0]){fields[0].value=typed[0];fields[1].value=typed[1];}
 }
-async function act(what){
+// "5 min ago", "2 h ago", or the day.
+function when(time){const m=Math.round((Date.now()-time)/60000);return !time?'not yet':m<1?'just now':m<60?m+' min ago':m<24*60?Math.round(m/60)+' h ago':new Date(time).toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'});}
+async function act(what,button){
  note='';
  try{
   if(what==='close'){dialog.close();return;}
@@ -59,13 +63,14 @@ async function act(what){
   }
   if(what==='on'||what==='off')status=await call('/api/remote/enabled',{enabled:what==='on'});
   if(what==='signout'){status=await call('/api/remote/signout',{});note='Every phone was signed out.';}
+  if(what==='signout-one'){status=await call('/api/remote/signout',{id:button.dataset.id});note='That phone was signed out.';}
  }catch(err){note=err.message;}
  render();
 }
 export function openPhoneRemote(){
  if(!dialog){
   dialog=document.createElement('dialog');dialog.id='remoteDialog';dialog.setAttribute('aria-labelledby','remoteTitle');document.body.append(dialog);
-  dialog.addEventListener('click',ev=>{const b=ev.target.closest('[data-remote]');if(b)act(b.dataset.remote);});
+  dialog.addEventListener('click',ev=>{const b=ev.target.closest('[data-remote]');if(b)act(b.dataset.remote,b);});
   dialog.addEventListener('close',()=>{clearInterval(refreshTimer);note='';});
  }
  note='';dialog.innerHTML='<p class="small-note">Loading…</p>';

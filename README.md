@@ -133,7 +133,8 @@ Turn it on in the local studio: **Phone remote**, set a password (8+ characters)
 
 - The remote is off until you turn it on, and has no default password. It runs on its own port (18766); the studio, files, NKJV key and settings stay on 127.0.0.1:18765.
 - The password is kept only as a salted scrypt hash in `.wordlight-data/remote.json` (not in exports, `dist/` or git). A damaged file leaves the remote off until a new password is set.
-- A phone stays signed in for 7 days, also when Wordlight is stopped and started again. Changing the password, **Sign out all phones** or **Turn off** signs out every phone at once. Five wrong passwords lock that phone's address for 10 minutes.
+- A phone stays signed in for 3 days, also when Wordlight is stopped and started again. The Phone remote dialog lists every signed-in phone (iPhone, Android phone…, its address, and when it was last used) with **Sign out** for each; changing the password, **Sign out all phones** or **Turn off** signs out every phone at once.
+- The remote uses plain HTTP on the local network, so the password and the phone's sign-in travel unencrypted. Use it on the church's own Wi-Fi, not an open guest network, and sign out any phone you do not recognise. Five wrong passwords lock that phone's address for 10 minutes.
 - Closing the phone or losing Wi-Fi never changes the screen. The phone reconnects by itself and shows the current screen. Next/Previous carry the screen the phone saw, so a late or repeated tap is refused instead of skipping a slide.
 - VPN and virtual adapters (Tailscale, WSL, Hyper-V and similar) are not listed and are refused.
 - If the phone cannot open the page: check it is on the same Wi-Fi (guest networks often keep devices apart). If Windows asks whether Node.js may communicate on networks, allow **Private networks** only, and set the Wi-Fi network to Private in Windows Settings. Wordlight does not change firewall settings.
