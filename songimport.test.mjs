@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {songToText,arrangementText} from './dist/songs.mjs';
-import {fromSongSelectUsr,fromSongSelectText,fromOpenLyrics,fromChordPro,fromPlainText,songFromImportedFile} from './dist/song-import.mjs';
+import {fromSongSelectUsr,fromSongSelectText,fromOpenLyrics,fromChordPro,fromPlainText,songFromImportedFile,decodeSongFile} from './dist/song-import.mjs';
 
 const sections=song=>song.sections.map(s=>[s.label,s.slides]);
 const order=song=>arrangementText(song);
@@ -100,4 +100,18 @@ test('The reader is chosen from the file name and content, and an empty file say
  assert.equal(songFromImportedFile('Morning_Light.txt','some words\nmore words').title,'Morning Light');
  assert.equal(songFromImportedFile('lyrics.txt','Title\n\nVerse 1\nwords\n\nCCLI Song # 9').meta.ccli,'9');
  assert.throws(()=>songFromImportedFile('empty.txt','   \n\n'),/No lyrics/);
+});
+
+test('Song files in UTF-16 or an old Windows code page are read; binary files such as ProPresenter 7 .pro are refused',()=>{
+ const usr='Title=Wide Text\r\nFields=Verse 1\r\nWords=Line with é accent/nSecond line';
+ const utf16=Buffer.concat([Buffer.from([0xff,0xfe]),Buffer.from(usr,'utf16le')]);
+ assert.equal(songFromImportedFile('a.usr',decodeSongFile(utf16)).title,'Wide Text');
+ assert.match(decodeSongFile(Buffer.from(usr,'utf16le')),/é accent/,'UTF-16 without a mark');
+ assert.match(decodeSongFile(Buffer.from([0x63,0x61,0x66,0xe9])),/café/,'Windows-1252');
+ assert.equal(decodeSongFile(Buffer.from('\uFEFFHello','utf8')),'Hello','UTF-8 mark dropped');
+ const binary=Buffer.from([0x0a,0x12,0x00,0x08,0x01,0x12,0x0c,0x00,0x8f,0x01,0x00,0x22]);
+ assert.throws(()=>decodeSongFile(binary,'Song.pro'),/ProPresenter/);
+ assert.throws(()=>decodeSongFile(binary,'thing.txt'),/not a text song file/);
+ assert.throws(()=>songFromImportedFile('Song.pro','Just some words'),/not ChordPro/);
+ assert.equal(songFromImportedFile('Song.pro','{title: Real ChordPro}\n[C]words').title,'Real ChordPro');
 });

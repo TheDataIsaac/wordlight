@@ -11,7 +11,15 @@ const fileIn=dataDir=>path.join(dataDir,'notices.json');
 // not read (a file busy for a moment would otherwise look empty).
 async function readList(dataDir,strict){
  let text;
- try{text=await readFile(fileIn(dataDir),'utf8');}catch(err){if(err.code==='ENOENT'||!strict)return [];throw err;}
+ for(let attempt=0;;attempt++){
+  try{text=await readFile(fileIn(dataDir),'utf8');break;}
+  catch(err){
+   if(err.code==='ENOENT'||!strict)return [];
+   // Busy for a moment (being saved, an antivirus scan): try again a few times before giving up.
+   if(attempt>=6||!['EPERM','EBUSY','EACCES'].includes(err.code))throw err;
+   await new Promise(r=>setTimeout(r,60*(attempt+1)));
+  }
+ }
  try{const list=JSON.parse(text);return Array.isArray(list)?list.filter(n=>n&&typeof n.text==='string'):[];}catch{return [];}
 }
 export const readNotices=dataDir=>readList(dataDir,false);

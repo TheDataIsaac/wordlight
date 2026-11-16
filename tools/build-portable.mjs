@@ -114,6 +114,9 @@ await writeFile(path.join(repo,'build','SHA256SUMS.txt'),releaseSums);
 const keyFile=process.env.WORDLIGHT_SIGNING_KEY||path.join(os.homedir(),'.wordlight-release','update-signing-key.pem');
 let signed=false;
 try{
+ // Only a release check signs (npm run release-check): a release cannot skip the tests, the studio's browser tests
+ // included. A build run on its own is for trying out and is not signed.
+ if(!process.env.WORDLIGHT_RELEASE_CHECK)throw new Error('built outside npm run release-check');
  const signature=sign(null,releaseSums,createPrivateKey(await readFile(keyFile)));
  if(!signedByRelease(releaseSums,signature.toString('base64')))throw new Error('this key does not match RELEASE_KEY in updates.mjs');
  await writeFile(path.join(repo,'build','SHA256SUMS.txt.sig'),signature.toString('base64')+'\n');signed=true;

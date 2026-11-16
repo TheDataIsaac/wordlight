@@ -17,7 +17,7 @@ import {readLimitedJSON} from './readlimit.mjs';
 import {looksLikeWords,verseResultsMarkup} from './verse-search.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
 import {openPhoneRemote} from './remote-setup.mjs';
-import {songFromImportedFile} from './song-import.mjs';
+import {songFromImportedFile,decodeSongFile} from './song-import.mjs';
 import {openStageDisplay} from './stage-setup.mjs';
 import {setupListening,openListening,paintBar as paintListenBar} from './listen-panel.mjs';
 import {loadNotices,paintNotices} from './notices-bar.mjs';
@@ -2154,7 +2154,7 @@ function addSongEntry(song,edit=false,hit=null,quiet=false){
 // church brings the songs it already has; songs already in the library (same title and first line) are skipped.
 async function readImportedSong(file){
  if(file.size>5e6)throw new Error('the file is too large for one song');
- const text=await file.text();
+ const text=decodeSongFile(new Uint8Array(await file.arrayBuffer()),file.name);
  return /\.(json|show)$/i.test(file.name)?readSongFile(JSON.parse(text)):songFromImportedFile(file.name,text);
 }
 $('#songFile')?.addEventListener('change',async ev=>{

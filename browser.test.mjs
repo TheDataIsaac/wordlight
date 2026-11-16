@@ -533,7 +533,8 @@ test('Pictures become slides that show the picture, can fill the screen, and can
 });
 
 test('Getting started lists the first steps, ticks what is done, and goes away when hidden',{skip},async()=>{
- await run("localStorage.removeItem('wordlight-getting-started-hidden')");
+ // A church that has seen the list before but has not finished it.
+ await run("localStorage.removeItem('wordlight-getting-started-hidden');localStorage.removeItem('wordlight-getting-started-done');localStorage.setItem('wordlight-getting-started-seen','1')");
  await open();
  await until("document.querySelector('#gettingStarted')&&!document.querySelector('#gettingStarted').hidden&&document.querySelector('.gs-steps')",'the checklist');
  const text=await run("document.querySelector('#gettingStarted').textContent");
@@ -544,6 +545,11 @@ test('Getting started lists the first steps, ticks what is done, and goes away w
  assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true);
  await open();await wait(500);
  assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true,'it stays hidden after a reload');
+ // A church already using Wordlight (Bibles and songs there on the first check) never sees it.
+ await run("localStorage.removeItem('wordlight-getting-started-hidden');localStorage.removeItem('wordlight-getting-started-seen')");
+ await open();await wait(1500);
+ assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true,'an existing install skips the list');
+ assert.equal(await run("localStorage.getItem('wordlight-getting-started-hidden')"),'1');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
 

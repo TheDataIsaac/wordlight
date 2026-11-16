@@ -8,6 +8,7 @@
 import {spawn} from 'node:child_process';
 import {appendFile,mkdir,open} from 'node:fs/promises';
 import path from 'node:path';
+import {addNotice} from '../../notices.mjs';
 import {askToQuit,request,claimSupervisor,clearStop,emptyIfHuge,releaseSupervisor,rotateIfLarge,sleep,stopRequested,tailLines,updateState,whoIsThere,writeLog,SERVER_LOG_HARD,SERVER_LOG_MAX} from './shared.mjs';
 
 const HEARTBEAT_MS=10_000;   // refresh the state file and keep server.log bounded
@@ -55,7 +56,7 @@ export async function supervise(cfg){
   if(await emptyIfHuge(cfg.serverLog,SERVER_LOG_HARD))await log('server.log passed '+SERVER_LOG_HARD/1e6+' MB while the server ran, so it was emptied.');
  },HEARTBEAT_MS);
 
- const watch={...WATCH,...cfg.watch};let misses=0,childStartedAt=0;
+ const watch={...WATCH,...cfg.watch};let misses=0,childStartedAt=0,hung=false;
  const watchdog=setInterval(async()=>{
   const watched=child;
   if(!watched?.pid||Date.now()-childStartedAt<watch.graceMs||await shouldStop()){misses=0;return;}
@@ -65,6 +66,7 @@ export async function supervise(cfg){
   if(++misses<watch.misses)return;
   misses=0;
   await log('Server (pid '+watched.pid+') is running but has not answered for about '+Math.round(watch.misses*watch.everyMs/1000)+' s ('+(answer.error||'status '+answer.status)+'). Ending it so it starts again.');
+  hung=true;
   watched.kill();
  },watch.everyMs);
 
@@ -113,6 +115,10 @@ export async function supervise(cfg){
    if(ranMs>=HEALTHY_MS)wait=1000;
    const tail=await tailLines(cfg.serverLog,3);
    await log('Server stopped unexpectedly ('+result.reason+') after '+Math.round(ranMs/1000)+' s. Restart '+restarts+' in '+wait/1000+' s.'+(tail?' Last server output:\n'+tail:''));
+   // The studio says so once the server is back, so the operator knows why the screens paused.
+   const at=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+   await addNotice(cfg.dataDir,{kind:'recovery',level:'warning',text:'Wordlight '+(hung?'stopped responding':'stopped unexpectedly')+' at '+at+' and was started again by itself. The screens kept their last slide meanwhile.'}).catch(()=>{});
+   hung=false;
    await pause(wait);wait=Math.min(wait*2,MAX_WAIT_MS);
   }
  }finally{

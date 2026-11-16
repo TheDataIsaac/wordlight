@@ -123,12 +123,32 @@ export function fromPlainText(text,title){
  return songFrom({title,sections});
 }
 
+// A song file's bytes as text. SongSelect and other Windows programs write UTF-16 (with or without a byte order mark)
+// or an older Windows code page as well as UTF-8, so each is recognised. A file that is not text at all, such as a
+// ProPresenter 7 .pro file (which is binary), is refused rather than imported as nonsense.
+export function decodeSongFile(bytes,name=''){
+ const b=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+ if(b[0]===0xff&&b[1]===0xfe)return new TextDecoder('utf-16le').decode(b.subarray(2));
+ if(b[0]===0xfe&&b[1]===0xff)return new TextDecoder('utf-16be').decode(b.subarray(2));
+ // UTF-16 without a mark: plain letters leave every other byte zero.
+ let zerosEven=0,zerosOdd=0;const sample=Math.min(b.length,2000);
+ for(let i=0;i<sample;i++)if(b[i]===0){if(i%2)zerosOdd++;else zerosEven++;}
+ if(sample>=4&&zerosOdd>sample*0.3&&zerosEven<sample*0.05)return new TextDecoder('utf-16le').decode(b);
+ if(sample>=4&&zerosEven>sample*0.3&&zerosOdd<sample*0.05)return new TextDecoder('utf-16be').decode(b);
+ if(zerosEven+zerosOdd>0)throw new Error(/\.pro$/i.test(name)?'this looks like a ProPresenter file, which cannot be read yet: export the song from ProPresenter as text':'this is not a text song file');
+ try{return new TextDecoder('utf-8',{fatal:true}).decode(b).replace(/^\uFEFF/,'');}
+ catch{return new TextDecoder('windows-1252').decode(b);}
+}
+// ChordPro directives such as {title: …} or {soc}.
+const CHORDPRO=/^\s*\{\s*(title|t|subtitle|st|artist|start_of_chorus|soc|start_of_verse|sov|comment|c)\s*[:}]/mi;
 // Picks the reader by file name and content. Returns a Wordlight song, or throws with a reason the operator can read.
 export function songFromImportedFile(name,text){
  const lower=String(name).toLowerCase(),base=String(name).replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim();
  if(lower.endsWith('.usr')||/^Type=SongSelect Import File/mi.test(text))return fromSongSelectUsr(text);
  if(lower.endsWith('.xml')||/<song[^>]+openlyrics/i.test(text))return fromOpenLyrics(text);
- if(/\.(cho|chordpro|chopro|pro)$/.test(lower)||/^\s*\{\s*(title|t|start_of_chorus|soc)\s*[:}]/mi.test(text))return fromChordPro(text,base);
+ // .pro is ChordPro's extension and also ProPresenter's, so a .pro file must look like ChordPro to be read as it.
+ if(lower.endsWith('.pro')&&!CHORDPRO.test(text))throw new Error('this .pro file is not ChordPro (ProPresenter files cannot be read yet: export the song from ProPresenter as text)');
+ if(/\.(cho|chordpro|chopro|pro)$/.test(lower)||CHORDPRO.test(text))return fromChordPro(text,base);
  if(/^\s*CCLI Song #/mi.test(text))return fromSongSelectText(text);
  return fromPlainText(text,base);
 }

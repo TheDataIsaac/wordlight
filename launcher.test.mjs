@@ -92,6 +92,8 @@ test('A crashed server is restarted and the last screen on air is still there',a
   const restored=(await (await fetch(box.base+'/api/state')).json()).live;
   assert.equal(restored.updated,onAir.updated);assert.equal(restored.blank,false);
   assert.match(await readFile(box.cfg.launcherLog,'utf8'),/stopped unexpectedly/);
+  const {notices}=await (await fetch(box.base+'/api/notices')).json();
+  assert.match(notices.at(-1)?.text||'',/stopped unexpectedly at .* and was started again/,'the studio is told');
  }finally{await cleanup(box);}
 });
 
@@ -248,6 +250,7 @@ if(run===1)setTimeout(()=>{for(;;){}},1500);`);
   const second=await waitFor(async()=>(await health(box))?.run===2,20_000);
   assert.ok(second,'a fresh server is answering after the stuck one was ended');
   assert.match(await readFile(box.cfg.launcherLog,'utf8'),/has not answered for about/);
+  assert.match(await readFile(path.join(box.dataDir,'notices.json'),'utf8'),/stopped responding at/,'the studio is told it froze');
   await requestStop(box.cfg);
   await fetch(box.base+'/api/app/quit',{method:'POST'}).catch(()=>{});
   assert.equal(await running,0);
