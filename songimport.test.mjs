@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {songToText,arrangementText} from './dist/songs.mjs';
-import {fromSongSelectUsr,fromSongSelectText,fromOpenLyrics,fromChordPro,fromPlainText,songFromImportedFile,decodeSongFile} from './dist/song-import.mjs';
+import {fromSongSelectUsr,fromSongSelectText,fromOpenLyrics,fromChordPro,fromPlainText,songFromImportedFile,decodeSongFile,rtfToText,fromEasyWorship} from './dist/song-import.mjs';
 
 const sections=song=>song.sections.map(s=>[s.label,s.slides]);
 const order=song=>arrangementText(song);
@@ -114,4 +114,12 @@ test('Song files in UTF-16 or an old Windows code page are read; binary files su
  assert.throws(()=>decodeSongFile(binary,'thing.txt'),/not a text song file/);
  assert.throws(()=>songFromImportedFile('Song.pro','Just some words'),/not ChordPro/);
  assert.equal(songFromImportedFile('Song.pro','{title: Real ChordPro}\n[C]words').title,'Real ChordPro');
+});
+
+test('EasyWorship words (RTF) become sections and slides; accents and Unicode letters survive',()=>{
+ const rtf=String.raw`{\rtf1\ansi\deff0{\fonttbl{\f0 Tahoma;}}{\colortbl ;\red0\green0\blue0;}{\*\generator Riched20;}\pard\f0\fs24 Verse 1\par First line caf\'e9\par Second \u7865?line\par\par Chorus\par Chorus words\par}`;
+ assert.equal(rtfToText(rtf),'Verse 1\nFirst line café\nSecond ẹline\n\nChorus\nChorus words');
+ const song=fromEasyWorship({title:'EW Song',author:'Ann Writer / Ben Composer',copyright:'2020 Sample',ccli:'12 34',words:rtf});
+ assert.deepEqual(sections(song),[['Verse 1',['First line café\nSecond ẹline']],['Chorus',['Chorus words']]]);
+ assert.deepEqual([song.meta.author,song.meta.ccli],['Ann Writer, Ben Composer','1234']);
 });

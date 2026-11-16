@@ -181,3 +181,28 @@ test('Remove moves the song file aside; a damaged index is kept and reported',as
  assert.equal((await noFs('/api/songs/library',{method:'POST',body:{song:song('After damage')}})).status,500);
  assert.equal(await readFile(file,'utf8'),'{damaged');assert.equal(await readFile(file+'.damaged','utf8'),'{damaged');
 });
+
+test('EasyWorship 6 and 7 song databases are imported into the library, once',async()=>{
+ const {DatabaseSync}=await import('node:sqlite');
+ const folder=await mkdtemp(path.join(tmpdir(),'wordlight-ew-'));
+ try{
+  const songs=new DatabaseSync(path.join(folder,'Songs.db')),words=new DatabaseSync(path.join(folder,'SongWords.db'));
+  songs.exec('CREATE TABLE song (rowid INTEGER PRIMARY KEY, title TEXT, author TEXT, copyright TEXT, vendor_id TEXT)');
+  words.exec('CREATE TABLE word (song_id INTEGER, words TEXT)');
+  const addSong=songs.prepare('INSERT INTO song VALUES (?,?,?,?,?)'),addWords=words.prepare('INSERT INTO word VALUES (?,?)');
+  addSong.run(1,'Easy One','Ann Writer','2021 Sample','111');addWords.run(1,String.raw`{\rtf1\ansi Verse 1\par Easy first line\par\par Chorus\par Easy chorus line\par}`);
+  addSong.run(2,'Easy Two','Ben Composer','','');addWords.run(2,String.raw`{\rtf1\ansi Second song words\par}`);
+  addSong.run(3,'No Words','','','');
+  songs.close();words.close();
+  const body={songs:(await readFile(path.join(folder,'Songs.db'))).toString('base64'),words:(await readFile(path.join(folder,'SongWords.db'))).toString('base64')};
+  const first=await withFs('/api/songs/library/import-easyworship',{method:'POST',body});
+  assert.equal(first.status,200,JSON.stringify(first.body));
+  assert.deepEqual([first.body.added,first.body.skipped,first.body.failed],[2,0,1],'two songs; the one without words is counted as not read');
+  assert.ok((await withFs('/api/songs?q='+encodeURIComponent('easy chorus line'))).body.items.some(s=>s.name==='Easy One'),'findable by its words');
+  const again=await withFs('/api/songs/library/import-easyworship',{method:'POST',body});
+  assert.deepEqual([again.body.added,again.body.skipped],[0,2],'the same databases again add nothing');
+  const wrong=await withFs('/api/songs/library/import-easyworship',{method:'POST',body:{songs:Buffer.from('not a database').toString('base64'),words:''}});
+  assert.equal(wrong.status,400);assert.match(wrong.body.error,/not EasyWorship/);
+  assert.ok(!(await readdir(path.join(dir,'data'))).some(n=>n.startsWith('easyworship-')),'nothing is left behind');
+ }finally{await rm(folder,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});

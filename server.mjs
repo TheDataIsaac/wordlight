@@ -1,5 +1,5 @@
 import http from 'node:http';
-import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat,rm} from 'node:fs/promises';
 import os from 'node:os';
 import {freeShowToSong,searchSongs,foldText,foldWords,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
 import {searchEntry,entryForCache,entryFromCache,findInSongbook,vocabulary} from './song-search.mjs';
@@ -16,6 +16,7 @@ import {createBibleLibrary} from './bibles.mjs';
 import {createBibleSearch} from './bible-search.mjs';
 import {createListener} from './listen.mjs';
 import {readNotices,addNotice,dismissNotice} from './notices.mjs';
+import {fromEasyWorship} from './dist/song-import.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
@@ -451,6 +452,35 @@ async function handleSongs(req,res,url,trusted=false){
    let body;try{body=await readJSON(req,5_000_000);}catch(err){json(res,err.status||400,{error:err.status?'The song is too large.':'Invalid JSON.'});return;}
    let result;try{result=await saveNativeSong(body?.song,body?.expectedModified);}catch(err){if(err.status)throw err;json(res,400,{error:err.message||'That song could not be saved.'});return;}
    json(res,result.code,result.body);return;
+  }
+  // EasyWorship 6 and 7: the two database files the operator picked (Songs.db and SongWords.db, sent as base64). They are
+  // written to a temporary folder, opened read-only with Node's built-in SQLite, and every song goes through the
+  // library import below (duplicates skipped). Nothing is kept afterwards.
+  if(url.pathname==='/api/songs/library/import-easyworship'&&req.method==='POST'){
+   let body;try{body=await readJSON(req,SONG_FILE_BYTES*2);}catch(err){json(res,err.status||400,{error:err.status?'The EasyWorship files are too large.':'Invalid JSON.'});return;}
+   const temp=path.join(dataDir,'easyworship-'+Date.now());
+   let rows=[],skippedEmpty=0,problem=null;
+   try{
+    await mkdir(temp,{recursive:true});
+    await writeFile(path.join(temp,'Songs.db'),Buffer.from(String(body?.songs||''),'base64'));await writeFile(path.join(temp,'SongWords.db'),Buffer.from(String(body?.words||''),'base64'));
+    const {DatabaseSync}=await import('node:sqlite');
+    // Both are closed whatever happens, so the temporary files can be deleted (Windows keeps open files).
+    let songsDb,wordsDb;
+    try{
+     songsDb=new DatabaseSync(path.join(temp,'Songs.db'),{readOnly:true});wordsDb=new DatabaseSync(path.join(temp,'SongWords.db'),{readOnly:true});
+     const words=wordsDb.prepare('SELECT words FROM word WHERE song_id = ?');
+     for(const row of songsDb.prepare('SELECT rowid,title,author,copyright,vendor_id FROM song').all()){
+      const found=words.get(row.rowid);
+      if(!found?.words){skippedEmpty++;continue;}
+      try{rows.push(fromEasyWorship({title:row.title,author:row.author,copyright:row.copyright,ccli:row.vendor_id,words:String(found.words)}));}catch{skippedEmpty++;}
+     }
+    }finally{songsDb?.close();wordsDb?.close();}
+   }catch(err){problem={error:'These are not EasyWorship 6 or 7 song databases ('+(err.message||err)+'). Choose Songs.db and SongWords.db from EasyWorship\'s Databases\\Data folder.'};}
+   finally{await rm(temp,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});}
+   // Answered only after the temporary files are gone.
+   if(problem){json(res,400,problem);return;}
+   const result=await importNativeSongs(rows.map(({id,...song})=>song));
+   json(res,result.code,{...result.body,failed:(result.body.failed||0)+skippedEmpty});return;
   }
   if(url.pathname==='/api/songs/library/import'&&req.method==='POST'){
    let body;try{body=await readJSON(req,SONG_FILE_BYTES);}catch(err){json(res,err.status||400,{error:err.status?'The file is too large.':'Invalid JSON.'});return;}

@@ -3,6 +3,7 @@
 //   OpenLyrics .xml, which OpenLP and several other programs export
 //   ChordPro (.cho, .chordpro, .chopro, .pro), with the chords taken out
 //   plain text, where a blank line starts a new slide and [Verse 1] lines name sections
+//   EasyWorship 6 and 7 (its Songs.db and SongWords.db, read by the companion; the words are RTF)
 // Each becomes Wordlight's own lyric text and goes through the song editor (editSong), so an imported song follows the
 // same rules as one typed in. Nothing here touches the network or the disk.
 import {newSong,editSong} from './songs.mjs';
@@ -10,7 +11,7 @@ import {newSong,editSong} from './songs.mjs';
 export const SONG_IMPORT_EXTENSIONS=['.usr','.txt','.xml','.cho','.chordpro','.chopro','.pro'];
 const OPENLYRICS_LABELS={v:'Verse',c:'Chorus',b:'Bridge',p:'Pre-Chorus',e:'Ending',i:'Intro',o:'Other',t:'Tag'};
 // Section headings as SongSelect and most lyric sheets write them: "Verse 1", "Chorus", "Pre-Chorus 2", "Tag".
-const HEADING=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda)(\s*\d+)?\s*:?\s*$/i;
+const HEADING=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda|slide)(\s*\d+)?\s*:?\s*$/i;
 const tidyHeading=text=>text.trim().replace(/:$/,'').replace(/\s+/g,' ').replace(/^\w/,c=>c.toUpperCase()).replace(/^Pre-?chorus/i,'Pre-Chorus');
 const paragraphs=text=>String(text).replace(/\r/g,'').split(/\n\s*\n/).map(p=>p.split('\n').map(l=>l.trim()).filter(Boolean).join('\n')).filter(Boolean);
 
@@ -141,6 +142,47 @@ export function decodeSongFile(bytes,name=''){
 }
 // ChordPro directives such as {title: …} or {soc}.
 const CHORDPRO=/^\s*\{\s*(title|t|subtitle|st|artist|start_of_chorus|soc|start_of_verse|sov|comment|c)\s*[:}]/mi;
+// RTF to plain text, enough for song words: paragraphs and line breaks become new lines, \'e9 and \u233 become
+// letters (Windows-1252 for the first), and font, colour and style tables are left out.
+const CP1252=new TextDecoder('windows-1252');
+const SKIP=new Set(['fonttbl','colortbl','stylesheet','info','pict','header','footer','listtable','listoverridetable','generator','themedata','datastore','latentstyles','rsidtbl']);
+export function rtfToText(rtf){
+ const s=String(rtf);let out='',i=0,depth=0,skipUntil=-1,ucSkip=1,pendingSkip=0;
+ while(i<s.length){
+  const c=s[i];
+  if(c==='{'){depth++;i++;if(s[i]==='\\'&&s[i+1]==='*'&&skipUntil<0)skipUntil=depth;continue;}
+  if(c==='}'){if(depth===skipUntil)skipUntil=-1;depth--;i++;continue;}
+  if(c==='\\'){
+   const next=s[i+1];
+   if(next==="'"){const byte=parseInt(s.slice(i+2,i+4),16);i+=4;if(pendingSkip){pendingSkip--;continue;}if(skipUntil<0&&!Number.isNaN(byte))out+=CP1252.decode(new Uint8Array([byte]));continue;}
+   if(next==='\\'||next==='{'||next==='}'){if(skipUntil<0)out+=next;i+=2;continue;}
+   if(next==='~'){if(skipUntil<0)out+=' ';i+=2;continue;}
+   if(next==='-'||next==='_'||next==='*'){i+=2;continue;}
+   const m=/^\\([a-zA-Z]+)(-?\d+)? ?/.exec(s.slice(i,i+40));
+   if(!m){i+=2;continue;}
+   i+=m[0].length;const word=m[1],arg=m[2]===undefined?null:Number(m[2]);
+   if(SKIP.has(word)&&skipUntil<0){skipUntil=depth;continue;}
+   if(skipUntil>=0)continue;
+   if(word==='par'||word==='line'||word==='sect'||word==='page')out+='\n';
+   else if(word==='tab')out+='\t';
+   else if(word==='uc')ucSkip=arg??1;
+   else if(word==='u'){out+=String.fromCharCode(arg<0?arg+65536:arg);pendingSkip=ucSkip;}
+   continue;
+  }
+  if(c==='\r'||c==='\n'){i++;continue;}
+  if(pendingSkip){pendingSkip--;i++;continue;}
+  if(skipUntil<0)out+=c;
+  i++;
+ }
+ return out.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+// One EasyWorship song: its row from Songs.db and its RTF words from SongWords.db. Section names ("Verse 1",
+// "Chorus") are lines of their own, and a blank line starts a new slide.
+export function fromEasyWorship({title,author,copyright,ccli,words}){
+ const text=/^\s*\{\\rtf/.test(String(words||''))?rtfToText(words):String(words||'');
+ return songFrom({title,meta:{author:String(author||'').split(/\s*[\/;]\s*/).filter(Boolean).join(', '),copyright:copyright||'',ccli:String(ccli||'').replace(/\D/g,'')},sections:readHeaded(text)});
+}
+
 // Picks the reader by file name and content. Returns a Wordlight song, or throws with a reason the operator can read.
 export function songFromImportedFile(name,text){
  const lower=String(name).toLowerCase(),base=String(name).replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim();

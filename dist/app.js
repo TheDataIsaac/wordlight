@@ -2159,8 +2159,23 @@ async function readImportedSong(file){
 }
 $('#songFile')?.addEventListener('change',async ev=>{
  const files=[...ev.target.files];ev.target.value='';if(!files.length)return;
- if(files.length===1){try{addSongEntry(await readImportedSong(files[0]));}catch(err){toast(files[0].name+' could not be read: '+(err.message||'unknown format')+'.');}return;}
+ if(files.length===1&&!/\.db$/i.test(files[0].name)){try{addSongEntry(await readImportedSong(files[0]));}catch(err){toast(files[0].name+' could not be read: '+(err.message||'unknown format')+'.');}return;}
  if(!companionReady()){toast('Adding several songs at once needs the Wordlight companion. Start Wordlight on this computer, or import one song at a time.');return;}
+ // EasyWorship 6 and 7: its two song databases, chosen together.
+ const ewSongs=files.find(f=>/^songs\.db$/i.test(f.name)),ewWords=files.find(f=>/^songwords\.db$/i.test(f.name));
+ if(ewSongs||ewWords){
+  if(!ewSongs||!ewWords){toast('Choose both Songs.db and SongWords.db from EasyWorship (in its Databases\\Data folder).');return;}
+  toast('Reading the EasyWorship songs…');
+  try{
+   const base64=async file=>{const bytes=new Uint8Array(await file.arrayBuffer());let text='';for(let i=0;i<bytes.length;i+=0x8000)text+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(text);};
+   const r=await localFetch('/api/songs/library/import-easyworship',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({songs:await base64(ewSongs),words:await base64(ewWords)})});
+   const result=await r.json().catch(()=>({}));
+   if(!r.ok)throw new Error(result.error||'The EasyWorship songs could not be added.');
+   toast('Added '+result.added+' EasyWorship song'+(result.added===1?'':'s')+' to the library.'+(result.skipped?' '+result.skipped+' already there were skipped.':'')+(result.failed?' '+result.failed+' had no words or could not be read.':''));
+   forgetCompanionSongs();if(tab==='songs')searchSongLibrary(false);
+  }catch(err){toast(err.message);}
+  return;
+ }
  const songs=[],problems=[];
  for(const file of files.slice(0,3000)){try{songs.push(await readImportedSong(file));}catch(err){problems.push(file.name+' ('+(err.message||'unknown format')+')');}}
  if(!songs.length){toast('None of these files could be read, for example '+problems[0]+'.');return;}
