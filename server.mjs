@@ -1,5 +1,5 @@
 import http from 'node:http';
-import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat,rm} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat,rm,open} from 'node:fs/promises';
 import os from 'node:os';
 import {freeShowToSong,searchSongs,foldText,foldWords,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
 import {searchEntry,entryForCache,entryFromCache,findInSongbook,vocabulary} from './song-search.mjs';
@@ -119,6 +119,20 @@ const corsFor=origin=>({'Access-Control-Allow-Origin':origin,'Vary':'Origin'});
 async function readBuffer(req,limit){const parts=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Object.assign(new Error('Too large.'),{status:413});parts.push(part);}return Buffer.concat(parts);}
 async function readBytes(req,limit){return (await readBuffer(req,limit)).toString('utf8');}
 async function readJSON(req,limit){return JSON.parse(await readBytes(req,limit));}
+// A request body written straight to two files, the first `split` bytes to `first` and the rest to `second`, so a large
+// upload never sits in memory. Returns the number of bytes received.
+async function saveSplitUpload(req,limit,split,first,second){
+ const a=await open(first,'w'),b=await open(second,'w');let size=0;
+ try{
+  for await(const part of req){
+   const at=size;size+=part.length;if(size>limit)throw Object.assign(new Error('Too large.'),{status:413});
+   const toFirst=Math.max(0,Math.min(part.length,split-at));
+   if(toFirst)await a.write(part.subarray(0,toFirst));
+   if(toFirst<part.length)await b.write(part.subarray(toFirst));
+  }
+ }finally{await a.close();await b.close();}
+ return size;
+}
 // Read-only FreeShow song library for the local studio. Locations come from FreeShow's own settings
 // (overridable for tests). The metadata index is kept in memory and reloaded when shows.json changes; a song's
 // .show file is read only when that song is opened. Nothing is ever written to FreeShow.
@@ -458,19 +472,25 @@ async function handleSongs(req,res,url,trusted=false){
   // says where Songs.db ends and SongWords.db begins). They are written to a temporary folder and read in a worker
   // thread (easyworship.mjs), and every song goes through the library import below (duplicates skipped). Nothing is kept.
   if(url.pathname==='/api/songs/library/import-easyworship'&&req.method==='POST'){
-   let body;try{body=await readBuffer(req,SONG_FILE_BYTES*2);}catch(err){json(res,err.status||400,{error:'The EasyWorship files are too large (the limit is '+SONG_FILE_BYTES*2/1e6+' MB together).'});return;}
+   const chooseBoth={error:'Choose both Songs.db and SongWords.db from EasyWorship (in its Databases\\Data folder).'};
    const split=Number(q.get('songsBytes'));
-   if(!Number.isInteger(split)||split<=0||split>=body.length){json(res,400,{error:'Choose both Songs.db and SongWords.db from EasyWorship (in its Databases\\Data folder).'});return;}
+   if(!Number.isInteger(split)||split<=0){req.resume();json(res,400,chooseBoth);return;}
    const temp=path.join(dataDir,'easyworship-'+Date.now());
    let read=null,problem=null;
    try{
     await mkdir(temp,{recursive:true});
-    await writeFile(path.join(temp,'Songs.db'),body.subarray(0,split));await writeFile(path.join(temp,'SongWords.db'),body.subarray(split));body=null;
-    read=await readEasyWorship(temp,{limit:SONG_LIBRARY_LIMIT});
-   }catch(err){problem={error:'These are not EasyWorship 6 or 7 song databases ('+(err.message||err)+'). Choose Songs.db and SongWords.db from EasyWorship\'s Databases\\Data folder.'};}
+    let size;
+    try{size=await saveSplitUpload(req,SONG_FILE_BYTES*2,split,path.join(temp,'Songs.db'),path.join(temp,'SongWords.db'));}
+    catch(err){problem={status:err.status||400,body:err.status?{error:'The EasyWorship files are too large (the limit is '+SONG_FILE_BYTES*2/1e6+' MB together).'}:{error:'The EasyWorship files did not arrive. Try again.'}};}
+    if(!problem&&size<=split)problem={status:400,body:chooseBoth};
+    if(!problem)read=await readEasyWorship(temp,{limit:SONG_LIBRARY_LIMIT});
+   }catch(err){
+    problem={status:400,body:{error:err.tooBig?'These EasyWorship databases are too large or too slow to read here ('+(err.message||err)+'). Nothing was imported.':
+     'These are not EasyWorship 6 or 7 song databases ('+(err.message||err)+'). Choose Songs.db and SongWords.db from EasyWorship\'s Databases\\Data folder.'}};
+   }
    finally{await rm(temp,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});}
    // Answered only after the temporary files are gone.
-   if(problem){json(res,400,problem);return;}
+   if(problem){json(res,problem.status,problem.body);return;}
    if(read.tooMany){json(res,409,{added:0,skipped:0,failed:0,error:'This EasyWorship library has more than '+SONG_LIBRARY_LIMIT+' songs, more than Wordlight\'s library holds. Nothing was imported.'});return;}
    const result=await importNativeSongs(read.songs);
    json(res,result.code,{...result.body,failed:(result.body.failed||0)+read.skipped,errors:[...read.problems,...(result.body.errors||[])].slice(0,10)});return;

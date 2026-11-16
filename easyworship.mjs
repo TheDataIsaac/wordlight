@@ -12,10 +12,12 @@ export function readEasyWorship(folder,{limit,timeoutMs=60000}){
   const worker=new Worker(fileURLToPath(import.meta.url),{workerData:{folder,limit},resourceLimits:{maxOldGenerationSizeMb:512}});
   const timer=setTimeout(()=>{timedOut=true;worker.terminate();},timeoutMs);
   worker.on('message',message=>{result=message;});
-  worker.on('error',err=>{result={error:err.message||String(err)};});
+  worker.on('error',err=>{result=err.code==='ERR_WORKER_OUT_OF_MEMORY'?{outOfMemory:true}:{error:err.message||String(err)};});
   worker.on('exit',()=>{
    clearTimeout(timer);
-   if(timedOut)reject(new Error('reading them took longer than '+Math.round(timeoutMs/1000)+' seconds'));
+   // Too slow, or past the worker's memory limit: marked tooBig, so the operator is not told the files are wrong.
+   if(timedOut)reject(Object.assign(new Error('reading them took longer than '+Math.round(timeoutMs/1000)+' seconds'),{tooBig:true}));
+   else if(result?.outOfMemory)reject(Object.assign(new Error('reading them needed more memory than allowed'),{tooBig:true}));
    else if(!result||result.error)reject(new Error(result?.error||'the reader stopped'));
    else resolve(result);
   });
