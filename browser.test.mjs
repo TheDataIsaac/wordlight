@@ -30,6 +30,8 @@ async function clickOn(selector){
 }
 const liveState=async()=>{const r=await run("fetch('/api/state').then(r=>r.json()).then(s=>({index:s.live.index,blank:s.live.blank,count:s.live.slides.length,text:s.live.slides[s.live.index]?.text||''}))");return r;};
 async function open(){await cdp('Page.navigate',{url:site});await until("document.querySelector('[data-action=settings-open]')!==null",'the studio to reach the companion');}
+// A release check (WORDLIGHT_RELEASE_CHECK=1, npm run release-check) refuses to skip: these are the only tests of the studio.
+if(!browserPath&&process.env.WORDLIGHT_RELEASE_CHECK)throw new Error('The release check needs Chrome or Edge for the studio tests. Install one or set CHROME_PATH.');
 const skip=browserPath?false:'No Chrome or Edge on this computer';
 
 before(async()=>{
