@@ -480,3 +480,14 @@ test('A notice from the companion shows at the top of the studio until it is dis
  await until("fetch('/api/notices').then(r=>r.json()).then(s=>s.notices.length===0)",'the notice dismissed on the companion');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Typing writes the browser copy of the library a few times, not once per key, and the last words are kept',{skip},async()=>{
+ await open();
+ await run("window.__writes=0;const set=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k==='wordlight-library')window.__writes++;return set.call(this,k,v);}");
+ await run("(async()=>{const box=document.querySelector('#sessionTitle');for(const ch of 'Typed quickly, thirty letters'){box.value+=ch;box.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(r=>setTimeout(r,15));}})()");
+ await wait(800);
+ const writes=await run('window.__writes');
+ assert.ok(writes>=1&&writes<=4,'one write per quarter second at most, got '+writes);
+ assert.match(await run("JSON.parse(localStorage.getItem('wordlight-library')).shows.find(s=>s.draft.title.includes('Typed quickly')).draft.title"),/thirty letters$/);
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

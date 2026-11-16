@@ -62,10 +62,19 @@ let tab='slides',isLocal=false,localReachable=false,saveTimer,toastTimer,diction
 const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector');
 let channel;try{channel=new BroadcastChannel('wordlight-screen-v1');channel.onmessage=ev=>receive(ev.data);}catch{}
 function toast(text){if(!text)return;const dialog=document.querySelector('dialog[open]');if(dialog){let feedback=dialog.querySelector('.dialog-feedback');if(!feedback){feedback=document.createElement('p');feedback.className='dialog-feedback';feedback.setAttribute('role','status');dialog.append(feedback);}feedback.textContent=text;}$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3500);}
+// The browser copy of the library is written at most every quarter second while typing (one write instead of one
+// per key, which a large library would make slow), and at once when the page is hidden or closed.
+let browserSaveTimer=null;
+function saveInBrowser(){
+ clearTimeout(browserSaveTimer);browserSaveTimer=null;
+ try{saveLibrary(localStorage,library);if(!isLocal)setSaveStatus('Saved in this browser');}catch{setSaveStatus('Storage full · export library');toast('Browser storage is full. Export your library to keep every show.');}
+}
+for(const event of ['pagehide','visibilitychange'])window.addEventListener(event,()=>{if(browserSaveTimer&&(event==='pagehide'||document.visibilityState==='hidden'))saveInBrowser();});
 function remember(){
  const show=activeShow(library);show.draft=draft;show.updated=Date.now();library.savedAt=Math.max(Date.now(),(library.savedAt||0)+1);
  if(libraryError){setSaveStatus('Library needs recovery');toast('Saved library could not be opened. Export this show before continuing: '+libraryError);return;}
- try{saveLibrary(localStorage,library);setSaveStatus(isLocal?'Saving…':'Saved in this browser');}catch{setSaveStatus('Storage full · export library');toast('Browser storage is full. Export your library to keep every show.');}
+ if(isLocal)setSaveStatus('Saving…');
+ if(!browserSaveTimer)browserSaveTimer=setTimeout(saveInBrowser,250);
  if(isLocal)saveRevision++;clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,450);
  const option=$('#showSwitcher option:checked');if(option)option.textContent=draft.title||'Untitled show';
 }
