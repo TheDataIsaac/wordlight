@@ -130,6 +130,8 @@ function changeSettings(change){
   await mkdir(dataDir,{recursive:true});await writeAtomic(settingsFile,JSON.stringify(next));
   applySettings(next);
   const message='data: '+JSON.stringify({settings:next})+'\n\n';for(const client of clients)client.write(message);
+  // The stage display follows one setting (how much of the next slide it shows).
+  broadcastStage();remote.stageChanged();
   return next;
  });
  settingsQueue=run.catch(()=>{});return run;
@@ -564,7 +566,7 @@ function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\
 // Stage display: the live screen plus the operator's message, for screens facing the singers or the preacher. The message
 // is kept in memory only: it is for this moment of the service, not for saving.
 let stageMessage=null;const stageClients=new Set();
-const stageNow=()=>stageState(state.live,stageMessage);
+const stageNow=()=>stageState(state.live,stageMessage,{nextLines:settings().stageNextLines});
 function broadcastStage(){
  const message='data: '+JSON.stringify(stageNow())+'\n\n';
  for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
@@ -613,13 +615,15 @@ async function handle(req,res){
   res.write('retry: 1000\ndata: '+JSON.stringify(stageNow())+'\n\n');stageClients.add(res);
   const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);stageClients.delete(res);});return;
  }
- // The stage message: read it and the number of stage screens, or set it (an empty text clears it). Local studio only.
+ // The stage message: read it and the number of stage screens, or set it (an empty text clears it). {hidden:true} takes
+ // it off the stage screens but keeps it, and {hidden:false} shows it again. Local studio only.
  if(url.pathname==='/api/stage'&&req.method==='GET'){json(res,200,{message:stageMessage,screens:stageClients.size+remote.stageScreens()});return;}
  if(url.pathname==='/api/stage'&&req.method==='POST'){
   const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
   if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
   let body;try{body=await readJSON(req,2000);}catch(err){json(res,err.status||400,{error:err.status?'Too large.':'Invalid JSON.'});return;}
-  const text=cleanStageMessage(body?.message);stageMessage=text?{text,at:Date.now()}:null;
+  if(body?.message===undefined&&typeof body?.hidden==='boolean'){if(stageMessage)stageMessage={...stageMessage,hidden:body.hidden,at:body.hidden?stageMessage.at:Date.now()};}
+  else{const text=cleanStageMessage(body?.message);stageMessage=text?{text,at:Date.now(),hidden:false}:null;}
   broadcastStage();remote.stageChanged();
   json(res,200,{message:stageMessage,screens:stageClients.size+remote.stageScreens()});return;
  }

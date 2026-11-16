@@ -4,6 +4,7 @@
 import {timerSummary} from './timer.mjs';
 
 const clip=(value,length)=>String(value??'').slice(0,length);
+export const STAGE_NEXT_LINES=[1,2,0];
 
 // A short name for a slide: the song section ("Chorus 1"), the Bible reference and version, or the slide's heading.
 function slideLabel(slide){
@@ -22,8 +23,10 @@ function stageSlide(slide){
  return {label:clip(slideLabel(slide),120),text:clip(slideText(slide),3000),second:clip(slide.second?.text,3000)};
 }
 
-// message: {text, at} set from the studio, or null. serverNow lets each screen correct its own clock for the timer.
-export function stageState(live,message=null){
+// message: {text, at, hidden} set from the studio, or null. A hidden message is kept for showing again but not sent.
+// nextLines: how much of the next slide the stage shows (1 or 2 lines, or 0 for all of it).
+// serverNow lets each screen correct its own clock for the timer.
+export function stageState(live,message=null,{nextLines=2}={}){
  const slides=Array.isArray(live?.slides)?live.slides:[];
  const index=Number.isInteger(live?.index)?live.index:0;
  return {
@@ -34,7 +37,8 @@ export function stageState(live,message=null){
   current:stageSlide(slides[index]),
   next:stageSlide(slides[index+1]),
   timer:timerSummary(live?.timer),
-  message:message?.text?{text:clip(message.text,200),at:Number(message.at)||0}:null,
+  message:message?.text&&!message.hidden?{text:clip(message.text,200),at:Number(message.at)||0}:null,
+  nextLines:STAGE_NEXT_LINES.includes(nextLines)?nextLines:2,
   serverNow:Date.now()
  };
 }

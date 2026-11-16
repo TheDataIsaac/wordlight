@@ -109,7 +109,7 @@ Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser so
 - `GET /api/bridge/status`, `GET /api/bridge/live` (read the current screen), `POST /api/bridge/live` – web studio bridge (allowed origin and `Authorization: Bearer <code>` required; older screens get 409).
 - Through the bridge, with the same checks: `GET /api/bridge/songs`, `/songs/categories`, `/songs/item`, `POST /api/bridge/songs/library`; `GET /api/bridge/bibles`, `/bibles/passage`, `/bible/status`, `/bible/nkjv`; `GET /api/bridge/assets`, `/assets/<id>`, `POST /api/bridge/assets`. Every other route answers 404 through the bridge.
 - `GET /api/bibles/search?q=…` – verses containing the typed words, from the installed Bibles (also through the bridge).
-- `GET /stage` and `GET /stage/events` – the stage display page and its stream. `GET /api/stage` reads the message and the number of stage screens; `POST /api/stage` with `{"message":"…"}` sets it, and an empty message clears it (local studio only). On the phone remote port: `/remote/stage` and `/remote/api/stage`, after sign-in.
+- `GET /stage` and `GET /stage/events` – the stage display page and its stream. `GET /api/stage` reads the message and the number of stage screens; `POST /api/stage` with `{"message":"…"}` sets it, an empty message clears it, and `{"hidden":true}` or `{"hidden":false}` hides or shows the current one (local studio only). On the phone remote port: `/remote/stage` and `/remote/api/stage`, after sign-in.
 - `GET /api/remote/status`, `POST /api/remote/password|enabled|signout` – phone remote settings (local studio only).
 Set `WORDLIGHT_PORT` and `WORDLIGHT_DATA_DIR` to run a separate test copy with its own data. `WORDLIGHT_REMOTE_PORT` moves the phone remote (default 18766); `WORDLIGHT_REMOTE_BIND=127.0.0.1` keeps it off the network for tests.
 
@@ -139,10 +139,11 @@ Turn it on in the local studio: **Phone remote**, set a password (8+ characters)
 ## Stage display
 A screen facing the singers or the preacher. It shows the words on screen now (sized as large as fits), the next slide, the clock, the timer while it runs or is shown, and a message from the operator. It only reads; nothing on it can change the screen.
 
-- **Stage** in the local studio sets the message (for example `5 minutes` or `Please wrap up`): Enter or **Show on stage**, then **Clear message**. A new message flashes three times. Only stage screens show it; the projector, OBS and saved shows never do. It is kept until cleared or until Wordlight stops.
+- **Stage** in the local studio sets the message (for example `5 minutes` or `Please wrap up`): Enter or **Show on stage**. **Hide** takes it off the stage but keeps it, so **Show again** brings back the same words; **Clear message** deletes it. A new message flashes three times. Only stage screens show it; the projector, OBS and saved shows never do. It is kept until cleared or until Wordlight stops.
 - On this computer, open http://127.0.0.1:18765/stage (for a monitor plugged into the laptop).
 - On a tablet or phone on the same Wi-Fi, turn on the **Phone remote**, sign in on that device with its password, then open the remote address with `/stage` added, for example `http://192.168.1.23:18766/remote/stage`. The Stage dialog lists the addresses. Signing out all phones or turning the remote off closes it too.
-- The timer turns amber in the last minute and red at 0. **SCREEN HIDDEN** shows while the screen is hidden. A second Bible version shows under the verse.
+- The timer turns amber near zero (its warning time, one minute by default) and red at zero and past it. **SCREEN HIDDEN** shows while the screen is hidden. A second Bible version shows under the verse.
+- **Next slide on the stage** in the Stage dialog shows its first line, its first two lines (the default) or the whole slide.
 
 ## Direct TV projection
 Click Present in the local studio to fill the extended display. The hosted studio opens a window to move onto the display, then click Full screen. The OBS output URLs have no buttons.

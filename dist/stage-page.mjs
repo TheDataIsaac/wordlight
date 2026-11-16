@@ -34,6 +34,7 @@ function paint(){
  $('nextLabel').textContent=stage.next?.label?'· '+stage.next.label:'';
  $('nextText').textContent=stage.next?stage.next.text:'Last slide';
  $('nextText').classList.toggle('dim',!stage.next);
+ $('nextText').dataset.lines=String(stage.nextLines??2);
  const message=stage.message?.text||'';
  // A new message flashes once so it is noticed from the pulpit.
  if(message&&$('message').textContent!==message){$('message').classList.remove('flash');void $('message').offsetWidth;$('message').classList.add('flash');}

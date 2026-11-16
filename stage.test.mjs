@@ -36,6 +36,10 @@ test('The message is one tidy line of at most 200 characters, and an empty one c
  assert.equal(cleanStageMessage(null),'');
  assert.equal(stageState({slides:[],index:0},{text:'Wrap up',at:5}).message.text,'Wrap up');
  assert.equal(stageState({slides:[],index:0},null).message,null);
+ assert.equal(stageState({slides:[],index:0},{text:'Wrap up',at:5,hidden:true}).message,null,'a hidden message is not sent');
+ assert.equal(stageState({slides:[],index:0}).nextLines,2,'two lines of the next slide by default');
+ assert.equal(stageState({slides:[],index:0},null,{nextLines:0}).nextLines,0);
+ assert.equal(stageState({slides:[],index:0},null,{nextLines:7}).nextLines,2);
 });
 
 // ---- The real companion ----
@@ -94,8 +98,19 @@ test('The local stage page follows the screen, and only the local studio can set
   const set=await request(port,'POST','/api/stage',{body:{message:'  5 minutes  '},headers:local});
   assert.equal(set.status,200);assert.equal(set.body.message.text,'5 minutes');assert.equal(set.body.screens,1);
   assert.ok(await until(()=>s.messages.at(-1)?.message?.text==='5 minutes'),'the stage hears the message at once');
+  // Hide takes it off the stage but keeps it; Show again brings it back.
+  const hidden=await request(port,'POST','/api/stage',{body:{hidden:true},headers:local});
+  assert.equal(hidden.body.message.text,'5 minutes');assert.equal(hidden.body.message.hidden,true);
+  assert.ok(await until(()=>s.messages.at(-1)?.message===null),'the stage no longer shows it');
+  await request(port,'POST','/api/stage',{body:{hidden:false},headers:local});
+  assert.ok(await until(()=>s.messages.at(-1)?.message?.text==='5 minutes'),'shown again');
   await request(port,'POST','/api/stage',{body:{message:''},headers:local});
   assert.ok(await until(()=>s.messages.at(-1)?.message===null),'an empty message clears it');
+  assert.equal((await request(port,'GET','/api/stage')).body.message,null,'and it is gone, not hidden');
+  // How much of the next slide shows is a setting, and the stage follows it at once.
+  assert.equal((await request(port,'POST','/api/settings',{body:{stageNextLines:1},headers:local})).status,200);
+  assert.ok(await until(()=>s.messages.at(-1)?.nextLines===1),'the stage hears the setting');
+  await request(port,'POST','/api/settings',{body:{stageNextLines:2},headers:local});
   // The message never reaches the audience outputs.
   const state=(await request(port,'GET','/api/state')).body;
   assert.ok(!JSON.stringify(state.live).includes('5 minutes'));

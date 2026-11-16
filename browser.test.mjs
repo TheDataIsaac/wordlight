@@ -399,3 +399,27 @@ test('The timer counts down to a time of day, warns the operator in amber, and t
  await run("document.querySelector('[data-action=timer-hide]').click()");await run("document.querySelector('#timerDialog').close()");
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('The Stage dialog hides a message and shows it again, and sets how much of the next slide the stage shows',{skip},async()=>{
+ await open();
+ await run("document.querySelector('[data-action=stage-open]').click()");await until("document.querySelector('#stageDialog')?.open&&document.querySelector('#stageNextLines')",'the stage dialog');
+ await run("{const f=document.querySelector('#stageMessageText');f.value='Five minutes';document.querySelector('[data-stage=show]').click();}");
+ await until("document.querySelector('[data-stage=hide]')!==null",'the Hide button');
+ await run("document.querySelector('[data-stage=hide]').click()");
+ await until("document.querySelector('[data-stage=unhide]')?.textContent==='Show again'",'Show again');
+ assert.equal(await run("fetch('/api/stage').then(r=>r.json()).then(s=>s.message.hidden&&s.message.text)"),'Five minutes');
+ await run("{const s=document.querySelector('#stageNextLines');s.value='0';s.dispatchEvent(new Event('change',{bubbles:true}));}");
+ await until("fetch('/api/settings').then(r=>r.json()).then(s=>s.stageNextLines===0)",'the setting saved');
+ await run("document.querySelector('[data-stage=clear]').click()");
+ await until("fetch('/api/stage').then(r=>r.json()).then(s=>s.message===null)",'the message cleared');
+ await run("document.querySelector('#stageDialog').close()");
+ assert.deepEqual(pageErrors,[],'no script error in the studio');
+ // The stage page itself shows the whole next slide now.
+ await cdp('Page.navigate',{url:site+'stage'});
+ await until("document.querySelector('#nextText')?.dataset.lines==='0'",'the stage page to follow the setting');
+ assert.equal(await run("getComputedStyle(document.querySelector('#nextText')).display"),'block');
+ assert.equal(await run("document.querySelector('#message').hidden"),true);
+ await run("fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stageNextLines:2})})");
+ await until("document.querySelector('#nextText')?.dataset.lines==='2'",'back to two lines');
+ assert.deepEqual(pageErrors,[],'no script error on the stage page');
+});

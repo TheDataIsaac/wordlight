@@ -127,13 +127,13 @@ export function songCredit(song){return [song.meta.copyright,song.meta.ccli?'CCL
 // Settings shared by the studio and the phone, kept by the companion. Song display settings change how songs look on
 // screen and never touch the stored words, so changing one back restores the song exactly.
 export const LINES_PER_SLIDE=[0,1,2,3,4,5,6,8];
-export const DEFAULT_SETTINGS={linesPerSlide:0,hideRepeatMarks:true,allCaps:false,songFooter:true,resultClick:'preview',phoneTap:'select',checkFirst:true,searchFreeShow:true,searchReserve:true,secondVersion:'',fadeSlides:true};
+export const DEFAULT_SETTINGS={linesPerSlide:0,hideRepeatMarks:true,allCaps:false,songFooter:true,resultClick:'preview',phoneTap:'select',checkFirst:true,searchFreeShow:true,searchReserve:true,secondVersion:'',fadeSlides:true,stageNextLines:2};
 // One Bible setting lives here too: a second version shown under each looked-up verse (for example Yoruba under NKJV).
 export const SECOND_VERSIONS=['kjv','web','asv','bbe','darby','oeb-us','oycb','nkjv'];
 export function cleanSettings(v){
  const s=v&&typeof v==='object'?v:{},flag=(key)=>typeof s[key]==='boolean'?s[key]:DEFAULT_SETTINGS[key],lines=Number(s.linesPerSlide);
  return {linesPerSlide:LINES_PER_SLIDE.includes(lines)?lines:0,hideRepeatMarks:flag('hideRepeatMarks'),allCaps:flag('allCaps'),songFooter:flag('songFooter'),
-  resultClick:s.resultClick==='send'?'send':'preview',phoneTap:s.phoneTap==='send'?'send':'select',checkFirst:flag('checkFirst'),searchFreeShow:flag('searchFreeShow'),searchReserve:flag('searchReserve'),secondVersion:SECOND_VERSIONS.includes(s.secondVersion)?s.secondVersion:'',fadeSlides:flag('fadeSlides')};
+  resultClick:s.resultClick==='send'?'send':'preview',phoneTap:s.phoneTap==='send'?'send':'select',checkFirst:flag('checkFirst'),searchFreeShow:flag('searchFreeShow'),searchReserve:flag('searchReserve'),secondVersion:SECOND_VERSIONS.includes(s.secondVersion)?s.secondVersion:'',fadeSlides:flag('fadeSlides'),stageNextLines:[0,1,2].includes(Number(s.stageNextLines))?Number(s.stageNextLines):2};
 }
 let current=cleanSettings();
 export const settings=()=>current;
