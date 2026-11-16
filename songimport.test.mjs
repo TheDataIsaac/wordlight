@@ -141,3 +141,18 @@ test('ProPresenter 6 files: groups become sections, RTF or plain text slides are
  assert.equal(order(song),'Verse 1, Chorus, Chorus');
  assert.deepEqual([song.meta.author,song.meta.copyright,song.meta.ccli],['Ann Writer','2018 Sample Music','987654']);
 });
+
+test('ProPresenter: two groups with the same name keep their own words in the arrangement; a damaged slide stops that song',()=>{
+ const b64=s=>Buffer.from(s,'utf8').toString('base64');
+ const slide=inner=>'<RVDisplaySlide uuid="s"><array rvXMLIvarName="displayElements"><RVTextElement displayName="Text">'+inner+'</RVTextElement></array></RVDisplaySlide>';
+ const plain=text=>slide('<NSString rvXMLIvarName="PlainText">'+text+'</NSString>');
+ const doc=groups=>'<RVPresentationDocument CCLISongTitle="Twice"><array rvXMLIvarName="groups">'+groups+'</array><array rvXMLIvarName="arrangements"><RVSongArrangement uuid="a1"><array rvXMLIvarName="groupIDs"><NSString>g1</NSString><NSString>g2</NSString><NSString>g1</NSString></array></RVSongArrangement></array></RVPresentationDocument>';
+ const song=songFromImportedFile('Twice.pro6',doc('<RVSlideGrouping name="Chorus" uuid="g1"><array>'+plain(b64('First chorus'))+'</array></RVSlideGrouping><RVSlideGrouping name="Chorus" uuid="g2"><array>'+plain(b64('Second chorus'))+'</array></RVSlideGrouping>'));
+ assert.deepEqual(sections(song),[['Chorus',['First chorus']],['Chorus 2',['Second chorus']]]);
+ assert.equal(order(song),'Chorus, Chorus 2, Chorus');
+ assert.throws(()=>songFromImportedFile('Twice.pro6',doc('<RVSlideGrouping name="Chorus" uuid="g1"><array>'+plain(b64('Fine'))+plain('%%not base64%%')+'</array></RVSlideGrouping>')),/slide 2.*damaged/);
+});
+
+test('RTF: a \\uc setting ends with its group',()=>{
+ assert.equal(rtfToText(String.raw`{\rtf1 {\uc0 a\u233 b}c\u7865?d}`),'aébcẹd');
+});

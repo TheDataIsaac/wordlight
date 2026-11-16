@@ -19,17 +19,18 @@ const paragraphs=text=>String(text).replace(/\r/g,'').split(/\n\s*\n/).map(p=>p.
 // sections: [{label, slides:[text]}] in the order written; order: labels as sung (empty means as written).
 // A label used twice with the same words is one section sung twice; with different words it gets a number.
 function songFrom({title,meta={},sections,order=[]}){
- const kept=[],byLabel=new Map(),written=[];
+ const kept=[],byLabel=new Map(),written=[],finalLabel=new Map();
  for(const section of sections){
   if(!section.slides.length)continue;
   let label=section.label;
   const same=byLabel.get(label.toLowerCase());
-  if(same&&same.slides.join('\n\n')===section.slides.join('\n\n')){written.push(same.label);continue;}
+  if(same&&same.slides.join('\n\n')===section.slides.join('\n\n')){written.push(same.label);finalLabel.set(section,same.label);continue;}
   for(let n=2;byLabel.has(label.toLowerCase());n++)label=section.label+' '+n;
-  const entry={label,slides:section.slides};kept.push(entry);byLabel.set(label.toLowerCase(),entry);written.push(label);
+  const entry={label,slides:section.slides};kept.push(entry);byLabel.set(label.toLowerCase(),entry);written.push(label);finalLabel.set(section,label);
  }
  if(!kept.length)throw new Error('No lyrics were found in it.');
- const sung=order.filter(label=>byLabel.has(label.toLowerCase()));
+ // The order sung lists labels, or (ProPresenter) the sections themselves, since two groups there can share a name.
+ const sung=order.map(item=>typeof item==='string'?item:finalLabel.get(item)).filter(label=>label&&byLabel.has(label.toLowerCase()));
  const lyrics=kept.map(s=>'['+s.label+']\n'+s.slides.join('\n\n')).join('\n\n');
  const name=String(title||'').trim()||'Imported song';
  const cleanMeta=Object.fromEntries(Object.entries(meta).filter(([,v])=>v));
@@ -148,11 +149,11 @@ const CHORDPRO=/^\s*\{\s*(title|t|subtitle|st|artist|start_of_chorus|soc|start_o
 const CP1252=new TextDecoder('windows-1252');
 const SKIP=new Set(['fonttbl','colortbl','stylesheet','info','pict','header','footer','listtable','listoverridetable','generator','themedata','datastore','latentstyles','rsidtbl']);
 export function rtfToText(rtf){
- const s=String(rtf);let out='',i=0,depth=0,skipUntil=-1,ucSkip=1,pendingSkip=0;
+ const s=String(rtf);let out='',i=0,depth=0,skipUntil=-1,ucSkip=1,pendingSkip=0;const ucOuter=[];
  while(i<s.length){
   const c=s[i];
-  if(c==='{'){depth++;i++;if(s[i]==='\\'&&s[i+1]==='*'&&skipUntil<0)skipUntil=depth;continue;}
-  if(c==='}'){if(depth===skipUntil)skipUntil=-1;depth--;i++;continue;}
+  if(c==='{'){ucOuter.push(ucSkip);depth++;i++;if(s[i]==='\\'&&s[i+1]==='*'&&skipUntil<0)skipUntil=depth;continue;}
+  if(c==='}'){if(depth===skipUntil)skipUntil=-1;depth--;if(ucOuter.length)ucSkip=ucOuter.pop();i++;continue;}
   if(c==='\\'){
    const next=s[i+1];
    if(next==="'"){const byte=parseInt(s.slice(i+2,i+4),16);i+=4;if(pendingSkip){pendingSkip--;continue;}if(skipUntil<0&&!Number.isNaN(byte))out+=CP1252.decode(new Uint8Array([byte]));continue;}
@@ -188,23 +189,24 @@ export function fromEasyWorship({title,author,copyright,ccli,words}){
 // text element as base64, either plain text or RTF. A saved arrangement, if there is one, gives the order sung.
 const base64Text=s=>new TextDecoder('utf-8').decode(Uint8Array.from(atob(String(s).replace(/\s+/g,'')),c=>c.charCodeAt(0)));
 const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="([^"]*)"','i').exec(tag);return m?decode(m[1]):'';};
-function slideWords(slide){
+function slideWords(slide,number){
  const element=/<RVTextElement\b[^>]*>[\s\S]*?<\/RVTextElement>|<RVTextElement\b[^>]*\/>/i.exec(slide)?.[0];if(!element)return '';
  const field=name=>(new RegExp('<NSString[^>]*rvXMLIvarName="'+name+'"[^>]*>([^<]*)<','i').exec(element)||[])[1]||attribute(element.match(/<RVTextElement\b[^>]*>/i)?.[0]||'',name);
- try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Text(rtf)):'';}catch{return '';}
+ try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Text(rtf)):'';}
+ catch{throw new Error('slide '+number+'\'s words are damaged, so the song was not imported');}
 }
 export function fromProPresenter6(xml,fallbackTitle=''){
  const root=/<RVPresentationDocument\b[^>]*>/i.exec(xml)?.[0];
  if(!root)throw new Error('This is not a ProPresenter 6 file.');
- const sections=[],byId=new Map();
+ const sections=[],byId=new Map();let slideCount=0;
  for(const g of xml.matchAll(/<RVSlideGrouping\b([^>]*)>([\s\S]*?)<\/RVSlideGrouping>/gi)){
-  const slides=[...g[2].matchAll(/<RVDisplaySlide\b[^>]*>([\s\S]*?)<\/RVDisplaySlide>/gi)].map(s=>slideWords(s[1])).filter(Boolean);
+  const slides=[...g[2].matchAll(/<RVDisplaySlide\b[^>]*>([\s\S]*?)<\/RVDisplaySlide>/gi)].map(s=>slideWords(s[1],++slideCount)).filter(Boolean);
   const name=attribute('<x'+g[1]+'>','name').trim();
   const section={label:HEADING.test(name)?tidyHeading(name):name||'Verse '+(sections.length+1),slides};
   sections.push(section);byId.set(attribute('<x'+g[1]+'>','uuid'),section);
  }
  const arrangement=/<RVSongArrangement\b[^>]*>([\s\S]*?)<\/RVSongArrangement>/i.exec(xml)?.[1]||'';
- const order=[...arrangement.matchAll(/<NSString[^>]*>([^<]+)<\/NSString>/gi)].map(m=>byId.get(m[1].trim())?.label).filter(Boolean);
+ const order=[...arrangement.matchAll(/<NSString[^>]*>([^<]+)<\/NSString>/gi)].map(m=>byId.get(m[1].trim())).filter(Boolean);
  const copyright=attribute(root,'CCLICopyrightInfo')||[attribute(root,'CCLICopyrightYear'),attribute(root,'CCLIPublisher')].filter(Boolean).join(' ');
  return songFrom({title:attribute(root,'CCLISongTitle')||fallbackTitle,meta:{author:attribute(root,'CCLIAuthor')||attribute(root,'CCLIArtistCredits'),copyright,ccli:attribute(root,'CCLISongNumber').replace(/\D/g,'')},sections,order});
 }
