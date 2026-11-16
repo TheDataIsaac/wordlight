@@ -473,7 +473,7 @@ async function handleSongs(req,res,url,trusted=false){
    if(problem){json(res,400,problem);return;}
    if(read.tooMany){json(res,409,{added:0,skipped:0,failed:0,error:'This EasyWorship library has more than '+SONG_LIBRARY_LIMIT+' songs, more than Wordlight\'s library holds. Nothing was imported.'});return;}
    const result=await importNativeSongs(read.songs);
-   json(res,result.code,{...result.body,failed:(result.body.failed||0)+read.skipped});return;
+   json(res,result.code,{...result.body,failed:(result.body.failed||0)+read.skipped,errors:[...read.problems,...(result.body.errors||[])].slice(0,10)});return;
   }
   if(url.pathname==='/api/songs/library/import'&&req.method==='POST'){
    let body;try{body=await readJSON(req,SONG_FILE_BYTES);}catch(err){json(res,err.status||400,{error:err.status?'The file is too large.':'Invalid JSON.'});return;}
@@ -812,6 +812,8 @@ const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigi
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});
 await loadSettings();
+// An EasyWorship import cut short by a crash or power cut leaves its temporary folder; it is cleared at the next start.
+readdir(dataDir).then(names=>Promise.all(names.filter(n=>/^easyworship-\d+$/.test(n)).map(n=>rm(path.join(dataDir,n),{recursive:true,force:true,maxRetries:5})))).catch(()=>{});
 server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
  // Line search loads here, so the first song search during a service doesn't have to wait for it.

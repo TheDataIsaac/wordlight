@@ -200,6 +200,7 @@ test('EasyWorship 6 and 7 song databases are imported into the library, once',as
   const first=await send(songsFile,wordsFile);
   assert.equal(first.status,200,JSON.stringify(first.body));
   assert.deepEqual([first.body.added,first.body.skipped,first.body.failed],[2,0,1],'two songs; the one without words is counted as not read');
+  assert.deepEqual(first.body.errors,['No Words: no words'],'and named');
   assert.ok((await withFs('/api/songs?q='+encodeURIComponent('easy chorus line'))).body.items.some(s=>s.name==='Easy One'),'findable by its words');
   const again=await send(songsFile,wordsFile);
   assert.deepEqual([again.body.added,again.body.skipped],[0,2],'the same databases again add nothing');

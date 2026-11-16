@@ -5,7 +5,7 @@ import {Worker,isMainThread,parentPort,workerData} from 'node:worker_threads';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
-// Resolves with {songs, skipped, tooMany} once the worker has finished and closed both files (so they can be deleted).
+// Resolves with {songs, skipped, problems, tooMany} once the worker has finished and closed both files (so they can be deleted).
 export function readEasyWorship(folder,{limit,timeoutMs=60000}){
  return new Promise((resolve,reject)=>{
   let result=null,timedOut=false;
@@ -36,15 +36,17 @@ if(!isMainThread){
   // once for every song.
   const words=new Map();
   for(const row of wordsDb.prepare('SELECT song_id,words FROM word').iterate())if(row.words&&!words.has(row.song_id))words.set(row.song_id,String(row.words));
-  const songs=[];let skipped=0,tooMany=false;
+  // The first few songs left out are named, so the operator knows which to look at.
+  const songs=[],problems=[];let skipped=0,tooMany=false;
+  const leaveOut=(title,why)=>{skipped++;if(problems.length<10)problems.push((String(title||'').trim().slice(0,80)||'A song without a title')+': '+why);};
   for(const row of songsDb.prepare('SELECT rowid,title,author,copyright,vendor_id FROM song').iterate()){
    if(songs.length>=workerData.limit){tooMany=true;break;}
    const text=words.get(row.rowid);
-   if(!text){skipped++;continue;}
+   if(!text){leaveOut(row.title,'no words');continue;}
    try{const {id,...song}=fromEasyWorship({title:row.title,author:row.author,copyright:row.copyright,ccli:row.vendor_id,words:text});songs.push(song);}
-   catch{skipped++;}
+   catch(err){leaveOut(row.title,err.message||'could not be read');}
   }
-  result={songs,skipped,tooMany};
+  result={songs,skipped,problems,tooMany};
  }catch(err){result={error:err.message||String(err)};}
  finally{songsDb?.close();wordsDb?.close();}
  parentPort.postMessage(result);
