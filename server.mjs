@@ -17,6 +17,7 @@ import {createBibleSearch} from './bible-search.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
+import {stageState,cleanStageMessage} from './dist/stage.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const port=Number(process.env.WORDLIGHT_PORT)||18765;
 const dataDir=process.env.WORDLIGHT_DATA_DIR||path.join(root,'.wordlight-data');
@@ -558,8 +559,16 @@ async function handleBridge(req,res,url){
 const BRIDGE_ROUTES=[['GET',/^\/api\/songs(\/categories|\/item)?$/],['POST',/^\/api\/songs\/library(\/used)?$/],['GET',/^\/api\/bibles(\/passage|\/search)?$/],['GET',/^\/api\/bible\/(status|nkjv)$/],['GET',/^\/api\/assets(\/[a-f0-9]{16})?$/],['POST',/^\/api\/assets$/]];
 // A page that stopped reading its live stream (a frozen OBS, a sleeping computer) would make every screen pile up in
 // memory here. Past 16 MB unread, its stream is closed; the browser reconnects and gets the latest screen.
-function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients){if(client.writableLength>16e6){client.destroy();continue;}client.write(message);}remote.liveChanged(state.live);}
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+function broadcast(){const message='data: '+JSON.stringify({live:state.live})+'\n\n';for(const client of clients){if(client.writableLength>16e6){client.destroy();continue;}client.write(message);}remote.liveChanged(state.live);broadcastStage();}
+// Stage display: the live screen plus the operator's message, for screens facing the singers or the preacher. The message
+// is kept in memory only: it is for this moment of the service, not for saving.
+let stageMessage=null;const stageClients=new Set();
+const stageNow=()=>stageState(state.live,stageMessage);
+function broadcastStage(){
+ const message='data: '+JSON.stringify(stageNow())+'\n\n';
+ for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
+}
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}
@@ -597,6 +606,21 @@ async function handle(req,res){
   res.write('retry: 500\ndata: '+JSON.stringify({live:state.live,settings:settings(),build:APP_BUILD,...(saveProblem?{saveProblem:true}:{})})+'\n\n');clients.add(res);
   const view=['output','lower','graphics'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'studio',isProjector=view==='output'&&url.searchParams.has('projector');viewers[view]++;if(isProjector)viewers.projector++;
   const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);clients.delete(res);viewers[view]--;if(isProjector)viewers.projector--;});return;
+ }
+ if(req.method==='GET'&&url.pathname==='/stage/events'){
+  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});
+  res.write('retry: 1000\ndata: '+JSON.stringify(stageNow())+'\n\n');stageClients.add(res);
+  const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);stageClients.delete(res);});return;
+ }
+ // The stage message: read it and the number of stage screens, or set it (an empty text clears it). Local studio only.
+ if(url.pathname==='/api/stage'&&req.method==='GET'){json(res,200,{message:stageMessage,screens:stageClients.size+remote.stageScreens()});return;}
+ if(url.pathname==='/api/stage'&&req.method==='POST'){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
+  if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+  let body;try{body=await readJSON(req,2000);}catch(err){json(res,err.status||400,{error:err.status?'Too large.':'Invalid JSON.'});return;}
+  const text=cleanStageMessage(body?.message);stageMessage=text?{text,at:Date.now()}:null;
+  broadcastStage();remote.stageChanged();
+  json(res,200,{message:stageMessage,screens:stageClients.size+remote.stageScreens()});return;
  }
  if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}
  if(url.pathname==='/api/settings'&&req.method==='POST'){
@@ -665,7 +689,7 @@ function saveNewest(){
 // locked or full disk never holds up the next slide.
 const keepScreen=()=>{const saved=saveNewest();return saveProblem?true:Promise.race([saved,new Promise(resolve=>setTimeout(resolve,SAVE_WAIT_MS,true))]);};
 const projector=createProjector({url:'http://127.0.0.1:'+port+'/?view=output&projector=1',dataDir});
-const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible,search:bibleSearch}),findSongs,readSong,settings:{get:settings,change:changeSettings}});
+const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible,search:bibleSearch}),stage:()=>stageNow(),findSongs,readSong,settings:{get:settings,change:changeSettings}});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});

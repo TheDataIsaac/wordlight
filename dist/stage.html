@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000000">
+<title>Wordlight stage display</title>
+<link rel="stylesheet" href="stage.css"></head><body>
+<main class="stage">
+ <header class="stage-top">
+  <div class="stage-where"><span id="title"></span> <span id="position" class="dim"></span> <span id="hidden" class="chip chip-hidden" hidden>SCREEN HIDDEN</span> <span id="connection" class="chip" hidden>Reconnecting…</span></div>
+  <div id="timer" class="stage-timer" hidden></div>
+  <div id="clock" class="stage-clock"></div>
+ </header>
+ <div id="message" class="stage-message" role="status" aria-live="assertive" hidden></div>
+ <section class="stage-now" aria-label="On screen now">
+  <div id="nowLabel" class="stage-label"></div>
+  <div id="nowBox" class="stage-now-box"><div id="nowText" class="stage-now-text"></div></div>
+ </section>
+ <section class="stage-next" aria-label="Next slide">
+  <div class="stage-label">Next <span id="nextLabel"></span></div>
+  <div id="nextText" class="stage-next-text"></div>
+ </section>
+ <p id="signin" class="stage-signin" hidden>Sign in to the phone remote on this device first, then open this page again. <a href="/remote">Open the phone remote</a></p>
+</main>
+<script type="module" src="stage-page.mjs"></script></body></html>

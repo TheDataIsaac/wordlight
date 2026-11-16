@@ -156,11 +156,11 @@ function showList(library){
 
 // Settings the phone page offers. The rest, such as Check first, stay with the laptop.
 const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap','secondVersion'],STREAM_UNREAD_BYTES=1e6;
-export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,settings,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
+export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,settings,stage=()=>null,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
  const configFile=path.join(dataDir,'remote.json'),sessionFile=path.join(dataDir,'remote-sessions.json');
  let config={version:1,enabled:false,password:null};
  let server=null,error='',configProblem='',generation=0;
- const sessions=new Map(),streams=new Set(),limiter=createLoginLimiter(),commands=createCommandLog();
+ const sessions=new Map(),streams=new Set(),stageStreams=new Set(),limiter=createLoginLimiter(),commands=createCommandLog();
  // Screens that phone content replaced, newest last, so Back returns to the sermon slide after a called verse.
  const screensBefore=[];
  function summary(live){const before=screensBefore.at(-1);return {...liveSummary(live),backTo:before?clip(before.showTitle||before.slides[before.index]?.title,60)||'the last screen':''};}
@@ -186,7 +186,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   config=next;configProblem='';
  }
  // Ends every phone session and live stream. Used by password change, sign-out-all and turning the remote off.
- function revokeAll(){generation++;sessions.clear();saveSessions();limiter.clear();for(const s of streams)s.res.end();streams.clear();}
+ function revokeAll(){generation++;sessions.clear();saveSessions();limiter.clear();for(const s of [...streams,...stageStreams])s.res.end();streams.clear();stageStreams.clear();}
  // An open live stream stays only while its session exists, has not expired and was made after the last revoke.
  function streamValid(stream){const s=sessions.get(stream.key);return !!s&&s.expires>=Date.now()&&stream.generation===generation;}
  function endStream(stream){streams.delete(stream);stream.res.end();}
@@ -368,7 +368,10 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
    res.writeHead(200,{'Content-Type':type,...baseHeaders,'Cache-Control':'no-cache','Content-Security-Policy':csp});res.end(method==='HEAD'?undefined:body);
   }catch{send(res,404,{error:'Not found'});}
  }
- const files={'/remote':['remote.html','text/html; charset=utf-8'],'/remote.mjs':['remote.mjs','text/javascript; charset=utf-8'],'/remote.css':['remote.css','text/css; charset=utf-8']};
+ const files={'/remote':['remote.html','text/html; charset=utf-8'],'/remote.mjs':['remote.mjs','text/javascript; charset=utf-8'],'/remote.css':['remote.css','text/css; charset=utf-8'],
+  // The stage display for a tablet facing the singers or the preacher. It reads only, after the same sign-in.
+  '/remote/stage':['stage.html','text/html; charset=utf-8'],'/remote/stage.css':['stage.css','text/css; charset=utf-8'],'/remote/stage-page.mjs':['stage-page.mjs','text/javascript; charset=utf-8'],
+  '/remote/timer.mjs':['timer.mjs','text/javascript; charset=utf-8'],'/remote/fit.mjs':['fit.mjs','text/javascript; charset=utf-8']};
  async function handle(req,res){
   const own=bind==='127.0.0.1'?[]:lanAddresses().map(a=>a.address),local=String(req.socket.localAddress||'').replace(/^::ffff:/,'');
   if(!hostAllowed(req.headers.host,port,own)||!(local==='127.0.0.1'||own.includes(local))){send(res,403,{error:'Use the address shown in Wordlight.'});return;}
@@ -400,7 +403,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(!session){send(res,401,{error:'Sign in first.'});return;}
   if(p==='/remote/api/logout'){
    const problem=mutationProblem(req);if(problem){send(res,problem[0],{error:problem[1]});return;}
-   sessions.delete(session.key);saveSessions();for(const s of streams)if(s.key===session.key){s.res.end();streams.delete(s);}
+   sessions.delete(session.key);saveSessions();for(const set of [streams,stageStreams])for(const s of set)if(s.key===session.key){s.res.end();set.delete(s);}
    send(res,200,{ok:true},{'Set-Cookie':COOKIE+'=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});return;
   }
   if(p==='/remote/api/command'){
@@ -450,8 +453,16 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
     send(res,200,{title:clip(song.title,100),parts:songSlides(song,'phone').filter(s=>s.page===0).map(s=>({position:s.position,section:clip(s.section,60),text:clip(s.text,90)}))});return;
    }
   }catch(err){send(res,err.status||400,{error:err.message||'That did not work.'});return;}
+  if(p==='/remote/api/stage'){
+   if(streams.size+stageStreams.size>=MAX_STREAMS){send(res,503,{error:'Too many phones and stage screens are connected.'});return;}
+   res.writeHead(200,{'Content-Type':'text/event-stream',...baseHeaders,'Cache-Control':'no-cache','Connection':'keep-alive'});
+   res.write('retry: 3000\n\ndata: '+JSON.stringify(stage())+'\n\n');
+   const stream={res,key:session.key,generation};stageStreams.add(stream);
+   const heartbeat=setInterval(()=>{if(!streamValid(stream)){stageStreams.delete(stream);res.end();return;}res.write(': keepalive\n\n');},25000);
+   req.on('close',()=>{clearInterval(heartbeat);stageStreams.delete(stream);});return;
+  }
   if(p==='/remote/api/events'){
-   if(streams.size>=MAX_STREAMS){send(res,503,{error:'Too many phones are connected.'});return;}
+   if(streams.size+stageStreams.size>=MAX_STREAMS){send(res,503,{error:'Too many phones are connected.'});return;}
    res.writeHead(200,{'Content-Type':'text/event-stream',...baseHeaders,'Cache-Control':'no-cache','Connection':'keep-alive'});
    res.write('retry: 3000\n\ndata: '+JSON.stringify(summary(state.live))+'\n\n');
    const stream={res,key:session.key,generation};streams.add(stream);
@@ -475,7 +486,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  // Wordlight quitting or restarting: phones keep their sign-in, so a restart in a service does not ask for the password.
  // A command still waiting at that moment is dropped (the generation moves on), as it is when a phone is signed out.
  function close(){
-  generation++;for(const s of streams)s.res.end();streams.clear();
+  generation++;for(const s of [...streams,...stageStreams])s.res.end();streams.clear();stageStreams.clear();
   if(!server)return Promise.resolve();
   const s=server;server=null;
   return new Promise(resolve=>{s.close(()=>resolve());s.closeAllConnections?.();});
@@ -512,7 +523,17 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   }catch{send(res,500,{error:'The phone remote settings could not be saved.'});return;}
   send(res,404,{error:'Not found'});
  }
+ // Every stage screen gets the new stage state; one that stopped reading is closed and reconnects.
+ function stageChanged(){
+  if(!stageStreams.size)return;
+  const message='data: '+JSON.stringify(stage())+'\n\n';
+  for(const s of stageStreams){
+   if(s.res.writableLength>STREAM_UNREAD_BYTES||!streamValid(s)){stageStreams.delete(s);s.res.destroy();continue;}
+   s.res.write(message);
+  }
+ }
  function liveChanged(live){
+  stageChanged();
   if(!streams.size)return;
   const message='data: '+JSON.stringify(summary(live))+'\n\n';
   for(const s of streams){
@@ -523,7 +544,8 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  }
  return {
   async start(){await loaded;await start();},
-  handleAdmin,liveChanged,close,
+  handleAdmin,liveChanged,stageChanged,close,
+  stageScreens:()=>stageStreams.size,
   // Settles when every command already queued has finished (used when Wordlight quits).
   idle:()=>queue.catch(()=>{})
  };
