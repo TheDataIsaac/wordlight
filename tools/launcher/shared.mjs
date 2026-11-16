@@ -73,7 +73,7 @@ export async function tailLines(file,count=5){
 
 // ---- Talking to the server on the port ----
 // Plain HTTP without keep-alive, so no socket stays open. Resolves {status,body} or {error:code}.
-function request(cfg,method,pathname,timeout){
+export function request(cfg,method,pathname,timeout){
  return new Promise(resolve=>{
   const req=http.request({host:'127.0.0.1',port:cfg.port,path:pathname,method,agent:false,timeout,headers:method==='POST'?{'Content-Type':'application/json','Content-Length':2}:{}},res=>{
    let text='';res.setEncoding('utf8');

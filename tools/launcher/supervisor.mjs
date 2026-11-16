@@ -1,17 +1,22 @@
 // Crash recovery for Wordlight. Runs server.mjs and starts it again if it dies, with a growing wait between tries.
-// It does nothing else: no polling of the server, no network traffic while the server is running.
+// It also notices a server that is still running but no longer answers (stuck in a loop or a deadlock), which would
+// otherwise leave the screens frozen until someone used Task Manager: once the server has been up for a while, it asks
+// /api/health every few seconds on 127.0.0.1, and ends the server after several answers in a row are missed.
 //   - A server that exits with code 0, or any exit after Stop Wordlight, is a stop on purpose and is not restarted.
 //   - If something else holds the port, nothing is started and nothing on the port is touched.
 //   - The server keeps running if the supervisor itself is closed or killed (OBS keeps its screen).
 import {spawn} from 'node:child_process';
 import {appendFile,mkdir,open} from 'node:fs/promises';
 import path from 'node:path';
-import {askToQuit,claimSupervisor,clearStop,emptyIfHuge,releaseSupervisor,rotateIfLarge,sleep,stopRequested,tailLines,updateState,whoIsThere,writeLog,SERVER_LOG_HARD,SERVER_LOG_MAX} from './shared.mjs';
+import {askToQuit,request,claimSupervisor,clearStop,emptyIfHuge,releaseSupervisor,rotateIfLarge,sleep,stopRequested,tailLines,updateState,whoIsThere,writeLog,SERVER_LOG_HARD,SERVER_LOG_MAX} from './shared.mjs';
 
 const HEARTBEAT_MS=10_000;   // refresh the state file and keep server.log bounded
 const HEALTHY_MS=60_000;     // a server that ran this long was not crash-looping, so the wait starts over
 const MAX_WAIT_MS=30_000;
 const PORT_TRIES=5;          // starts to attempt while the port is taken, before giving up
+// Hang check: asked every 5 s once the server has run 20 s; 4 missed answers in a row (about 20 s with no reply,
+// 3 s allowed for each) end it. Tests pass shorter times in cfg.watch.
+const WATCH={everyMs:5_000,graceMs:20_000,misses:4,timeoutMs:3_000};
 
 // Returns an exit code: 0 stopped on purpose (or another supervisor is already running), 3 the port stayed taken.
 export async function supervise(cfg){
@@ -50,6 +55,19 @@ export async function supervise(cfg){
   if(await emptyIfHuge(cfg.serverLog,SERVER_LOG_HARD))await log('server.log passed '+SERVER_LOG_HARD/1e6+' MB while the server ran, so it was emptied.');
  },HEARTBEAT_MS);
 
+ const watch={...WATCH,...cfg.watch};let misses=0,childStartedAt=0;
+ const watchdog=setInterval(async()=>{
+  const watched=child;
+  if(!watched?.pid||Date.now()-childStartedAt<watch.graceMs||await shouldStop()){misses=0;return;}
+  const answer=await request(cfg,'GET','/api/health',watch.timeoutMs);
+  if(child!==watched||await shouldStop())return;
+  if(answer.body?.app==='wordlight'){misses=0;return;}
+  if(++misses<watch.misses)return;
+  misses=0;
+  await log('Server (pid '+watched.pid+') is running but has not answered for about '+Math.round(watch.misses*watch.everyMs/1000)+' s ('+(answer.error||'status '+answer.status)+'). Ending it so it starts again.');
+  watched.kill();
+ },watch.everyMs);
+
  // One server run. Resolves when the process ends or cannot be started.
  async function runServer(){
   let file;
@@ -63,6 +81,7 @@ export async function supervise(cfg){
   }
   const ended=new Promise(resolve=>{
    // The server writes straight into server.log. A pipe to this process would break the server if the supervisor died.
+   childStartedAt=Date.now();
    try{child=spawn(cfg.node,[path.join(cfg.root,'server.mjs')],{cwd:cfg.root,detached:true,windowsHide:true,stdio:['ignore',file.fd,file.fd],env:{...process.env,WORDLIGHT_PORT:String(cfg.port),WORDLIGHT_DATA_DIR:cfg.dataDir}});}
    catch(err){resolve({code:-1,reason:err.message});return;}
    child.once('error',err=>resolve({code:-1,reason:err.message}));
@@ -97,7 +116,7 @@ export async function supervise(cfg){
    await pause(wait);wait=Math.min(wait*2,MAX_WAIT_MS);
   }
  }finally{
-  clearInterval(heartbeat);
+  clearInterval(heartbeat);clearInterval(watchdog);
   for(const signal of ['SIGINT','SIGTERM','SIGBREAK'])process.off(signal,onSignal);
   await releaseSupervisor(cfg);await clearStop(cfg);
  }

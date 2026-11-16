@@ -235,3 +235,21 @@ test('companion.env is read by the launcher process itself and an existing varia
   assert.equal(loadCompanionEnv(box.cfg),false,'no file is not an error');
  }finally{delete process.env[key];delete process.env[kept];await cleanup(box);}
 });
+
+test('A server that stops answering (stuck in a loop) is ended and started again',async()=>{
+ const box=await sandbox(),fakeRoot=await mkdtemp(path.join(tmpdir(),'wordlight-hang-'));
+ // Answers like Wordlight; on its first run it gets stuck in an endless loop after 1.5 s.
+ await writeFile(path.join(fakeRoot,'server.mjs'),`import http from 'node:http';import fs from 'node:fs';
+const file=process.env.WORDLIGHT_DATA_DIR+'/runs.txt',run=(fs.existsSync(file)?Number(fs.readFileSync(file,'utf8')):0)+1;fs.writeFileSync(file,String(run));
+http.createServer((req,res)=>{if(req.url==='/api/app/quit'){res.end('{}');setTimeout(()=>process.exit(0),50);return;}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({app:'wordlight',run}));}).listen(Number(process.env.WORDLIGHT_PORT),'127.0.0.1');
+if(run===1)setTimeout(()=>{for(;;){}},1500);`);
+ try{
+  const running=supervise({...box.cfg,root:fakeRoot,watch:{everyMs:300,graceMs:500,misses:3,timeoutMs:200}});
+  const second=await waitFor(async()=>(await health(box))?.run===2,20_000);
+  assert.ok(second,'a fresh server is answering after the stuck one was ended');
+  assert.match(await readFile(box.cfg.launcherLog,'utf8'),/has not answered for about/);
+  await requestStop(box.cfg);
+  await fetch(box.base+'/api/app/quit',{method:'POST'}).catch(()=>{});
+  assert.equal(await running,0);
+ }finally{const state=await readState(box);if(state)kill(state.child);await rm(fakeRoot,{recursive:true,force:true,maxRetries:5,retryDelay:200});await rm(box.dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});
