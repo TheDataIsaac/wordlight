@@ -88,7 +88,8 @@ const sameCode=value=>{const a=Buffer.from(String(value||'')),b=Buffer.from(brid
 const viewers={output:0,lower:0,graphics:0,studio:0,projector:0};
 const clients=new Set();
 let writes=Promise.resolve();
-// Before replacing session.json, keep a copy at most every 10 minutes in backups/ (newest 20 kept).
+// Before replacing session.json, keep a copy at most every 10 minutes in backups/. Kept: the newest 20, and the newest
+// of each of the last 14 days, so a show deleted on Sunday and missed until Wednesday can still be found.
 let lastBackup=0;
 async function backup(){
  if(Date.now()-lastBackup<600000)return;
@@ -96,7 +97,9 @@ async function backup(){
  // No session.json yet (first save): nothing to keep, and the next save tries again.
  try{await copyFile(path.join(dataDir,'session.json'),path.join(dir,'session-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json'));}catch{return;}
  lastBackup=Date.now();
- const old=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort().slice(0,-20);for(const f of old)await unlink(path.join(dir,f)).catch(()=>{});
+ const names=(await readdir(dir)).filter(f=>/^session-.*\.json$/.test(f)).sort(),keep=new Set(names.slice(-20)),days=new Set();
+ for(const name of [...names].reverse()){const day=name.slice(8,18);if(days.size<14&&!days.has(day)){days.add(day);keep.add(name);}}
+ for(const f of names)if(!keep.has(f))await unlink(path.join(dir,f)).catch(()=>{});
 }
 // Changes to the session (studio saves, sends from the web studio and the phone remote) run one at a time, so each
 // starts from the last saved state and a failed save can simply put the previous state back.
@@ -607,7 +610,9 @@ async function handle(req,res){
  if(url.pathname.startsWith('/api/remote/')){await remote.handleAdmin(req,res,url);return;}
  if(url.pathname==='/api/bibles'||url.pathname.startsWith('/api/bibles/')){await handleBibles(req,res,url);return;}
  // Identity for launchers: which app and version answers on this port.
- if(req.method==='GET'&&url.pathname==='/api/health'){json(res,200,{app:'wordlight',version:APP_VERSION,build:APP_BUILD,preview:APP_PREVIEW});return;}
+ // Memory in MB and minutes running, so a long service can be checked (tools/soak.mjs reads them too).
+ if(req.method==='GET'&&url.pathname==='/api/health'){const m=process.memoryUsage();json(res,200,{app:'wordlight',version:APP_VERSION,build:APP_BUILD,preview:APP_PREVIEW,
+  memory:{rssMB:Math.round(m.rss/1e6),heapMB:Math.round(m.heapUsed/1e6)},upMinutes:Math.round(process.uptime()/60)});return;}
  // Quit from the Stop Wordlight launcher or the local studio: pending saves finish first. Local, JSON only.
  if(req.method==='POST'&&url.pathname==='/api/app/quit'){
   const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'Only the local studio can quit Wordlight.'});return;}

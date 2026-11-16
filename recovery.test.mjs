@@ -113,3 +113,26 @@ test('At start the newer screen wins: the one saved on its own in live.json, or 
   }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
  }
 });
+
+test('Backups keep the newest 20 copies and the newest of each of the last 14 days',async()=>{
+ const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-')),backups=path.join(dataDir,'backups');
+ await mkdir(backups);
+ const stamp=d=>'session-'+d.toISOString().replace(/[:.]/g,'-')+'.json';
+ const day=24*60*60*1000,now=Date.now();
+ // Two copies on each of the 20 days before today, and 25 from earlier today.
+ for(let d=1;d<=20;d++)for(const h of [9,11])await writeFile(path.join(backups,stamp(new Date(now-d*day+h*60000))),JSON.stringify(lib('Day '+d)));
+ for(let i=25;i>=1;i--)await writeFile(path.join(backups,stamp(new Date(now-i*60000))),JSON.stringify(lib('Today '+i)));
+ await writeFile(path.join(dataDir,'session.json'),JSON.stringify(lib('Current')));
+ const server=startCompanion(dataDir);
+ try{
+  const state=await readState();
+  // One library save: session.json is copied to backups/ first, then the old copies are trimmed.
+  assert.equal((await post('/api/state',{library:{...state.library,savedAt:Date.now()},baseSavedAt:state.library.savedAt||0})).status,200);
+  await wait(300);
+  const names=(await readdir(backups)).filter(f=>f.startsWith('session-')).sort();
+  const days=new Set(names.map(n=>n.slice(8,18)));
+  assert.equal(days.size,14,'one or more copies from each of the last 14 days');
+  assert.ok(names.length>=20+13&&names.length<=20+14,'the newest 20 plus one per older day, got '+names.length);
+  assert.ok(!names.some(n=>n.slice(8,18)===new Date(now-20*day).toISOString().slice(0,10)),'copies older than 14 days are gone');
+ }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});
