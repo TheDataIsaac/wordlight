@@ -374,7 +374,7 @@ function renderDeck(){
  const del=$('#deletePreview');if(del){del.disabled=!deck.length;const selected=deck.find(s=>s.id===draft.previewId);del.textContent=selected?.song?'Delete song':'Delete slide';del.title=selected?.versePoint?'Delete this verse slide':activeTextSlide()?'Delete this text slide and its continuation pages':'Delete the selected passage or study and its continuation pages';}
  const undo=$('#undoPreview');if(undo)undo.hidden=!(lastRemovedSlide||lastRemovedBible);const liveSlide=live.slides[live.index];
  $('#deckCount').textContent=deck.length+' slides · '+draft.notes.length+' highlights';
- const cards=deck.map((s,i)=>'<button class="slide-card '+(draft.previewId===s.id?'active':'')+(deckSelecting?' selecting':'')+(deckSelecting&&deckSelection.has(s.id)?' selected':'')+'" data-slide="'+e(s.id)+'" '+(deckSelecting?'aria-pressed="'+deckSelection.has(s.id)+'" aria-label="Select '+e(s.title)+'"':'aria-label="Preview '+e(s.title)+'. Double-click to send to screen."')+'>'+(deckSelecting?'<span class="card-check" aria-hidden="true"></span>':'')+'<div class="slide-card-art theme-'+draft.theme+'"><div class="mini-ref">'+e(s.reference)+'</div><div class="'+(s.note?'mini-word':'mini-text')+'">'+e(s.note?s.note.word:(s.type==='text'?[s.heading,s.subtitle,s.text].filter(Boolean).join(' · '):s.text))+'</div></div><div class="slide-card-bottom"><span class="index">'+String(i+1).padStart(2,'0')+'</span>'+e(s.title.slice(0,36))+(liveInCurrentScene()&&liveSlide?.id===s.id&&!live.blank?'<span class="live-pin">'+(JSON.stringify(s)===JSON.stringify(liveSlide)&&['theme','font','fontSize','brand','accent','bold','italic','referenceSize','lowerReferenceSize','referenceColor'].every(k=>draft[k]===live.style[k])&&JSON.stringify(getHighlights(draft))===JSON.stringify(live.style.highlights||[])?'ON SCREEN':'SENT COPY')+'</span>':'')+'</div></button>').join('')+ '<button class="add-study-card" data-action="new-text">'+icon('plus')+'Add text slide</button>'+'<button class="add-study-card" data-action="words">'+icon('plus')+'Add word study</button>';
+ const cards=deck.map((s,i)=>'<button class="slide-card '+(draft.previewId===s.id?'active':'')+(deckSelecting?' selecting':'')+(deckSelecting&&deckSelection.has(s.id)?' selected':'')+'" data-slide="'+e(s.id)+'" '+(deckSelecting?'aria-pressed="'+deckSelection.has(s.id)+'" aria-label="Select '+e(s.title)+'"':'aria-label="Preview '+e(s.title)+'. Double-click to send to screen."')+'>'+(deckSelecting?'<span class="card-check" aria-hidden="true"></span>':'')+'<div class="slide-card-art theme-'+draft.theme+'"><div class="mini-ref">'+e(s.reference)+'</div><div class="'+(s.note?'mini-word':'mini-text')+'">'+e(s.note?s.note.word:(s.type==='text'?[s.heading,s.subtitle,s.text].filter(Boolean).join(' · '):s.text))+'</div></div><div class="slide-card-bottom"><span class="index">'+String(i+1).padStart(2,'0')+'</span>'+e(s.title.slice(0,36))+(liveInCurrentScene()&&liveSlide?.id===s.id&&!live.blank?'<span class="live-pin">'+(JSON.stringify(s)===JSON.stringify(liveSlide)&&['theme','font','fontSize','brand','accent','bold','italic','referenceSize','lowerReferenceSize','referenceColor'].every(k=>draft[k]===live.style[k])&&JSON.stringify(getHighlights(draft))===JSON.stringify(live.style.highlights||[])?'ON SCREEN':'SENT COPY')+'</span>':'')+'</div></button>').join('')+ '<button class="add-study-card" data-action="new-text">'+icon('plus')+'Add text slide</button>'+'<button class="add-study-card" data-action="new-pictures">'+icon('plus')+'Add pictures</button>'+'<button class="add-study-card" data-action="words">'+icon('plus')+'Add word study</button>';
  if(drawnDecks.get(el)!==cards){
   const left=el.scrollLeft,focused=document.activeElement?.closest?.('.slide-card')?.dataset.slide;
   drawnDecks.set(el,cards);el.innerHTML=cards;
@@ -1004,7 +1004,9 @@ document.addEventListener('click',async ev=>{
  if(a==='stage-open'){openStageDisplay();return;}
  if(a==='listen-open'){openListening();return;}
  if(a==='new-text'){addTextSlide('content');return;}
+ if(a==='new-pictures'){if(!companionReady())return toast('Pictures are kept by the Wordlight companion. Start Wordlight on this computer first.');chooseFile($('#pictureFiles'));return;}
  if(a.startsWith('template-')){addTextSlide(a.slice(9));return;}
+ if(a==='remove-picture'){const s=activeTextSlide();if(s){s.image='';s.name='';remember();render();toast('Picture removed from this slide. It stays in the image library.');}return;}
  if(a==='reset-text-colors'){const s=activeTextSlide();if(s){s.headingColor='';s.bodyColor='';s.background='';remember();render();}return;}
  if(a==='duplicate-text'){duplicateTextSlide();return;}
  if(a==='delete-text'){deleteTextSlide();return;}
@@ -1081,6 +1083,7 @@ function renderSlides(){
  $('#panel').innerHTML='<h3 class="section-title">Slides</h3><div class="template-buttons">'+[['title','Title'],['content','Heading + text'],['quote','Quote'],['split','Split layout']].map(([id,name])=>button(name,'template-'+id)).join('')+'</div><label class="toggle-row"><input id="includePassage" type="checkbox" '+(draft.includePassage!==false?'checked':'')+'>Include Bible / pasted passage</label>'+
  (lastRemovedSlide?button('Undo removed slide','undo-slide'):'')+
  (s?'<div class="slide-edit-toolbar">'+button('Duplicate','duplicate-text')+button('Earlier','slide-earlier')+button('Later','slide-later')+button('Delete slide','delete-text','','danger')+'</div>'+
+ (s.image?'<div class="picture-controls">'+label('Picture'+(s.name?' · '+e(s.name):''),'textImageFit')+'<div class="field-row"><select id="textImageFit"><option value="contain" '+(s.imageFit!=='cover'?'selected':'')+'>Show the whole picture</option><option value="cover" '+(s.imageFit==='cover'?'selected':'')+'>Fill the screen (edges may be cut)</option></select>'+button('Remove picture','remove-picture')+'</div><p class="small-note">Text typed below appears over the picture.</p></div>':'')+
  slideField('Heading','textHeading',s.heading,'maxlength="400" placeholder="Add a heading"')+
  typeControls('heading',s)+slideField('Subheading','textSubtitle',s.subtitle,'maxlength="600" placeholder="Add a subheading (optional)"')+
  typeControls('subtitle',s)+label('Body text','textBody')+'<textarea id="textBody" rows="8" maxlength="30000" placeholder="Type or paste any text. Use a new line for each bullet.">'+e(s.body)+'</textarea><p class="small-note">Leave a blank line to start a new slide.</p>'+
@@ -1095,13 +1098,14 @@ function renderSlides(){
  '<div class="subtle-card"><strong>Start with a layout above.</strong><p class="hint">Bible passages stay in the deck. Turn off “Include Bible / pasted passage” for a text-only presentation.</p></div>');
  $('#includePassage').addEventListener('change',ev=>{draft.includePassage=ev.target.checked;remember();renderPreview();renderDeck();});
  if(!s)return;
+ $('#textImageFit')?.addEventListener('change',ev=>{s.imageFit=ev.target.value==='cover'?'cover':'contain';remember();renderPreview();renderDeck();});
  for(const [id,key] of [['headingFont','headingFont'],['headingBold','headingBold'],['headingItalic','headingItalic'],['subtitleFont','subtitleFont'],['subtitleBold','subtitleBold'],['subtitleItalic','subtitleItalic'],['textHeading','heading'],['textSubtitle','subtitle'],['textBody','body'],['textFooter','footer'],['textLayout','layout'],['textAlign','align'],['textHeadingSize','headingSize'],['textSubtitleSize','subtitleSize'],['textBodySize','bodySize'],['textTheme','theme'],['textFont','font'],['textHeadingColor','headingColor'],['textBodyColor','bodyColor'],['textBackground','background'],['textBold','bold'],['textItalic','italic'],['textBullets','bullets'],['textFit','fit'],['textFitPadding','fitPadding']]){
   const el=$('#'+id);el.addEventListener('input',()=>{s[key]=el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value;if(key==='fitPadding')s.fitPadding=fitPadding(el.value);if(key==='body')forgetPages('text-'+s.id+'-page-');if(s.attribution&&['heading','subtitle','body'].includes(key))s.attribution=adaptedCredit(s.attribution);remember();renderPreview();renderDeck();});
   if(['textHeading','textSubtitle','textBody'].includes(id))el.addEventListener('select',()=>{selectedTextPhrase=el.value.slice(el.selectionStart,el.selectionEnd).trim();});
  }
 }
-function addTextSlide(layout){
- const s=cleanTextSlide({id:crypto.randomUUID(),layout,align:layout==='title'||layout==='quote'?'center':'left'});
+function addTextSlide(layout,fields={}){
+ const s=cleanTextSlide({id:crypto.randomUUID(),layout,align:layout==='title'||layout==='quote'?'center':'left',...fields});
  // Text slides belong to a Presentation item: from a Song or Scripture item a new one is made, checked complete
  // before it is added. The screen is unchanged.
  const show=activeShow(library),kind=itemSummary(draft,deckFor(draft)).kind,scene=activeScene(show);
@@ -1114,6 +1118,7 @@ function addTextSlide(layout){
   draft.textSlides.push(s);
  }
  draft.previewId='text-'+s.id;tab='slides';selectedTextPhrase='';remember();render();
+ if(fields.image)return true;
  // Ready to type: letters typed on the page itself would be shortcuts.
  $('#textHeading')?.focus();
 }
@@ -1134,11 +1139,13 @@ function movePreparedSlide(delta){const s=deckFor(draft).find(x=>x.id===draft.pr
 function markSelectedText(){if(!selectedTextPhrase)return toast('Select a word or phrase in the heading, subheading, or body first.');if(selectedTextPhrase.length>200)return toast('Select up to 200 characters for one phrase.');addWord(selectedTextPhrase);}
 function textSlideMarkup(slide,colors,words){
  const f=cleanTextSlide(slide.format),h=(text)=>highlight(text,words,colors.accent);
+ // A picture slide: the image fills the slide, whole or cropped to fill, and any text sits on top.
+ const picture=f.image?'<img class="text-picture fit-'+f.imageFit+'" alt="" src="'+e(assetUrl(f.image))+'">':'';
  const heading=f.heading?'<h1 class="text-heading" data-base-size="'+f.headingSize+'" style="font-size:'+f.headingSize+'px;color:'+(f.headingColor||colors.fg)+';font-family:'+((FONTS[f.headingFont]||{}).css||'inherit')+';font-weight:'+(f.headingBold?'700':'400')+';font-style:'+(f.headingItalic?'italic':'normal')+'">'+h(f.heading)+'</h1>':'';
  const subtitle=f.subtitle?'<div class="text-subtitle" data-base-size="'+f.subtitleSize+'" style="font-size:'+f.subtitleSize+'px;font-family:'+((FONTS[f.subtitleFont]||{}).css||'inherit')+';font-weight:'+(f.subtitleBold?'700':'400')+';font-style:'+(f.subtitleItalic?'italic':'normal')+'">'+h(f.subtitle)+'</div>':'';
  const bodyStyle='font-size:'+f.bodySize+'px;font-weight:'+(f.bold?'700':'400')+';font-style:'+(f.italic?'italic':'normal')+';color:'+(f.bodyColor||colors.fg);
  const body=slide.text?(f.bullets?'<ul class="text-body text-bullets" data-base-size="'+f.bodySize+'" style="'+bodyStyle+'">'+slide.text.split(/\n/).filter(t=>t.trim()).map(t=>'<li>'+h(t)+'</li>').join('')+'</ul>':'<div class="text-body" data-base-size="'+f.bodySize+'" style="'+bodyStyle+'">'+h(slide.text)+'</div>'):'';
- return '<div class="text-slide-layout layout-'+f.layout+(f.fit?' fit-mode':'')+'" data-fit="'+f.fit+'" data-fit-pad="'+f.fitPadding+'" style="text-align:'+f.align+';--fit-pad:'+f.fitPadding+'px"><div class="text-heading-group">'+heading+subtitle+'</div>'+body+'</div><div class="slide-footer"><span>'+e(f.footer)+'</span><span>'+(slide.pages>1?slide.page+' / '+slide.pages:'')+'</span></div>';
+ return picture+'<div class="text-slide-layout layout-'+f.layout+(f.fit?' fit-mode':'')+'" data-fit="'+f.fit+'" data-fit-pad="'+f.fitPadding+'" style="text-align:'+f.align+';--fit-pad:'+f.fitPadding+'px"><div class="text-heading-group">'+heading+subtitle+'</div>'+body+'</div><div class="slide-footer"><span>'+e(f.footer)+'</span><span>'+(slide.pages>1?slide.page+' / '+slide.pages:'')+'</span></div>';
 }
 
 let lookupBusy=false;
@@ -2248,26 +2255,44 @@ function renderGraphicsPanel(){
  for(const el of $('#graphicsDialog').querySelectorAll('input,select'))el.addEventListener('input',previewGraphics);
  previewGraphics();
 }
-$('#graphicsFile')?.addEventListener('change',async ev=>{
- const file=ev.target.files[0];ev.target.value='';if(!file)return;
+// Stores an image in the companion's image store and returns it. Normalized in the browser first: logos up to 512 px
+// wide (PNG keeps transparency), everything else up to 1920 × 1080 (JPEG).
+async function storeImage(file,{logo=false}={}){
  let bitmap,canvas;
  try{
   if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Use a PNG, JPEG or WebP image. SVG is not accepted.');
   if(file.size>20e6)throw new Error('That image file is larger than 20 MB.');
-  // Normalize in the browser: logos up to 512 px wide (PNG keeps transparency), backgrounds up to 1920 × 1080 (JPEG).
   bitmap=await createImageBitmap(file);
   if(bitmap.width>8192||bitmap.height>8192)throw new Error('That image is larger than 8192 pixels.');
-  const logo=graphicsUpload==='logo',scale=Math.min(1,logo?512/bitmap.width:Math.min(1920/bitmap.width,1080/bitmap.height));
+  const scale=Math.min(1,logo?512/bitmap.width:Math.min(1920/bitmap.width,1080/bitmap.height));
   canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
   const blob=await new Promise(r=>canvas.toBlob(r,logo?'image/png':'image/jpeg',.9));
   const r=await localFetch('/api/assets?name='+encodeURIComponent(file.name.replace(/\.[^.]+$/,'')),{method:'POST',headers:{'Content-Type':blob.type},body:blob});
   const data=await r.json();if(!r.ok)throw new Error(data.error);
+  return data.asset;
+ }finally{bitmap?.close();if(canvas){canvas.width=0;canvas.height=0;}}
+}
+// Pictures: each chosen image becomes a picture slide in the presentation, in the order chosen.
+$('#pictureFiles')?.addEventListener('change',async ev=>{
+ const files=[...ev.target.files];ev.target.value='';if(!files.length)return;
+ let added=0;const problems=[];
+ for(const file of files.slice(0,50)){
+  try{const asset=await storeImage(file);if(!addTextSlide('content',{image:asset.id,name:file.name.replace(/\.[^.]+$/,'').slice(0,100)}))break;added++;}
+  catch(err){problems.push(file.name+': '+(err.message||'not stored'));}
+ }
+ await loadGraphicsAssets().catch(()=>{});
+ if(added)toast(added===1?'Picture added as a slide. Send to screen when ready.':added+' pictures added as slides. Send to screen when ready.');
+ if(problems.length)toast((added?'Some pictures were not added. ':'')+problems[0]+(problems.length>1?' (and '+(problems.length-1)+' more)':''));
+});
+$('#graphicsFile')?.addEventListener('change',async ev=>{
+ const file=ev.target.files[0];ev.target.value='';if(!file)return;
+ try{
+  const logo=graphicsUpload==='logo',data={asset:await storeImage(file,{logo})};
   if(graphicsUpload==='slide-background'){await loadGraphicsAssets();draft.backgroundAssetId=data.asset.id;remember();if(tab==='design')renderDesign();renderPreview();toast('Background image stored and used for this item.');return;}
   readGraphicsForm();await loadGraphicsAssets();
   if(logo)graphicsDraft.logo.assetId=data.asset.id;else{graphicsDraft.background.assetId=data.asset.id;graphicsDraft.background.kind='image';}
   renderGraphicsPanel();toast('Image stored. Apply settings or Show to use it.');
  }catch(err){toast(err.message||'That image could not be stored.');}
- finally{bitmap?.close();if(canvas){canvas.width=0;canvas.height=0;}}
 });
 async function handleGraphicsAction(action,t){
  try{
@@ -2278,7 +2303,7 @@ async function handleGraphicsAction(action,t){
   readGraphicsForm();
   if(action==='graphics-timer-start'||action==='graphics-timer-pause'||action==='graphics-timer-reset'){if(await publishChange({...clone(live),timer:changeTimer(cleanTimer(live.timer),action.slice(15))}))renderGraphicsPanel();return;}
   if(action==='graphics-clean'){
-   const g=graphicsForm(),used=new Set([g.logo.assetId,g.background.assetId,cleanGraphics(live.graphics).logo.assetId,cleanGraphics(live.graphics).background.assetId,live.style?.backgroundAssetId,...backgroundAssetIds(library)].filter(Boolean));
+   const g=graphicsForm(),used=new Set([g.logo.assetId,g.background.assetId,cleanGraphics(live.graphics).logo.assetId,cleanGraphics(live.graphics).background.assetId,live.style?.backgroundAssetId,...live.slides.map(s=>s.format?.image),...backgroundAssetIds(library)].filter(Boolean));
    if(graphicsAssetError)throw new Error('The image list could not be loaded, so nothing was removed.');
    let removed=0;for(const a of graphicsAssets)if(!used.has(a.id)){const r=await fetch('/api/assets/'+a.id,{method:'DELETE'});if(r.ok)removed++;}
    await loadGraphicsAssets();renderGraphicsPanel();toast(removed+' unused image'+(removed===1?'':'s')+' removed from the image library.');return;

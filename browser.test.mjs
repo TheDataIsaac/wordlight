@@ -511,3 +511,23 @@ test('Song files from other programs: one goes into the show, several go into th
  await until("fetch('/api/state').then(r=>r.json()).then(s=>s.draft.songs?.some(x=>x.song.title==='Plain Song'))",'the single song in the show');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('Pictures become slides that show the picture, can fill the screen, and can be taken off again',{skip},async()=>{
+ await open();
+ const file=path.join(dir,'Notice Board.png');
+ await writeFile(file,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64'));
+ const {root}=await cdp('DOM.getDocument');const {nodeId}=await cdp('DOM.querySelector',{nodeId:root.nodeId,selector:'#pictureFiles'});
+ await cdp('DOM.setFileInputFiles',{nodeId,files:[file]});
+ await until("document.querySelector('#preview .text-picture')!==null",'the picture in the preview');
+ assert.equal(await run("document.querySelector('#preview .text-picture').classList.contains('fit-contain')"),true,'the whole picture by default');
+ assert.match(await run("document.querySelector('#toast').textContent"),/Picture added as a slide/);
+ await until("document.querySelector('#textImageFit')!==null",'the picture controls');
+ await run("{const s=document.querySelector('#textImageFit');s.value='cover';s.dispatchEvent(new Event('change',{bubbles:true}));}");
+ await until("document.querySelector('#preview .text-picture.fit-cover')!==null",'fill the screen');
+ const id=await run("document.querySelector('#preview .text-picture').getAttribute('src').match(/[a-f0-9]{16}/)[0]");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>JSON.stringify(s.library).includes('"+id+"'))",'the show saved with its picture');
+ assert.equal(await run("fetch('/api/assets/"+id+"',{method:'DELETE'}).then(r=>r.status)"),409,'a picture in a show cannot be deleted from the image library');
+ await run("document.querySelector('[data-action=remove-picture]').click()");
+ await until("document.querySelector('#preview .text-picture')===null",'the picture removed from the slide');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

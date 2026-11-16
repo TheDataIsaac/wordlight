@@ -15,7 +15,7 @@ function slideLabel(slide){
 // The words a singer or preacher needs to read. A word study shows its word and explanation.
 function slideText(slide){
  if(slide.type==='study')return [slide.note?.word,slide.note?.meaning].filter(Boolean).join(': ')||slide.text;
- if(slide.type==='text'&&!slide.song)return [slide.heading,slide.subtitle,slide.text].filter(Boolean).join('\n');
+ if(slide.type==='text'&&!slide.song)return [slide.heading,slide.subtitle,slide.text].filter(Boolean).join('\n')||(slide.format?.image?'(Picture'+(slide.format.name?': '+slide.format.name:'')+')':'');
  return slide.text;
 }
 function stageSlide(slide){

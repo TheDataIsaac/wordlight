@@ -122,9 +122,10 @@ test('Removing an image only takes it out of the image library: it is still serv
  // The limit counts only images in the library.
  const index=JSON.parse(await readFile(path.join(dataDir,'assets','assets.json'),'utf8'));
  assert.equal(index.filter(a=>a.id===id).length,1,'one row per image');
- let active=(await request('GET','/api/assets')).body.assets.length;
- for(let i=0;active<40;i++,active++)assert.equal((await upload(png(30,30,100+i),'image/png','fill'+i)).status,201);
- assert.equal((await upload(png(31,31,1),'image/png','over')).status,409,'40 in the library is the limit');
+ const listed=(await request('GET','/api/assets')).body,limit=listed.limits.count;let active=listed.assets.length;
+ assert.equal(limit,200,'room for a few years of weekly announcement pictures');
+ for(let i=0;active<limit;i++,active++)assert.equal((await upload(png(30,30+i%50,100+i),'image/png','fill'+i)).status,201);
+ assert.equal((await upload(png(31,31,1),'image/png','over')).status,409,'the limit counts the images in the library');
  assert.equal((await request('DELETE','/api/assets/'+id)).status,200);
  assert.equal((await upload(png(31,31,1),'image/png','fits')).status,201,'a removed image does not count');
 });

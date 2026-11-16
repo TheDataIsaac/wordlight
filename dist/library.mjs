@@ -260,7 +260,11 @@ const allDrafts=show=>show.scenes.map(s=>[s.id,s.id===show.activeSceneId?show.dr
 // Background images used by any item of these shows, for image clean-up guards and exports.
 export function backgroundAssetIds(library){
  const ids=new Set();
- for(const show of library?.shows||[])for(const [,d] of allDrafts(show))if(d?.backgroundAssetId)ids.add(d.backgroundAssetId);
+ for(const show of library?.shows||[])for(const [,d] of allDrafts(show)){
+  if(d?.backgroundAssetId)ids.add(d.backgroundAssetId);
+  // Picture slides use images from the same store, so they count as in use too.
+  for(const s of Array.isArray(d?.textSlides)?d.textSlides:[])if(typeof s?.image==='string'&&s.image)ids.add(s.image);
+ }
  return ids;
 }
 // Design of the current item onto all items. Returns what Undo needs.

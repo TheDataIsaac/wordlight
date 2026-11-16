@@ -156,7 +156,7 @@ function changeSettings(change){
 // Graphics images: stored once in the data folder, named by the hash of their bytes, and served with immutable
 // caching so OBS Browser sources (which do not share the studio's browser storage) can load them.
 // Only PNG, JPEG and WebP are accepted, checked by their file signature and pixel size; SVG is refused.
-const ASSET_LIMITS={bytes:3_000_000,pixels:4096,count:40};
+const ASSET_LIMITS={bytes:3_000_000,pixels:4096,count:200};
 const ASSET_TYPES={png:'image/png',jpg:'image/jpeg',webp:'image/webp'};
 const assetDir=path.join(dataDir,'assets'),assetIndexFile=path.join(assetDir,'assets.json');
 export function imageInfo(buf){
@@ -234,7 +234,7 @@ async function handleAssetsInner(req,res,url,trusted=false){
   if(g.logo?.assetId===id||g.background?.assetId===id){json(res,409,{error:'This image is used by the graphics output. Choose another image first.'});return;}
   // Slide backgrounds: the screen on air and every item saved in the local studio. Shows kept only in a web
   // studio's browser are not known here; their exports carry the images.
-  if(state.live.style?.backgroundAssetId===id||backgroundAssetIds(state.library).has(id)){json(res,409,{error:'This image is a slide background in a show. Choose another background first.'});return;}
+  if(state.live.style?.backgroundAssetId===id||state.live.slides.some(s=>s.format?.image===id)||backgroundAssetIds(state.library).has(id)){json(res,409,{error:'This image is a slide background in a show. Choose another background first.'});return;}
   // Remove from the image library: the image leaves the lists, but its file stays and is still served by id, because a
   // show kept only in a web studio's browser may still use it. Uploading the same image again brings it back.
   await inAssetQueue(async()=>{await writeAssetIndex((await readAssetIndex()).map(a=>a.id===id?{...a,removed:true}:a));});
