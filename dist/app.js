@@ -31,7 +31,9 @@ const icons={book:'M3 4c4-1 6 0 9 2 3-2 5-3 9-2v15c-4-1-6 0-9 2-3-2-5-3-9-2zM12 
 const icon=name=>'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+(icons[name]||icons.book)+'"/></svg>';
 function load(key){try{return JSON.parse(localStorage.getItem(key));}catch{return null;}}
 let draft;try{draft=cleanDraft(load('wordlight-draft')||clone(DEFAULT));}catch{draft=clone(DEFAULT);}
-let library,libraryError='',recoveredLibrary=false;try{const saved=readLibrary(localStorage,draft);library=saved.library;recoveredLibrary=saved.recovered;draft=activeShow(library).draft;}catch(err){libraryError=err.message;library=cleanLibrary(null,draft);}
+// Output pages (OBS, the projector) draw only the screen on air, so they never read the studio's library.
+const outputPage=['output','lower','graphics'].includes(new URLSearchParams(location.search).get('view'));
+let library,libraryError='',recoveredLibrary=false;try{if(outputPage)throw null;const saved=readLibrary(localStorage,draft);library=saved.library;recoveredLibrary=saved.recovered;draft=activeShow(library).draft;}catch(err){if(err)libraryError=err.message;library=cleanLibrary(null,draft);}
 let saveStatusText=libraryError?'Saved data needs recovery':recoveredLibrary?'Recovered previous save':'Saved in this browser';
 const cachedLive=load('wordlight-live');let live=validLive(cachedLive)?cachedLive:{...snapshot(draft),blank:true};
 // Deck selection mode, the last thumbnail click (for double-click) and the last removed scene.
