@@ -171,3 +171,22 @@ test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord ta
 test('RTF: a \\uc setting ends with its group',()=>{
  assert.equal(rtfToText(String.raw`{\rtf1 {\uc0 a\u233 b}c\u7865?d}`),'aébcẹd');
 });
+
+test('Damaged or hostile files take time in proportion to their size: unclosed tags, chords, quotes, blank lines, spaces',()=>{
+ const openlyrics=b=>'<song xmlns="http://openlyrics.info/namespace/2009/song"><properties><titles><title>T</title></titles></properties><lyrics>'+b+'</lyrics></song>';
+ const files=[
+  ['a.xml',openlyrics('<verse name="v1"><lines>a'.repeat(40000))],
+  ['b.xml',openlyrics('<verse name="v1"><lines>'+'<!--'.repeat(200000)+'</lines></verse>')],
+  ['a.pro6','<RVPresentationDocument CCLISongTitle="x">'+'<RVSlideGrouping name="a">'.repeat(40000)+'</RVPresentationDocument>'],
+  ['b.pro6','<RVPresentationDocument'+' CCLIAuthor="'.repeat(80000)+'>'],
+  ['a.chordpro','{title:x}\n'+'[G'.repeat(300000)],
+  ['a.txt','Title\n'+'\n'.repeat(1000000)],
+ ];
+ for(const [name,text] of files){
+  const start=performance.now();
+  try{songFromImportedFile(name,text);}catch{}
+  assert.ok(performance.now()-start<1500,name+' took '+Math.round(performance.now()-start)+' ms');
+ }
+ const start=performance.now();rtfToText('{\rtf1 '+' '.repeat(1000000)+'}');
+ assert.ok(performance.now()-start<1500,'RTF spaces');
+});

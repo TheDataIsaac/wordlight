@@ -74,21 +74,41 @@ function readHeaded(text){
 const ENTITIES={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"};
 const codePoint=n=>n>=0&&n<=0x10ffff?String.fromCodePoint(n):'';
 const decode=s=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,(_,e)=>e[0]==='#'?codePoint(e[1].toLowerCase()==='x'?parseInt(e.slice(2),16):Number(e.slice(1))):ENTITIES[e.toLowerCase()]);
-const xmlText=s=>decode(String(s).replace(/<!--[\s\S]*?-->/g,'').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,'')).split('\n').map(l=>l.trim()).filter(Boolean).join('\n');
-const first=(xml,tag)=>{const m=new RegExp('<'+tag+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+tag+'>','i').exec(xml);return m?xmlText(m[1]):'';};
+// The XML readers below scan forward and never use lazy "anything up to the closing tag" patterns, and tag patterns stop
+// at the next "<" (a tag cannot contain one). A damaged or hostile file with thousands of unclosed tags would otherwise
+// make each one search the rest of the file, freezing the studio for minutes; this way a file takes time in proportion
+// to its size.
+// Every <tag ...>...</tag> in order, as {attrs, inner}; <tag .../> comes back with empty:true. At an opening tag with no
+// closing tag after it, the scan stops: none of the later ones could be closed either.
+function elements(xml,tag,limit=Infinity){
+ const open=new RegExp('<'+tag+'(?=[\\s>/])','gi'),close=new RegExp('</'+tag+'\\s*>','gi'),found=[];
+ for(let m;found.length<limit&&(m=open.exec(xml));){
+  const end=xml.indexOf('>',open.lastIndex);if(end<0)break;
+  const attrs=xml.slice(open.lastIndex,end);
+  if(attrs.endsWith('/')){found.push({attrs:attrs.slice(0,-1),inner:'',empty:true});open.lastIndex=end+1;continue;}
+  close.lastIndex=end+1;const c=close.exec(xml);if(!c)break;
+  found.push({attrs,inner:xml.slice(end+1,c.index)});open.lastIndex=close.lastIndex;
+ }
+ return found;
+}
+// Comments removed; an unclosed one runs to the end.
+const withoutComments=s=>{const parts=String(s).split('<!--');return parts[0]+parts.slice(1).map(p=>{const end=p.indexOf('-->');return end<0?'':p.slice(end+3);}).join('');};
+const xmlText=s=>decode(withoutComments(s).replace(/<br\s*\/?>/gi,'\n').replace(/<[^<>]+>/g,'')).split('\n').map(l=>l.trim()).filter(Boolean).join('\n');
+const first=(xml,tag)=>xmlText(elements(xml,tag,1)[0]?.inner||'');
 // Chords are for musicians, not the screen: OpenLyrics 0.9 <chord name="D"/> marks, and OpenLP's own [D] chord tags.
-const withoutChords=s=>String(s).replace(/<chord\b[^>]*\/>/gi,'').replace(/<tag\b[^>]*>\s*\[[^\]<]{1,15}\]\s*<\/tag>/gi,'');
+const withoutChords=s=>String(s).replace(/<chord\b[^<>]*\/>/gi,'').replace(/<tag\b[^<>]*>\s*\[[^\]<]{1,15}\]\s*<\/tag>/gi,'');
 export function fromOpenLyrics(xml){
  if(!/<song[\s>]/i.test(xml))throw new Error('This is not an OpenLyrics song.');
  const labelFor=name=>{const m=/^([a-z])(\d*)([a-z]?)$/i.exec(name);if(!m)return name;return (OPENLYRICS_LABELS[m[1].toLowerCase()]||'Verse')+(m[2]?' '+m[2]:'');};
  const sections=[],byLabel=new Map();
- for(const m of xml.matchAll(/<verse\s[^>]*name="([^"]+)"[^>]*>([\s\S]*?)<\/verse>/gi)){
-  const label=labelFor(m[1]),slides=[...m[2].matchAll(/<lines(?:\s[^>]*)?>([\s\S]*?)<\/lines>/gi)].map(l=>xmlText(withoutChords(l[1]))).filter(Boolean);
+ for(const verse of elements(xml,'verse')){
+  const name=/\bname="([^"]+)"/i.exec(verse.attrs)?.[1];if(verse.empty||!name)continue;
+  const label=labelFor(name),slides=elements(verse.inner,'lines').map(l=>xmlText(withoutChords(l.inner))).filter(Boolean);
   if(byLabel.has(label))byLabel.get(label).slides.push(...slides);else{const s={label,slides};byLabel.set(label,s);sections.push(s);}
  }
  // v1a v1b (two parts of Verse 1) become one entry; a part written twice, such as c c, is sung twice.
  const tokens=first(xml,'verseOrder').split(/\s+/).filter(Boolean),order=tokens.map(labelFor).filter((l,i)=>!(i&&l===labelFor(tokens[i-1])&&tokens[i]!==tokens[i-1]));
- const authors=[...xml.matchAll(/<author(?:\s[^>]*)?>([\s\S]*?)<\/author>/gi)].map(m=>xmlText(m[1])).filter(Boolean).join(', ');
+ const authors=elements(xml,'author').map(a=>xmlText(a.inner)).filter(Boolean).join(', ');
  return songFrom({title:first(xml,'title'),meta:{author:authors,copyright:first(xml,'copyright'),ccli:first(xml,'ccliNo')},sections,order});
 }
 
@@ -106,7 +126,8 @@ export function fromChordPro(text,fallbackTitle=''){
  for(const raw of String(text).replace(/\r/g,'').split('\n')){
   const line=raw.trim();
   if(line.startsWith('#'))continue;
-  const directive=/^\{\s*([a-z_]+)\s*(?::\s*(.*?))?\s*\}$/i.exec(line);
+  // Directives are short; a very long line is words (and is not run through this pattern).
+  const directive=line.length<500?/^\{\s*([a-z_]+)\s*(?::\s*(.*?))?\s*\}$/i.exec(line):null;
   if(directive){
    settle(false);
    const [,name,value='']=directive,key=name.toLowerCase();
@@ -127,7 +148,8 @@ export function fromChordPro(text,fallbackTitle=''){
   // A blank line ends a paragraph; outside a named block, the next paragraph is a new verse.
   if(!line){if(repeat){settle(false);continue;}if(current&&!current.named){close();current=null;}else buffer.push('');continue;}
   settle(true);
-  buffer.push(raw.replace(/\[[^\]]*\]/g,'').replace(/\s{2,}/g,' ').trim());
+  // A chord mark ends at the next "]", and cannot contain another "[".
+  buffer.push(raw.replace(/\[[^\][]*\]/g,'').replace(/\s{2,}/g,' ').trim());
  }
  settle(false);close();
  return songFrom({title:title||fallbackTitle,meta,sections,order});
@@ -156,7 +178,9 @@ export function decodeSongFile(bytes,name=''){
  catch{return new TextDecoder('windows-1252').decode(b);}
 }
 // ChordPro directives such as {title: …} or {soc}.
-const CHORDPRO=/^\s*\{\s*(title|t|subtitle|st|artist|start_of_chorus|soc|start_of_verse|sov|comment|c)\s*[:}]/mi;
+// [ \t] rather than \s in these line patterns: \s also matches line breaks, so in a file of thousands of blank lines
+// each line start would scan all the blank lines after it.
+const CHORDPRO=/^[ \t]*\{[ \t]*(title|t|subtitle|st|artist|start_of_chorus|soc|start_of_verse|sov|comment|c)[ \t]*[:}]/mi;
 // RTF to plain text, enough for song words: paragraphs and line breaks become new lines, \'e9 and \u233 become
 // letters (Windows-1252 for the first), and font, colour and style tables are left out.
 const CP1252=new TextDecoder('windows-1252');
@@ -189,7 +213,8 @@ export function rtfToText(rtf){
   if(skipUntil<0)out+=c;
   i++;
  }
- return out.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+ // Each line's end trimmed (a pattern for "spaces before a line break" rescans every long run of spaces).
+ return out.split('\n').map(l=>l.trimEnd()).join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }
 // One EasyWorship song: its row from Songs.db and its RTF words from SongWords.db. Section names ("Verse 1",
 // "Chorus") are lines of their own, and a blank line starts a new slide.
@@ -201,25 +226,27 @@ export function fromEasyWorship({title,author,copyright,ccli,words}){
 // ProPresenter 6 (and 5): XML. Each group (named "Verse 1", "Chorus"…) holds slides, and each slide's words are in its
 // text element as base64, either plain text or RTF. A saved arrangement, if there is one, gives the order sung.
 const base64Text=s=>new TextDecoder('utf-8').decode(Uint8Array.from(atob(String(s).replace(/\s+/g,'')),c=>c.charCodeAt(0)));
-const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="([^"]*)"','i').exec(tag);return m?decode(m[1]):'';};
+// The value runs to the next quote, found once: with no closing quote there is no value (and no rescan of the rest).
+const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="','i').exec(tag);if(!m)return '';const start=m.index+m[0].length,end=tag.indexOf('"',start);return end<0?'':decode(tag.slice(start,end));};
 function slideWords(slide,number){
- const element=/<RVTextElement\b[^>]*>[\s\S]*?<\/RVTextElement>|<RVTextElement\b[^>]*\/>/i.exec(slide)?.[0];if(!element)return '';
- const field=name=>(new RegExp('<NSString[^>]*rvXMLIvarName="'+name+'"[^>]*>([^<]*)<','i').exec(element)||[])[1]||attribute(element.match(/<RVTextElement\b[^>]*>/i)?.[0]||'',name);
+ const element=elements(slide,'RVTextElement',1)[0];if(!element)return '';
+ const field=name=>(new RegExp('<NSString[^<>]*rvXMLIvarName="'+name+'"[^<>]*>([^<]*)<','i').exec(element.inner)||[])[1]||attribute('<x'+element.attrs+'>',name);
  try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Text(rtf)):'';}
  catch{throw new Error('slide '+number+'\'s words are damaged, so the song was not imported');}
 }
 export function fromProPresenter6(xml,fallbackTitle=''){
- const root=/<RVPresentationDocument\b[^>]*>/i.exec(xml)?.[0];
+ const root=/<RVPresentationDocument\b[^<>]*>/i.exec(xml)?.[0];
  if(!root)throw new Error('This is not a ProPresenter 6 file.');
  const sections=[],byId=new Map();let slideCount=0;
- for(const g of xml.matchAll(/<RVSlideGrouping\b([^>]*)>([\s\S]*?)<\/RVSlideGrouping>/gi)){
-  const slides=[...g[2].matchAll(/<RVDisplaySlide\b[^>]*>([\s\S]*?)<\/RVDisplaySlide>/gi)].map(s=>slideWords(s[1],++slideCount)).filter(Boolean);
-  const name=attribute('<x'+g[1]+'>','name').trim();
+ for(const g of elements(xml,'RVSlideGrouping')){
+  if(g.empty)continue;
+  const slides=elements(g.inner,'RVDisplaySlide').filter(s=>!s.empty).map(s=>slideWords(s.inner,++slideCount)).filter(Boolean);
+  const name=attribute('<x'+g.attrs+'>','name').trim();
   const section={label:HEADING.test(name)?tidyHeading(name):name||'Verse '+(sections.length+1),slides};
-  sections.push(section);byId.set(attribute('<x'+g[1]+'>','uuid'),section);
+  sections.push(section);byId.set(attribute('<x'+g.attrs+'>','uuid'),section);
  }
- const arrangement=/<RVSongArrangement\b[^>]*>([\s\S]*?)<\/RVSongArrangement>/i.exec(xml)?.[1]||'';
- const order=[...arrangement.matchAll(/<NSString[^>]*>([^<]+)<\/NSString>/gi)].map(m=>byId.get(m[1].trim())).filter(Boolean);
+ const arrangement=elements(xml,'RVSongArrangement',1)[0]?.inner||'';
+ const order=[...arrangement.matchAll(/<NSString[^<>]*>([^<]+)<\/NSString>/gi)].map(m=>byId.get(m[1].trim())).filter(Boolean);
  const copyright=attribute(root,'CCLICopyrightInfo')||[attribute(root,'CCLICopyrightYear'),attribute(root,'CCLIPublisher')].filter(Boolean).join(' ');
  return songFrom({title:attribute(root,'CCLISongTitle')||fallbackTitle,meta:{author:attribute(root,'CCLIAuthor')||attribute(root,'CCLIArtistCredits'),copyright,ccli:attribute(root,'CCLISongNumber').replace(/\D/g,'')},sections,order});
 }
@@ -229,10 +256,10 @@ export function songFromImportedFile(name,text){
  const lower=String(name).toLowerCase(),base=String(name).replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim();
  if(lower.endsWith('.usr')||/^Type=SongSelect Import File/mi.test(text))return fromSongSelectUsr(text);
  if(/\.pro[56]$/.test(lower)||/<RVPresentationDocument\b/i.test(text))return fromProPresenter6(text,base);
- if(lower.endsWith('.xml')||/<song[^>]+openlyrics/i.test(text))return fromOpenLyrics(text);
+ if(lower.endsWith('.xml')||/<song[^<>]+openlyrics/i.test(text))return fromOpenLyrics(text);
  // .pro is ChordPro's extension and also ProPresenter's, so a .pro file must look like ChordPro to be read as it.
  if(lower.endsWith('.pro')&&!CHORDPRO.test(text))throw new Error('this .pro file is not ChordPro (ProPresenter files cannot be read yet: export the song from ProPresenter as text)');
  if(/\.(cho|chordpro|chopro|pro)$/.test(lower)||CHORDPRO.test(text))return fromChordPro(text,base);
- if(/^\s*CCLI Song #/mi.test(text))return fromSongSelectText(text);
+ if(/^[ \t]*CCLI Song #/mi.test(text))return fromSongSelectText(text);
  return fromPlainText(text,base);
 }
