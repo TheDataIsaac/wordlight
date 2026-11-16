@@ -2,7 +2,7 @@ import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,copyFile,readdir,unlink,stat} from 'node:fs/promises';
 import os from 'node:os';
 import {freeShowToSong,searchSongs,foldText,cleanSong,settings,applySettings,cleanSettings} from './dist/songs.mjs';
-import {searchEntry,findInSongbook,vocabulary} from './song-search.mjs';
+import {searchEntry,entryForCache,entryFromCache,findInSongbook,vocabulary} from './song-search.mjs';
 import {createHash} from 'node:crypto';
 import {cleanGraphics} from './dist/graphics.mjs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
@@ -256,19 +256,21 @@ const libraryCategory=entry=>entry.collection||'Wordlight library';
 // Line search keeps every song's lines in memory, built on first use from the song files. Each change to the library
 // updates it in place. A song file that cannot be read stays findable by title, with no lines.
 let songSearch=null,songList=null,songWords=null;
-const cachedSongs=new Map(),CACHE_DELAY_MS=20000;
+const CACHE_DELAY_MS=20000,CACHE_VERSION=2;
 const searchCacheFile=path.join(dataDir,'song-search-cache.json');
 const readUsage=async()=>{try{return JSON.parse(await readFile(songUsageFile,'utf8'))||{};}catch{return {};}};
 function songbook(){
  songSearch??=(async()=>{
   const [list,usage,stamp]=await Promise.all([readSongIndex(),readUsage(),indexStamp()]),entries=new Map();
-  // One file holds a copy of every song, so a restart reads one file, not thousands. It is only trusted while the
-  // library index is the one it was made from.
-  let cached=null;try{const saved=JSON.parse(await readFile(searchCacheFile,'utf8'));if(stamp&&saved.stamp===stamp)cached=new Map(saved.songs.map(s=>[s.id,s]));}catch{}
+  // One file holds every song's search entry, so a restart reads one file, not thousands. It is only trusted while
+  // the library index is the one it was made from. Only the entries are kept in memory, not whole songs.
+  let cached=null;try{const saved=JSON.parse(await readFile(searchCacheFile,'utf8'));if(stamp&&saved.stamp===stamp&&saved.version===CACHE_VERSION)cached=new Map(saved.entries.map(s=>[s[0],s]));}catch{}
   const load=async entry=>{
    const details={uses:Number(usage[entry.id])||0,modified:entry.modified};
-   try{const song=cached?.get(entry.id)||JSON.parse(await readFile(songPath(entry.id),'utf8'));entries.set(entry.id,searchEntry(song,details));cachedSongs.set(entry.id,song);}
-   catch{entries.set(entry.id,searchEntry({id:entry.id,title:entry.title,meta:{author:entry.author,collection:entry.collection},sections:[],arrangements:[{id:'main',order:[]}]},details));}
+   try{
+    const saved=cached?.get(entry.id);
+    entries.set(entry.id,saved?entryFromCache(saved,details):searchEntry(JSON.parse(await readFile(songPath(entry.id),'utf8')),details));
+   }catch{entries.set(entry.id,searchEntry({id:entry.id,title:entry.title,meta:{author:entry.author,collection:entry.collection},sections:[],arrangements:[{id:'main',order:[]}]},details));}
   };
   // A pause between batches keeps the live screen and the phone answering while this loads.
   for(let i=0;i<list.length;i+=SEARCH_BATCH){await Promise.all(list.slice(i,i+SEARCH_BATCH).map(load));await new Promise(setImmediate);}
@@ -282,10 +284,13 @@ function changeSongbook(change,{sameSongs=false}={}){if(!songSearch)return;songS
 // Quick capture saves songs during a service, so the cache is rewritten soon after a change, not at the next start.
 let cacheTimer=null;
 function writeCacheSoon(){clearTimeout(cacheTimer);cacheTimer=setTimeout(writeSearchCache,CACHE_DELAY_MS);cacheTimer.unref?.();}
-async function writeSearchCache(){const stamp=await indexStamp();if(stamp)await writeAtomic(searchCacheFile,JSON.stringify({stamp,songs:[...cachedSongs.values()]})).catch(()=>{});}
+async function writeSearchCache(){
+ const stamp=await indexStamp(),entries=await songSearch?.catch(()=>null);if(!stamp||!entries)return;
+ await writeAtomic(searchCacheFile,JSON.stringify({version:CACHE_VERSION,stamp,entries:[...entries.values()].map(entryForCache)})).catch(()=>{});
+}
 // The typo word list only ever gains words, so a save never makes the next search rebuild it.
 const indexSong=(song,modified)=>changeSongbook(entries=>{
- const entry=searchEntry(song,{uses:entries.get(song.id)?.uses||0,modified});entries.set(song.id,entry);cachedSongs.set(song.id,song);
+ const entry=searchEntry(song,{uses:entries.get(song.id)?.uses||0,modified});entries.set(song.id,entry);
  if(songWords)for(const word of vocabulary([entry]))songWords.add(word);
 });
 // Counts how often a song went into a show, so the songs this church sings rank first.
@@ -367,7 +372,7 @@ async function removeNativeSong(id){
   try{await rename(songPath(id),removed);}catch(err){if(err.code!=='ENOENT')throw libraryError('The song file could not be moved to songs/removed, so the song was kept.');moved=false;}
   try{await writeAtomic(songIndexFile,JSON.stringify(list.filter(e=>e.id!==id)));}
   catch{if(moved)await rename(removed,songPath(id)).catch(()=>{});throw libraryError('The song library index could not be written, so the song was kept.');}
-  changeSongbook(entries=>{entries.delete(id);cachedSongs.delete(id);});
+  changeSongbook(entries=>{entries.delete(id);});
   return true;
  });
 }

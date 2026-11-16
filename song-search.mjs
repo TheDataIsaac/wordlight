@@ -19,13 +19,28 @@ export function searchEntry(song,{uses=0,modified=0}={}){
    const page=++shown;
    for(const text of slide.split('\n')){
     const words=foldWords(text);if(!words||seen.has(words))continue;seen.add(words);
-    lines.push({text:text.trim(),words:' '+words,squeezed:words.replaceAll(' ',''),section:section.label,position,page});
+    lines.push({text:text.trim(),words:' '+words,section:section.label,position,page});
    }
   });
  }
  const meta=song.meta,artist=meta.artist||meta.author||'';
- return {id:song.id,name:song.title,artist,status:meta.status||'',category:meta.collection||LIBRARY,modified,uses,lines,
-  head:' '+foldWords([song.title,meta.aliases,artist,meta.collection,meta.number].filter(Boolean).join(' ')),all:lines.map(l=>l.words).join(''),squeezed:lines.map(l=>l.squeezed).join(' ')};
+ return withJoined({id:song.id,name:song.title,artist,status:meta.status||'',category:meta.collection||LIBRARY,modified,uses,lines,
+  head:' '+foldWords([song.title,meta.aliases,artist,meta.collection,meta.number].filter(Boolean).join(' '))});
+}
+// The whole song's words in two strings, for the quick check that rules most songs out of a search.
+function withJoined(entry){
+ entry.all=entry.lines.map(l=>l.words).join('');
+ entry.squeezed=entry.lines.map(l=>l.words.replaceAll(' ','')).join(' ');
+ return entry;
+}
+// What the cache file keeps of an entry, and the entry again from it. How often a song is used and when it changed
+// come from the library, not the cache, so they are always current.
+export function entryForCache(entry){
+ return [entry.id,entry.name,entry.artist,entry.status,entry.category,entry.head,entry.lines.map(l=>[l.text,l.words,l.section,l.position,l.page])];
+}
+export function entryFromCache(saved,{uses=0,modified=0}={}){
+ const [id,name,artist,status,category,head,lines]=saved;
+ return withJoined({id,name,artist,status,category,modified,uses,head,lines:lines.map(([text,words,section,position,page])=>({text,words,section,position,page}))});
 }
 export function vocabulary(entries){
  const words=new Set();
@@ -65,7 +80,7 @@ function bestLine(entry,words,phrase,squeezed){
   if(line.words.startsWith(phrase))s=850;
   else if(line.words.includes(phrase))s=800;
   // Same letters, split differently: "ko rin" for "korin", "mofe" for "mo fe".
-  else if(squeezed.length>=6&&line.squeezed.includes(squeezed))s=700;
+  else if(squeezed.length>=6&&line.words.replaceAll(' ','').includes(squeezed))s=700;
   else if(words.every(w=>hasWord(line.words,w)))s=600;
   if(s>score){score=s;best=line;}
  }

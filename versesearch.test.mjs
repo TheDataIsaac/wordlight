@@ -94,3 +94,29 @@ test('Result text is escaped and only the typed words are bold',()=>{
  const list=verseResultsMarkup({query:'x',results:[{reference:'John "3"',translation:'<b>',text:'t',exact:false}],searched:['KJV']},'');
  assert.ok(list.includes('John &quot;3&quot;')&&list.includes('&lt;b&gt;'));
 });
+
+test('The index is saved beside each version and reused, rebuilt after a reinstall, and a damaged file is ignored',async()=>{
+ const {root,bibles}=await setup();
+ const {stat}=await import('node:fs/promises');
+ try{
+  const first=createBibleSearch({root,listInstalled:async()=>bibles});
+  const quote='I can do all things through Christ which strengtheneth me';
+  const fresh=await first.search(quote);
+  const file=path.join(root,'kjv','search-index.bin');
+  for(let i=0;i<50&&!(await stat(file).catch(()=>null));i++)await new Promise(r=>setTimeout(r,20));
+  assert.ok(await stat(file),'saved after the first build');
+  // A second start reads the saved file and finds the same verses, texts included.
+  const second=createBibleSearch({root,listInstalled:async()=>bibles});
+  assert.deepEqual(await second.search(quote),fresh);
+  assert.equal((await second.search('olorun fe araye')).results[0].text,'“Nítorí Ọlọ́run fẹ́ aráyé tó bẹ́ẹ̀ gẹ́ẹ́, tí ó fi ọmọ rẹ̀ kan ṣoṣo fún ni.','Yoruba text survives the packing');
+  // Reinstalled (new installedAt) with different text: the saved file is not used.
+  await installBible(root,'kjv',{'JHN 11:35':'Jesus wept bitterly.'});
+  const reinstalled=bibles.map(b=>b.id==='kjv'?{...b,installedAt:2}:b);
+  const third=createBibleSearch({root,listInstalled:async()=>reinstalled});
+  assert.equal((await third.search('jesus wept bitterly')).results[0].text,'Jesus wept bitterly.');
+  // A damaged file is rebuilt from the books.
+  await writeFile(file,Buffer.from('WLSI2 garbage'));
+  const fourth=createBibleSearch({root,listInstalled:async()=>reinstalled});
+  assert.equal((await fourth.search('jesus wept bitterly')).results[0].reference,'John 11:35');
+ }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});

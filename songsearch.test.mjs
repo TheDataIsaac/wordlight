@@ -5,7 +5,7 @@ import {newSong,editSong,cleanSong,foldWords,foldText,captureSong,addCapturedLin
 import {makeDeck,deckFor,DEFAULT,cleanDraft} from './dist/core.mjs';
 import {songScreen} from './remote-content.mjs';
 import {parseReference} from './dist/reference.mjs';
-import {searchEntry,findInSongbook,vocabulary} from './song-search.mjs';
+import {searchEntry,entryForCache,entryFromCache,findInSongbook,vocabulary} from './song-search.mjs';
 import {cleanLine,isSiteLine,pageLines,sectionsFromBlocks,buildSongbook} from './tools/build-songbook.mjs';
 
 const song=(id,title,lyrics,arrangement,meta={})=>({...editSong(newSong(title),{meta,lyrics,arrangement}),id});
@@ -216,4 +216,12 @@ test('One-chapter books read a lone number as a verse',()=>{
  assert.equal(parseReference('Jude 5').reference,'Jude 1:5');assert.equal(parseReference('Jude 3-5').reference,'Jude 1:3-5');assert.equal(parseReference('Philemon 3').reference,'Philemon 1:3');
  assert.equal(parseReference('Jude 1').reference,'Jude 1','the whole book');assert.equal(parseReference('Jude 1:5').reference,'Jude 1:5');
  assert.equal(parseReference('John 3').reference,'John 3','other books keep chapters');
+});
+
+test('A song rebuilt from the search cache finds the same lines as one read from its file',()=>{
+ const fresh=library;
+ const restored=JSON.parse(JSON.stringify(fresh.map(entryForCache))).map((saved,i)=>entryFromCache(saved,{uses:fresh[i].uses,modified:fresh[i].modified}));
+ assert.deepEqual(restored,fresh);
+ for(const query of ['way maker','miracle worker','kọ rin iyin','oluwa loba','light in the valley','waymaker'])
+  assert.deepEqual(findInSongbook(restored,query,vocabulary(restored)),findInSongbook(fresh,query,vocabulary(fresh)),query);
 });
