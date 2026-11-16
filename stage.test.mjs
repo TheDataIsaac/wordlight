@@ -161,3 +161,10 @@ test('Verse listening is off and not downloaded at first, and only the local stu
  const audio=await request(port,'POST','/api/listen/audio',{body:{},headers:local});
  assert.equal(audio.status,415,'audio must be raw bytes');
 });
+
+test('Output pages can ask for the screen alone, without the library',async()=>{
+ const full=(await request(port,'GET','/api/state')).body,only=(await request(port,'GET','/api/state?only=live')).body;
+ assert.ok(full.library,'the studio gets the library');
+ assert.deepEqual(Object.keys(only).sort(),['app','live']);
+ assert.equal(only.live.updated,full.live.updated);
+});

@@ -627,7 +627,8 @@ async function handle(req,res){
   }catch(err){json(res,err.status||500,{error:err.status?err.message:'The projector could not be changed.'});return;}
  }
  if(url.pathname==='/api/assets'||url.pathname.startsWith('/api/assets/')){await handleAssets(req,res,url);return;}
- if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,{...state,writeId:lastWriteId});return;}
+ // Output pages (OBS, the projector) ask for the screen only, so a large library is never sent to each of them.
+ if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,url.searchParams.get('only')==='live'?{app:state.app,live:state.live}:{...state,writeId:lastWriteId});return;}
  if(req.method==='GET'&&url.pathname==='/api/events'){
   res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});
   // "retry" makes a page that lost the stream try again after half a second, not the browser's usual three.

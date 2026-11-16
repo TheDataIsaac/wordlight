@@ -168,7 +168,8 @@ export function createBibleLibrary({dataDir,request=fetch,base=DOWNLOAD_BASE,see
  async function remove(id){
   if(!CATALOG[id])throw fail(404,'Unknown translation.');
   if(jobs.get(id)?.state==='running')throw fail(409,'Wait for the install to finish.');
-  await rm(path.join(root,id),{recursive:true,force:true});jobs.delete(id);
+  // Retries if verse search is saving its index into the folder at that moment.
+  await rm(path.join(root,id),{recursive:true,force:true,maxRetries:5,retryDelay:100});jobs.delete(id);
   for(const key of books.keys())if(key.startsWith(id+'/'))books.delete(key);
   return list();
  }

@@ -80,6 +80,8 @@ function remember(){
 }
 function showSaveProblem(problem){setSaveStatus(problem?'Could not save to disk · the screen still works':'Saved on this computer');if(problem)toast('Wordlight could not save to disk. The screen still works and it keeps trying.');}
 function setSaveStatus(text){saveStatusText=text;const el=$('#saveStatus');if(el)el.textContent=text;}
+// Output pages need only the screen on air, not the library.
+const stateUrl=()=>isOutput?'/api/state?only=live':'/api/state';
 async function apiWrite(data){const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(5000)});if(!r.ok)throw Object.assign(new Error('Could not save to the local app.'),{status:r.status,detail:await r.json().catch(()=>null)});return r.json();}
 function cacheLive(){try{localStorage.setItem('wordlight-live',JSON.stringify(live));}catch{}}
 function receive(data){if(data?.type==='live'&&validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else renderLive();}}
@@ -1258,6 +1260,8 @@ function timerAppearanceControls(timer){
  '<div class="field-row">'+number('Distance from side (px)','offsetX',0,300)+number('Distance from top / bottom (px)','offsetY',0,300)+'</div>';
 }
 function paintTimers(){
+ // An output page with no timer showing has nothing to tick.
+ if(isOutput&&!live.timer?.visible&&!document.querySelector('.timer-overlay,[data-graphics-timer]'))return;
  const timer=cleanTimer(live.timer),now=Date.now(),value=timerValue(timer,now),state=timerState(timer,now),formatted=formatTimer(timerSigned(timer,now));
  // warning near zero, expired at zero, over once a timer set to overrun is past zero (see timerState). The audience
  // outputs only turn red at and past zero; the amber warning is for the operator and the stage display.
@@ -1391,7 +1395,7 @@ async function reconcileWithCompanion(afterOutage=false){
  // A slide that arrives while this answer is on its way is newer than the answer, so the answer must not replace it.
  const liveBefore=live;
  try{
-  const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)});if(!r.ok)throw new Error();const s=await r.json();
+  const r=await fetch(stateUrl(),{cache:'no-store',signal:AbortSignal.timeout(4000)});if(!r.ok)throw new Error();const s=await r.json();
   if(!isOutput&&(s.library||s.draft)){
    const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(serverLibrary.savedAt||0),arrived=sentSaves.get(s.writeId);
    // A save from this tab arrived and only its answer was lost.
@@ -1409,8 +1413,9 @@ async function reconcileWithCompanion(afterOutage=false){
 async function connectLocal(){
  if(!['localhost','127.0.0.1'].includes(location.hostname))return;
  try{
-  const r=await fetch('/api/state',{signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error('not ready');const s=await r.json();if(s.app!=='wordlight')return;
-  connectTry=0;isLocal=true;localReachable=true;showAppInfo();refreshUpdates();startListeningHooks();loadNotices();
+  const r=await fetch(stateUrl(),{signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error('not ready');const s=await r.json();if(s.app!=='wordlight')return;
+  connectTry=0;isLocal=true;localReachable=true;
+  if(!isOutput){showAppInfo();refreshUpdates();startListeningHooks();loadNotices();}
   if(!isOutput&&(s.library||s.draft)){
    const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(s.library?.savedAt||0),hasCopy=!libraryError&&Number(library.savedAt)>0,knownBase=!!acked;
    // Edits this tab made that the companion never confirmed, and whether it moved on without them.

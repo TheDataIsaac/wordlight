@@ -41,7 +41,7 @@ test('A quote finds its verse first, in another version when its wording matches
   const partial=await search.search('all things work together');
   assert.equal(partial.results[0].reference,'Romans 8:28');
   assert.deepEqual(partial.searched,['KJV','WEB','OYCB']);
- }finally{await rm(root,{recursive:true,force:true});}
+ }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
 
 test('Tone marks, case and punctuation do not matter, so Yoruba typed without marks is found',async()=>{
@@ -51,7 +51,7 @@ test('Tone marks, case and punctuation do not matter, so Yoruba typed without ma
   assert.equal(found.results[0].reference,'John 3:16');
   assert.equal(found.results[0].translation,'OYCB');
   assert.equal(found.results[0].exact,true);
- }finally{await rm(root,{recursive:true,force:true});}
+ }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
 
 test('Nothing typed, nothing installed, or nothing close gives no results instead of a guess',async()=>{
@@ -61,7 +61,7 @@ test('Nothing typed, nothing installed, or nothing close gives no results instea
   assert.deepEqual((await search.search('zebra quantum telescope')).results,[]);
   bibles.length=0;
   assert.deepEqual(await search.search('Jesus wept'),{results:[],searched:[]});
- }finally{await rm(root,{recursive:true,force:true});}
+ }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
 
 test('A version installed again is searched again, and a removed one is no longer searched',async()=>{
@@ -72,7 +72,7 @@ test('A version installed again is searched again, and a removed one is no longe
   assert.equal((await search.search('Jesus wept')).results.length,0,'the new copy replaced the old index');
   bibles.splice(0,1);
   assert.deepEqual((await search.search('Jesus cried')).searched,['WEB','OYCB']);
- }finally{await rm(root,{recursive:true,force:true});}
+ }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
 
 test('Words match on their first five letters; quotes and references are told apart',()=>{
