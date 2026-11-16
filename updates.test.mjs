@@ -4,15 +4,20 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
-import {createHash} from 'node:crypto';
+import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,rm,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {writeZip} from './ziputil.mjs';
-import {compareVersions,readRelease,checksumFor,createUpdater} from './updates.mjs';
+import {compareVersions,readRelease,checksumFor,createUpdater as realUpdater,signedByRelease,RELEASE_KEY} from './updates.mjs';
 import {applyPending} from './tools/launcher/update.mjs';
 
 const sha=buf=>createHash('sha256').update(buf).digest('hex');
+// A throwaway release key: the fake GitHub signs with it and the updater under test trusts it.
+const testKey=generateKeyPairSync('ed25519'),otherKey=generateKeyPairSync('ed25519');
+const testPublic=testKey.publicKey.export({type:'spki',format:'pem'});
+const signWith=(key,bytes)=>sign(null,Buffer.from(bytes),key.privateKey).toString('base64');
+const createUpdater=options=>realUpdater({releaseKey:testPublic,...options});
 const exists=file=>stat(file).then(()=>true,()=>false);
 const appZip=(version,extra={})=>writeZip({'app/server.mjs':Buffer.from('// server '+version),'app/package.json':Buffer.from(JSON.stringify({version})),'app/build.json':Buffer.from(JSON.stringify({version,build:version+'+test',node:process.version})),...extra});
 
@@ -28,18 +33,29 @@ async function packageFolder(){
  return {top,data,root:path.join(top,'app')};
 }
 // A stand-in for GitHub's latest-release answer and its two files.
-async function fakeGitHub(zip,{sums}={}){
+async function fakeGitHub(zip,{sums,signature,signed=true}={}){
  const server=http.createServer((req,res)=>{
   const base='http://127.0.0.1:'+server.address().port;
   if(req.url==='/latest'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({tag_name:'v1.2.0',name:'Wordlight 1.2.0',body:'What changed',html_url:base+'/page',
-   assets:[{name:'Wordlight-portable-1.2.0-win-x64.zip',browser_download_url:base+'/full'},{name:'Wordlight-app-1.2.0.zip',browser_download_url:base+'/app'},{name:'SHA256SUMS.txt',browser_download_url:base+'/sums'}]}));return;}
+   assets:[{name:'Wordlight-portable-1.2.0-win-x64.zip',browser_download_url:base+'/full'},{name:'Wordlight-app-1.2.0.zip',browser_download_url:base+'/app'},{name:'SHA256SUMS.txt',browser_download_url:base+'/sums'},...(signed?[{name:'SHA256SUMS.txt.sig',browser_download_url:base+'/sig'}]:[])]}));return;}
   if(req.url==='/app'){res.end(zip);return;}
-  if(req.url==='/sums'){res.end(sums??sha(zip)+'  Wordlight-app-1.2.0.zip\n');return;}
+  const sumsText=sums??sha(zip)+'  Wordlight-app-1.2.0.zip\n';
+  if(req.url==='/sums'){res.end(sumsText);return;}
+  if(req.url==='/sig'){res.end(signature??signWith(testKey,sumsText));return;}
   res.statusCode=404;res.end();
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  return {feed:'http://127.0.0.1:'+server.address().port+'/latest',close:()=>server.close()};
 }
+
+test('Only the release key verifies a signature, and the built-in key is a real Ed25519 key',()=>{
+ assert.equal(signedByRelease(Buffer.from('sums'),signWith(testKey,'sums'),testPublic),true);
+ assert.equal(signedByRelease(Buffer.from('sums changed'),signWith(testKey,'sums'),testPublic),false);
+ assert.equal(signedByRelease(Buffer.from('sums'),signWith(otherKey,'sums'),testPublic),false);
+ assert.equal(signedByRelease(Buffer.from('sums'),'not base64 at all',testPublic),false);
+ assert.equal(signedByRelease(Buffer.from('sums'),signWith(testKey,'sums')),false,'the real key does not trust the test key');
+ assert.match(RELEASE_KEY,/BEGIN PUBLIC KEY/);
+});
 
 test('Versions compare by number, and a release gives its update files and notes',()=>{
  assert.equal(compareVersions('1.10.0','1.9.2'),1);
@@ -65,8 +81,10 @@ test('A newer release is found, downloaded, checked and set aside without touchi
  }finally{gh.close();await rm(top,{recursive:true,force:true});}
 });
 
-test('A download that fails its checksum, holds an unsafe name or needs another runtime is refused and nothing is set aside',async()=>{
+test('A download that is unsigned, signed with another key, fails its checksum, holds an unsafe name or needs another runtime is refused and nothing is set aside',async()=>{
  const cases=[
+  [appZip('1.2.0'),{signed:false},/not signed/],
+  [appZip('1.2.0'),{signature:signWith(otherKey,'anything')},/not signed with Wordlight's release key/],
   [appZip('1.2.0'),{sums:'0'.repeat(64)+'  Wordlight-app-1.2.0.zip\n'},/does not match its checksum/],
   [appZip('1.2.0',{'app/../escape.txt':Buffer.from('x')}),{},/unsafe file name/],
   [writeZip({'app/server.mjs':Buffer.from('x'),'app/package.json':Buffer.from('{"version":"1.2.0"}'),'app/build.json':Buffer.from('{"node":"v1.0.0"}')}),{},/needs a newer runtime/],

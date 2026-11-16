@@ -1,14 +1,16 @@
 // Updates for the Windows package: is there a newer release, download it, and restart into it.
 //
-// Releases are published on GitHub with three files: the full package ZIP (for a first install), a small app ZIP
-// (only the app\ folder, what an update needs) and SHA256SUMS.txt. Wordlight asks GitHub for the latest release once
-// a day and when the operator presses Check now; it never downloads or installs anything by itself. Download checks
+// Releases are published on GitHub with the full package ZIP (for a first install), a small app ZIP (only the app\
+// folder, what an update needs), SHA256SUMS.txt and SHA256SUMS.txt.sig, a signature of the checksums made with
+// Wordlight's release key. Only a release signed with that key is installed, so someone who could replace files on the
+// release page still could not push an update. Wordlight asks GitHub for the latest release once a day and when the
+// operator presses Check now; it never downloads or installs anything by itself. Download checks the signature, then
 // the app ZIP against SHA256SUMS.txt, unpacks it to update\app\ beside the running app\, and leaves it there. The
 // launcher puts it in place the next time Wordlight starts (tools/launcher/update.mjs), so a service is never
 // interrupted by an update, and the previous version is kept for going back.
 import {existsSync} from 'node:fs';
 import {mkdir,readFile,rename,rm,writeFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {createHash,createPublicKey,verify} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {zipEntries,readZipEntry} from './ziputil.mjs';
@@ -18,6 +20,11 @@ import {updatePaths} from './tools/launcher/update.mjs';
 const LATEST_RELEASE='https://api.github.com/repos/TheDataIsaac/wordlight/releases/latest';
 const CHECK_EVERY_MS=24*60*60*1000,APP_ZIP_LIMIT=50e6,FILE_LIMIT=20e6;
 const fail=(status,message)=>Object.assign(new Error(message),{status});
+// The public half of the release key (Ed25519). The private half stays with the maintainer and signs SHA256SUMS.txt
+// in tools/build-portable.mjs. A new key means installed copies need the full package once.
+export const RELEASE_KEY=`-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAE4fvDSZtxA5tpnOfPEk38K7tqHatWCFoM9OiY1y03QM=
+-----END PUBLIC KEY-----`;
 
 // "1.10.0" is newer than "1.9.2". Anything that is not three numbers counts as 0.0.0.
 export function compareVersions(a,b){
@@ -31,9 +38,10 @@ export function readRelease(release){
  const version=String(release?.tag_name||'').replace(/^v/,'');
  const assets=Array.isArray(release?.assets)?release.assets:[];
  const find=pattern=>assets.find(a=>pattern.test(String(a?.name||'')));
- const appZip=find(/^Wordlight-app-\d+\.\d+\.\d+\.zip$/),sums=find(/^SHA256SUMS\.txt$/);
+ const appZip=find(/^Wordlight-app-\d+\.\d+\.\d+\.zip$/),sums=find(/^SHA256SUMS\.txt$/),signature=find(/^SHA256SUMS\.txt\.sig$/);
  return {version,name:String(release?.name||'').slice(0,120),notes:String(release?.body||'').slice(0,3000),page:String(release?.html_url||''),
-  appZip:appZip?{name:appZip.name,url:appZip.browser_download_url}:null,sums:sums?{url:sums.browser_download_url}:null};
+  appZip:appZip?{name:appZip.name,url:appZip.browser_download_url}:null,sums:sums?{url:sums.browser_download_url}:null,
+  signature:signature?{url:signature.browser_download_url}:null};
 }
 // The checksum for one file from a SHA256SUMS.txt ("<64 hex>  <name>" per line).
 export function checksumFor(sums,name){
@@ -41,8 +49,13 @@ export function checksumFor(sums,name){
  return '';
 }
 
+// True when signature (base64) is the release key's signature of exactly these bytes.
+export function signedByRelease(bytes,signature,key=RELEASE_KEY){
+ try{return verify(null,bytes,createPublicKey(key),Buffer.from(String(signature).trim(),'base64'));}catch{return false;}
+}
+
 // root: the app folder (where server.mjs is). In the Windows package it sits beside runtime\node.exe.
-export function createUpdater({root,dataDir,version,build,port,request=fetch,feed=process.env.WORDLIGHT_UPDATE_URL||LATEST_RELEASE}){
+export function createUpdater({root,dataDir,version,build,port,request=fetch,feed=process.env.WORDLIGHT_UPDATE_URL||LATEST_RELEASE,releaseKey=RELEASE_KEY}){
  const top=path.dirname(root),paths=updatePaths(top);
  const isPackage=existsSync(path.join(top,'runtime','node.exe'));
  let latest=null,checkedAt=0,checkError='',busy='',downloadError='';
@@ -79,10 +92,13 @@ export function createUpdater({root,dataDir,version,build,port,request=fetch,fee
   if(!latest)await check();
   if(!latest||compareVersions(latest.version,version)<=0)throw fail(409,'There is no newer version to download.');
   if(!latest.appZip||!latest.sums)throw fail(422,'This release has no update files. Download the full package from GitHub instead.');
+  if(!latest.signature)throw fail(422,'This release is not signed, so it was not installed. Download the full package from GitHub if you trust it.');
   busy='Downloading '+latest.version+'…';downloadError='';
   const release=latest,temp=path.join(top,'update','app-'+process.pid+'-'+Date.now());
   try{
-   const sums=(await getBytes(release.sums.url,64000,'the checksums')).toString('utf8');
+   const sumsBytes=await getBytes(release.sums.url,64000,'the checksums'),signature=await getBytes(release.signature.url,4000,'the signature');
+   if(!signedByRelease(sumsBytes,signature,releaseKey))throw fail(422,"This update is not signed with Wordlight's release key. Nothing was installed.");
+   const sums=sumsBytes.toString('utf8');
    const expected=checksumFor(sums,release.appZip.name);
    if(!expected)throw fail(422,'SHA256SUMS.txt has no checksum for '+release.appZip.name+'. Nothing was installed.');
    const zip=await getBytes(release.appZip.url,APP_ZIP_LIMIT,'the update');

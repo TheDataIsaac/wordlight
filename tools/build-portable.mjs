@@ -1,17 +1,21 @@
-// Builds the three files of a release, in build/:
+// Builds the files of a release, in build/:
 //   Wordlight-portable-<version>-win-x64.zip  the full package for a first install: the app, the Start and Stop scripts,
 //     the official Node.js runtime (node.exe and its LICENSE from the nodejs.org Windows zip, checked against
 //     nodejs.org's SHA256SUMS) and the official open Bible archives as seed packs installed on first start;
 //   Wordlight-app-<version>.zip  only the app folder, which is what the studio downloads to update an installed package;
-//   SHA256SUMS.txt  checksums of both, which the updater checks before it unpacks anything.
+//   wordlight-obs-companion.zip  the companion download the web studio offers (tools/build-companion-zip.mjs);
+//   SHA256SUMS.txt  checksums of all three, which the updater checks before it unpacks anything;
+//   SHA256SUMS.txt.sig  the release key's signature of SHA256SUMS.txt, without which installed copies refuse the update.
 // Only the listed app files are packed; no data folder, shows, keys or tests.
 //   node tools/build-portable.mjs
-import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {readFile,writeFile,mkdir,readdir,rm} from 'node:fs/promises';
+import {createHash,createPrivateKey,sign} from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {zipEntries,readZipEntry,writeZip} from '../ziputil.mjs';
 import {CATALOG} from '../bibles.mjs';
+import {signedByRelease} from '../updates.mjs';
 import {execFileSync} from 'node:child_process';
 
 const NODE_VERSION='v24.22.3';
@@ -95,7 +99,24 @@ const zip=writeZip(files);
 const appFiles=Object.fromEntries(Object.entries(files).filter(([name])=>name.startsWith(top+'app/')).map(([name,data])=>[name.slice(top.length),data]));
 const appZip=writeZip(appFiles);
 await writeFile(path.join(repo,'build',fullName),zip);await writeFile(path.join(repo,'build',appName),appZip);
-await writeFile(path.join(repo,'build','SHA256SUMS.txt'),sha(zip)+'  '+fullName+'\n'+sha(appZip)+'  '+appName+'\n');
-console.log('build '+build);
+// The companion ZIP the web studio offers for download, built from the same commit.
+const companionName='wordlight-obs-companion.zip';
+execFileSync(process.execPath,[path.join(repo,'tools','build-companion-zip.mjs'),'HEAD',path.join(repo,'build',companionName)],{stdio:'ignore'});
+const companionZip=await readFile(path.join(repo,'build',companionName));
+const releaseSums=Buffer.from(sha(zip)+'  '+fullName+'\n'+sha(appZip)+'  '+appName+'\n'+sha(companionZip)+'  '+companionName+'\n');
+await writeFile(path.join(repo,'build','SHA256SUMS.txt'),releaseSums);
+// Installed copies only accept an update whose checksums are signed with the release key (see RELEASE_KEY in
+// updates.mjs). The private key never goes in the repository: by default it is in the maintainer's user folder.
+const keyFile=process.env.WORDLIGHT_SIGNING_KEY||path.join(os.homedir(),'.wordlight-release','update-signing-key.pem');
+let signed=false;
+try{
+ const signature=sign(null,releaseSums,createPrivateKey(await readFile(keyFile)));
+ if(!signedByRelease(releaseSums,signature.toString('base64')))throw new Error('this key does not match RELEASE_KEY in updates.mjs');
+ await writeFile(path.join(repo,'build','SHA256SUMS.txt.sig'),signature.toString('base64')+'\n');signed=true;
+}catch(err){
+ await rm(path.join(repo,'build','SHA256SUMS.txt.sig'),{force:true});
+ console.error('NOT SIGNED ('+(err.code==='ENOENT'?'no key at '+keyFile:err.message)+'). Installed copies will refuse this release as an update.');
+}
+console.log('build '+build+(signed?', signed':''));
 console.log(fullName+': '+Object.keys(files).length+' files, '+(zip.length/1e6).toFixed(1)+' MB, sha256 '+sha(zip));
 console.log(appName+': '+Object.keys(appFiles).length+' files, '+(appZip.length/1e6).toFixed(2)+' MB, sha256 '+sha(appZip));
