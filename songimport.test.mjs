@@ -157,6 +157,12 @@ test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord ta
  const swing=songFromImportedFile('swing.chordpro','{title:Swing Low}\n{start_of_chorus}\nSwing [D]low, sweet [G]chariot\n{end_of_chorus}\n\nI looked over Jordan\n\n{c:Chorus}\n\nIf you get there before I do\n{c:Chorus}\n');
  assert.deepEqual(sections(swing),[['Chorus',['Swing low, sweet chariot']],['Verse 1',['I looked over Jordan']],['Verse 2',['If you get there before I do']]]);
  assert.equal(order(swing),'Chorus, Verse 1, Chorus, Verse 2, Chorus');
+ // A heading followed straight away by words heads new words, even when the name was used before.
+ const plain=songFromImportedFile('p.chordpro','{title:P}\n{c: Verse}\nFirst verse\n{c: Chorus}\nThe chorus\n{c: Verse}\nSecond verse\n{c: Chorus}\n');
+ assert.deepEqual(sections(plain),[['Verse',['First verse']],['Chorus',['The chorus']],['Verse 2',['Second verse']]]);
+ assert.equal(order(plain),'Verse, Chorus, Verse 2, Chorus');
+ const two=songFromImportedFile('t.chordpro','{title:T}\n{c: Chorus}\nFirst chorus\n\n{c: Verse 1}\nA verse\n{c: Chorus}\nOther chorus words\n');
+ assert.deepEqual(sections(two),[['Chorus',['First chorus']],['Verse 1',['A verse']],['Chorus 2',['Other chorus words']]]);
  const openlp=songFromImportedFile('d.xml','<song xmlns="http://openlyrics.info/namespace/2009/song" version="0.8"><properties><titles><title>T</title></titles></properties><lyrics><verse name="v1"><lines><tag name="c">[D]</tag>Holy <tag name="c">[Ami]</tag>Spirit<br/>co<chord name="G"/>me &#99999999;</lines></verse></lyrics></song>');
  assert.deepEqual(sections(openlp),[['Verse 1',['Holy Spirit\ncome']]]);
  assert.equal(songFromImportedFile('s.txt','Test Song\n\nVerse 1\nLine one\n\nCCLI Song # 123\nAuthor One | Author Two\n© 2011 Someone\n').meta.author,'Author One, Author Two');

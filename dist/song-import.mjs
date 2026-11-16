@@ -94,16 +94,21 @@ export function fromOpenLyrics(xml){
 
 // ChordPro: {title: …} and other directives, [G] chords inside the words, and {start_of_chorus} … {end_of_chorus}
 // blocks. {comment: Verse 2} names the next section, as most ChordPro sheets use it; {comment: Chorus} once a chorus
-// was written out means "sing the chorus here", so it goes into the order sung instead of naming the next verse.
+// was written out, standing on its own (a blank line, another directive or the end after it), means "sing the chorus
+// here", so it goes into the order sung. Followed straight away by words, it heads new words: an unnumbered
+// {comment: Verse} or a second chorus with other words, numbered on (Verse 2, Chorus 2).
 export function fromChordPro(text,fallbackTitle=''){
- const meta={},sections=[],order=[];let title='',current=null,buffer=[];
+ const meta={},sections=[],order=[];let title='',current=null,buffer=[],repeat=null;
  const close=()=>{const slides=paragraphs(buffer.join('\n'));buffer=[];if(!slides.length)return;if(!current){current={label:'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1),slides:[]};sections.push(current);order.push(current);}current.slides.push(...slides);};
  const start=label=>{close();current={label,slides:[],named:true};sections.push(current);order.push(current);};
+ const numbered=label=>{const base=label.replace(/\s+\d+$/,''),taken=new Set(sections.map(s=>s.label.toLowerCase()));let n=2;while(taken.has((base+' '+n).toLowerCase()))n++;return base+' '+n;};
+ const settle=newWords=>{if(!repeat)return;const r=repeat;repeat=null;if(newWords)start(numbered(r.label));else order.push(r.again);};
  for(const raw of String(text).replace(/\r/g,'').split('\n')){
   const line=raw.trim();
   if(line.startsWith('#'))continue;
   const directive=/^\{\s*([a-z_]+)\s*(?::\s*(.*?))?\s*\}$/i.exec(line);
   if(directive){
+   settle(false);
    const [,name,value='']=directive,key=name.toLowerCase();
    if(key==='title'||key==='t')title=value;
    else if(['subtitle','st','artist','composer','lyricist'].includes(key))meta.author=meta.author?meta.author+', '+value:value;
@@ -115,15 +120,16 @@ export function fromChordPro(text,fallbackTitle=''){
    else if(/^end_of_|^eo[cvb]$/.test(key)){close();current=null;}
    else if(['comment','c','ci','comment_italic','cb'].includes(key)&&HEADING.test(value)){
     const label=tidyHeading(value),again=sections.find(s=>s.label.toLowerCase()===label.toLowerCase()&&s.slides.length);
-    if(again){close();current=null;order.push(again);}else start(label);
+    if(again){close();current=null;repeat={label,again};}else start(label);
    }
    continue;
   }
   // A blank line ends a paragraph; outside a named block, the next paragraph is a new verse.
-  if(!line){if(current&&!current.named){close();current=null;}else buffer.push('');continue;}
+  if(!line){if(repeat){settle(false);continue;}if(current&&!current.named){close();current=null;}else buffer.push('');continue;}
+  settle(true);
   buffer.push(raw.replace(/\[[^\]]*\]/g,'').replace(/\s{2,}/g,' ').trim());
  }
- close();
+ settle(false);close();
  return songFrom({title:title||fallbackTitle,meta,sections,order});
 }
 
