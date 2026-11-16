@@ -90,7 +90,7 @@ function startListeningHooks(){
   preview:reference=>lookupPassage(0,{reference,fromResult:true}),
   // Always looked up again before sending, so a double-click sends that verse, never whatever slide happens to be
   // selected (a word study, say). A newer lookup replaces the first click's one, which then returns false.
-  send:async reference=>{if(!await lookupPassage(0,{reference,fromResult:true}))return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));}});
+  send:async reference=>{const base=live.updated;if(!await lookupPassage(0,{reference,fromResult:true}))return;const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(draft.reference,sent));}});
 }
 async function publish(next,base){
  next.timer=cleanTimer(next.timer||live.timer);next.lowerThird=cleanLowerThird(next.lowerThird||live.lowerThird);next.graphics=cleanGraphics(next.graphics||live.graphics);next.updated=Math.max(Date.now(),Number(live.updated||0)+1);
@@ -982,7 +982,7 @@ document.addEventListener('click',async ev=>{
   const index=Number(t.dataset.resultIndex),double=ev.detail>0&&lastVerseClick?.index===index&&ev.timeStamp-lastVerseClick.time<450;
   lastVerseClick=double||!ev.detail?null:{index,time:ev.timeStamp};
   // The second click waits for the first click's verse to arrive, then sends it.
-  if(double){await verseLoading;if(draft.reference!==verseSearch?.results[index]?.reference&&!await loadVerseResult(index))return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));return;}
+  if(double){const base=live.updated;await verseLoading;if(draft.reference!==verseSearch?.results[index]?.reference&&!await loadVerseResult(index))return;const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(draft.reference,sent));return;}
   verseLoading=loadVerseResult(index);return;
  }
  if(a==='keep-passage'){lookupPassage(0,{newItem:true});return;}
@@ -1606,11 +1606,13 @@ function setupBookAutocomplete(field){
    ev.preventDefault();ev.stopPropagation();close();
    // Shift+Enter on the reference and version already loaded sends the slide in the preview, not the start of the passage again.
    if(send&&field.value.trim()&&field.value.trim().toLowerCase()===String(draft.reference).toLowerCase()&&currentKey()===$('#lookupTranslation')?.value){sendPreview();return;}
+   // Sent from the screen as it stood now: if it is hidden or changed while the passage loads, nothing is sent.
+   const base=live.updated;
    lookupPassage().then(async found=>{
     // Loading a passage rebuilds the panel. The cursor goes back into the new box with its text selected, so the
     // next reference can be typed straight away and no letter lands on the page as a shortcut (B hides the screen).
     const box=$('#referenceLookup');if(box&&document.activeElement===document.body){box.focus();box.select();}
-    if(!found||!send)return;const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));
+    if(!found||!send)return;const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(draft.reference,sent));
    });
   }}
   else if(ev.key==='Escape'&&open){ev.preventDefault();close();}
@@ -1745,9 +1747,9 @@ async function loadPickedReference(reference,translation,send=false){
  if(tab!=='passage'){tab='passage';render();}
  const select=$('#lookupTranslation');if(select&&translation&&[...select.options].some(o=>o.value===translation)&&select.value!==translation){select.value=translation;select.dispatchEvent(new Event('change'));}
  const field=$('#referenceLookup');if(field)field.value=reference;
- const found=await lookupPassage();
+ const base=live.updated,found=await lookupPassage();
  if(!found||!send)return;
- const sent=await publish(currentSnapshot());if(sent)toast(sentMessage(draft.reference,sent));
+ const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(draft.reference,sent));
 }
 const pickedReference=()=>picker.selection?selectionReference(picker.book,picker.selection):chapterReference(picker.book,picker.chapter);
 // Shift+Enter (or Alt+Enter) anywhere in the picker loads the chosen passage and sends it to the screen.

@@ -434,3 +434,24 @@ test('Listen offers the one-time download before anything else, and the bar stay
  assert.equal(await run("document.querySelector('#listenDialog').open"),false);
  assert.deepEqual(pageErrors,[],'no script error in the studio');
 });
+
+test('Hiding the screen while a verse is still loading keeps it hidden: the late verse is not sent',{skip},async()=>{
+ await open();await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')!==null",'the Bible panel');
+ await until("[...document.querySelector('#lookupTranslation').options].some(o=>o.value==='kjv')",'the versions');
+ await run("const s=document.querySelector('#lookupTranslation');s.value='kjv';s.dispatchEvent(new Event('change',{bubbles:true}))");
+ await run("document.querySelector('#screenToggle').textContent.includes('Show')&&document.querySelector('#screenToggle').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.live.blank)",'the screen shown');
+ await run("window.realFetch=window.fetch;window.fetch=(url,options)=>String(url).includes('/api/bibles/passage')?new Promise(r=>setTimeout(r,1200)).then(()=>window.realFetch(url,options)):window.realFetch(url,options)");
+ await run("{const b=document.querySelector('#referenceLookup');b.focus();b.select();}");await cdp('Input.insertText',{text:'john 3:12'});await key('Enter',{modifiers:SHIFT});
+ await wait(150);
+ await run("document.querySelector('#screenToggle').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.blank)",'the screen hidden');
+ await wait(1800);
+ const state=await liveState();
+ assert.equal(state.blank,true,'still hidden after the verse arrived');
+ assert.notEqual(state.text,'Sample verse 12','the late verse was not sent');
+ assert.match(await run("document.querySelector('#toast').textContent"),/screen just changed/);
+ await run('window.fetch=window.realFetch');
+ await run("document.querySelector('#screenToggle').click()");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
