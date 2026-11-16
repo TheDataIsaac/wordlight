@@ -1,13 +1,18 @@
 // Windows launcher, run by run.cmd (Start Wordlight.cmd and Stop Wordlight.cmd).
 //   node start.mjs start [--foreground] [--no-open]   start Wordlight with crash recovery, or open the running one
 //   node start.mjs stop                               stop Wordlight on purpose (saves finish first)
+//   node start.mjs restart [--no-open]                stop, install a downloaded update if there is one, start again
+// --app-window opens the studio in an Edge app window (the Windows package) instead of the default browser.
 // Port and data folder come from WORDLIGHT_PORT and WORDLIGHT_DATA_DIR, as for server.mjs.
 // Exit codes: 0 done, 1 bad setup, 2 could not stop, 3 the port belongs to another program, 4 start failed.
 import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import {writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {askToQuit,clearStop,loadCompanionEnv,loadConfig,requestStop,sleep,supervisorAlive,tailLines,whoIsThere,writeLog} from './shared.mjs';
 import {supervise} from './supervisor.mjs';
+import {applyPending} from './update.mjs';
 
 const [command='start',...flags]=process.argv.slice(2);
 let cfg;
@@ -17,12 +22,20 @@ try{
  if(loadCompanionEnv(cfg))cfg=loadConfig();
 }catch(err){console.error(err.message);process.exit(1);}
 
+// The Windows package folder: app\ (this code) sits beside runtime\node.exe. Updates are installed only there.
+const packageTop=path.dirname(cfg.root),isPackage=existsSync(path.join(packageTop,'runtime','node.exe'));
+
 async function finish(code,message){
  await writeLog(cfg,'launcher',message.split('\n')[0]);
+ // The package's Start and Stop scripts show this file in a message box.
+ await writeFile(path.join(cfg.dataDir,'launcher-message.txt'),message).catch(()=>{});
  (code===0?console.log:console.error)(message);
  process.exit(code);
 }
 function openWindow(){
+ // An Edge app window looks like a desktop app; without Edge the default browser opens the address.
+ const edge=flags.includes('--app-window')&&['ProgramFiles(x86)','ProgramFiles'].map(v=>process.env[v]&&path.join(process.env[v],'Microsoft','Edge','Application','msedge.exe')).find(p=>p&&existsSync(p));
+ if(edge){const app=spawn(edge,['--app='+cfg.url,'--new-window'],{detached:true,stdio:'ignore'});app.on('error',()=>{});app.unref();return;}
  const child=process.platform==='win32'?spawn(path.join(process.env.SystemRoot||'C:\\Windows','explorer.exe'),[cfg.url],{detached:true,stdio:'ignore',windowsHide:true})
   :spawn(process.platform==='darwin'?'open':'xdg-open',[cfg.url],{detached:true,stdio:'ignore'});
  child.on('error',()=>{});child.unref();
@@ -64,6 +77,12 @@ async function start(){
 
  let supervisorEnded=()=>false;
  if(!await supervisorAlive(cfg)){
+  // Nothing from this folder is running now, so a downloaded update (or a request to go back) can be put in place.
+  // The supervisor started below runs the code from app\, whichever version that now is.
+  if(isPackage&&there.kind==='nothing'){
+   const done=await applyPending({top:packageTop,dataDir:cfg.dataDir}).catch(err=>({result:'failed',why:err.message}));
+   if(done.result!=='none')await writeLog(cfg,'launcher','Update: '+done.result+(done.version?' to '+done.version:'')+(done.from?' from '+done.from:'')+(done.why?' ('+done.why+')':'')+(done.backup?'; data copied to '+done.backup:''));
+  }
   // The supervisor outlives this window, so closing it does not stop Wordlight.
   const child=spawn(process.execPath,[fileURLToPath(import.meta.url),'supervise'],{cwd:cfg.root,detached:true,windowsHide:true,stdio:'ignore',env:{...process.env,WORDLIGHT_PORT:String(cfg.port),WORDLIGHT_DATA_DIR:cfg.dataDir}});
   let ended=null;child.on('exit',code=>{ended=code;});child.on('error',()=>{ended=1;});child.unref();
@@ -79,15 +98,16 @@ async function start(){
  return finish(0,'Wordlight is running at '+cfg.url+' with crash recovery.\nClosing this window does not stop it. Use Stop Wordlight to stop it.\nLogs: '+cfg.logDir);
 }
 
-async function stop(){
+// Stops Wordlight and answers [code, message] without exiting, so restart can carry on.
+async function stopWordlight(){
  const there=await whoIsThere(cfg),supervisor=await supervisorAlive(cfg);
- if(there.kind==='other'&&!supervisor)return finish(3,'Port '+cfg.port+' is used by another program, not Wordlight ('+there.why+'). Nothing was stopped.');
- if(there.kind==='nothing'&&!supervisor){await clearStop(cfg);return finish(0,'Wordlight is not running.');}
+ if(there.kind==='other'&&!supervisor)return [3,'Port '+cfg.port+' is used by another program, not Wordlight ('+there.why+'). Nothing was stopped.'];
+ if(there.kind==='nothing'&&!supervisor){await clearStop(cfg);return [0,'Wordlight is not running.'];}
  // The stop request goes first, so the supervisor does not treat the server quitting as a crash.
  if(supervisor)await requestStop(cfg);
  if(there.kind==='wordlight'){
   const answer=await askToQuit(cfg);
-  if(answer.status!==200)return finish(2,'Wordlight ('+there.version+') did not accept the stop request. Nothing was force-closed. Stop it the way it was started.');
+  if(answer.status!==200)return [2,'Wordlight ('+there.version+') did not accept the stop request. Nothing was force-closed. Stop it the way it was started.'];
  }
  // Done when no Wordlight answers on the port and the supervisor has exited (up to 15 seconds). A server that was
  // still starting when Stop began does not see the stop request, so it is asked to quit as soon as it answers.
@@ -98,13 +118,21 @@ async function stop(){
   return now.kind!=='wordlight'&&!await supervisorAlive(cfg);
  };
  for(let i=0;i<60&&!await settled();i++)await sleep(250);
- if(!await settled())return finish(2,'Wordlight was asked to stop but is still running. Details: '+cfg.logDir);
+ if(!await settled())return [2,'Wordlight was asked to stop but is still running. Details: '+cfg.logDir];
  await clearStop(cfg);
- return finish(0,'Wordlight stopped. OBS outputs from it are now blank until it starts again.');
+ return [0,'Wordlight stopped. OBS outputs from it are now blank until it starts again.'];
+}
+async function stop(){return finish(...await stopWordlight());}
+// Restart, used by the studio's Restart now after an update has downloaded. Outputs keep their last screen meanwhile.
+async function restart(){
+ const [code,message]=await stopWordlight();
+ if(code!==0)return finish(code,message);
+ return start();
 }
 
 if(command==='start')await start();
 else if(command==='stop')await stop();
+else if(command==='restart')await restart();
 // Internal: the detached process that Start Wordlight leaves running.
 else if(command==='supervise')process.exit(await supervise(cfg));
 else await finish(1,'Use start or stop.');

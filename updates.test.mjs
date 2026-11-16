@@ -1,0 +1,132 @@
+// Updates for the Windows package: finding a newer release, downloading and checking it, and putting it in place
+// (or going back) when Wordlight starts. A local HTTP server stands in for GitHub; folders are throwaway.
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,rm,stat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {writeZip} from './ziputil.mjs';
+import {compareVersions,readRelease,checksumFor,createUpdater} from './updates.mjs';
+import {applyPending} from './tools/launcher/update.mjs';
+
+const sha=buf=>createHash('sha256').update(buf).digest('hex');
+const exists=file=>stat(file).then(()=>true,()=>false);
+const appZip=(version,extra={})=>writeZip({'app/server.mjs':Buffer.from('// server '+version),'app/package.json':Buffer.from(JSON.stringify({version})),'app/build.json':Buffer.from(JSON.stringify({version,build:version+'+test',node:process.version})),...extra});
+
+// A package folder with app\ at 1.1.0 and a runtime, plus a data folder.
+async function packageFolder(){
+ const top=await mkdtemp(path.join(tmpdir(),'wordlight-update-'));
+ await mkdir(path.join(top,'runtime'));await writeFile(path.join(top,'runtime','node.exe'),'');
+ await mkdir(path.join(top,'app'));
+ await writeFile(path.join(top,'app','package.json'),JSON.stringify({version:'1.1.0'}));
+ await writeFile(path.join(top,'app','build.json'),JSON.stringify({version:'1.1.0',build:'1.1.0+old'}));
+ const data=path.join(top,'data');await mkdir(path.join(data,'songs'),{recursive:true});
+ await writeFile(path.join(data,'session.json'),'{"saved":true}');await writeFile(path.join(data,'songs','index.json'),'[]');
+ return {top,data,root:path.join(top,'app')};
+}
+// A stand-in for GitHub's latest-release answer and its two files.
+async function fakeGitHub(zip,{sums}={}){
+ const server=http.createServer((req,res)=>{
+  const base='http://127.0.0.1:'+server.address().port;
+  if(req.url==='/latest'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({tag_name:'v1.2.0',name:'Wordlight 1.2.0',body:'What changed',html_url:base+'/page',
+   assets:[{name:'Wordlight-portable-1.2.0-win-x64.zip',browser_download_url:base+'/full'},{name:'Wordlight-app-1.2.0.zip',browser_download_url:base+'/app'},{name:'SHA256SUMS.txt',browser_download_url:base+'/sums'}]}));return;}
+  if(req.url==='/app'){res.end(zip);return;}
+  if(req.url==='/sums'){res.end(sums??sha(zip)+'  Wordlight-app-1.2.0.zip\n');return;}
+  res.statusCode=404;res.end();
+ });
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ return {feed:'http://127.0.0.1:'+server.address().port+'/latest',close:()=>server.close()};
+}
+
+test('Versions compare by number, and a release gives its update files and notes',()=>{
+ assert.equal(compareVersions('1.10.0','1.9.2'),1);
+ assert.equal(compareVersions('v1.2.0','1.2.0'),0);
+ assert.equal(compareVersions('1.1.0','1.2.0'),-1);
+ assert.equal(compareVersions('nonsense','0.0.0'),0);
+ const r=readRelease({tag_name:'v1.2.0',body:'Notes',assets:[{name:'Wordlight-app-1.2.0.zip',browser_download_url:'u1'},{name:'SHA256SUMS.txt',browser_download_url:'u2'},{name:'Wordlight-app-1.2.0.zip.bak',browser_download_url:'x'}]});
+ assert.deepEqual([r.version,r.appZip.url,r.sums.url,r.notes],['1.2.0','u1','u2','Notes']);
+ assert.equal(checksumFor('a'.repeat(64)+'  other.zip\n'+'B'.repeat(64)+' *Wordlight-app-1.2.0.zip','Wordlight-app-1.2.0.zip'),'b'.repeat(64));
+ assert.equal(checksumFor('','x.zip'),'');
+});
+
+test('A newer release is found, downloaded, checked and set aside without touching the running app',async()=>{
+ const {top,data,root}=await packageFolder(),gh=await fakeGitHub(appZip('1.2.0'));
+ try{
+  const updater=createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed});
+  const checked=await updater.check();
+  assert.equal(checked.newer,true);assert.equal(checked.latest.version,'1.2.0');assert.equal(checked.isPackage,true);
+  const after=await updater.download();
+  assert.deepEqual(after.ready,{version:'1.2.0',build:'1.2.0+test'});
+  assert.equal(await readFile(path.join(top,'update','app','server.mjs'),'utf8'),'// server 1.2.0');
+  assert.equal(JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version,'1.1.0','the running app is unchanged');
+ }finally{gh.close();await rm(top,{recursive:true,force:true});}
+});
+
+test('A download that fails its checksum, holds an unsafe name or needs another runtime is refused and nothing is set aside',async()=>{
+ const cases=[
+  [appZip('1.2.0'),{sums:'0'.repeat(64)+'  Wordlight-app-1.2.0.zip\n'},/does not match its checksum/],
+  [appZip('1.2.0',{'app/../escape.txt':Buffer.from('x')}),{},/unsafe file name/],
+  [writeZip({'app/server.mjs':Buffer.from('x'),'app/package.json':Buffer.from('{"version":"1.2.0"}'),'app/build.json':Buffer.from('{"node":"v1.0.0"}')}),{},/needs a newer runtime/],
+  [writeZip({'app/package.json':Buffer.from('{"version":"1.2.0"}')}),{},/incomplete/],
+ ];
+ for(const [zip,options,message] of cases){
+  const {top,data,root}=await packageFolder(),gh=await fakeGitHub(zip,options);
+  try{
+   const updater=createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed});
+   await assert.rejects(updater.download(),message);
+   assert.equal(await exists(path.join(top,'update','app')),false);
+   assert.equal(await exists(path.join(top,'escape.txt')),false);
+   assert.deepEqual((await readdir(path.join(top,'update')).catch(()=>[])),[],'no half-unpacked folder is left');
+  }finally{gh.close();await rm(top,{recursive:true,force:true});}
+ }
+});
+
+test('A copy run from source never downloads; the same version is not an update',async()=>{
+ const top=await mkdtemp(path.join(tmpdir(),'wordlight-update-')),gh=await fakeGitHub(appZip('1.2.0'));
+ try{
+  await mkdir(path.join(top,'app'));
+  const source=createUpdater({root:path.join(top,'app'),dataDir:top,version:'1.1.0',build:'dev',port:1,feed:gh.feed});
+  await assert.rejects(source.download(),/runs from source/);
+  const {top:pkg,data,root}=await packageFolder();
+  const same=createUpdater({root,dataDir:data,version:'1.2.0',build:'x',port:1,feed:gh.feed});
+  assert.equal((await same.check()).newer,false);
+  await assert.rejects(same.download(),/no newer version/);
+  await rm(pkg,{recursive:true,force:true});
+ }finally{gh.close();await rm(top,{recursive:true,force:true});}
+});
+
+test('At the next start the update goes in, the old version is kept, data is copied first, and going back swaps them',async()=>{
+ const {top,data,root}=await packageFolder(),gh=await fakeGitHub(appZip('1.2.0'));
+ try{
+  await createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed}).download();
+  const done=await applyPending({top,dataDir:data});
+  assert.equal(done.result,'updated');
+  assert.equal(JSON.parse(await readFile(path.join(top,'app','package.json'),'utf8')).version,'1.2.0');
+  assert.equal(JSON.parse(await readFile(path.join(top,'app-previous','package.json'),'utf8')).version,'1.1.0');
+  assert.equal(await readFile(path.join(done.backup,'session.json'),'utf8'),'{"saved":true}');
+  assert.equal(await exists(path.join(top,'update')),false);
+  assert.deepEqual(await applyPending({top,dataDir:data}),{result:'none'},'nothing waiting: nothing changes');
+  await writeFile(path.join(top,'app','update-marker'),'');
+  await mkdir(path.join(top,'update'));await writeFile(path.join(top,'update','rollback.json'),'{}');
+  assert.equal((await applyPending({top,dataDir:data})).result,'rolled-back');
+  assert.equal(JSON.parse(await readFile(path.join(top,'app','package.json'),'utf8')).version,'1.1.0');
+  assert.equal(await exists(path.join(top,'app-previous','update-marker')),true,'the newer version is kept as the previous one');
+  assert.equal(await readFile(path.join(data,'session.json'),'utf8'),'{"saved":true}','shows are never moved');
+ }finally{gh.close();await rm(top,{recursive:true,force:true});}
+});
+
+test('While something runs inside app, the update waits and the app is left as it was (Windows)',{skip:process.platform!=='win32'},async()=>{
+ const {top,data,root}=await packageFolder(),gh=await fakeGitHub(appZip('1.2.0'));
+ const busy=spawn(process.execPath,['-e','setTimeout(()=>{},20000)'],{cwd:root,stdio:'ignore'});
+ try{
+  await new Promise(r=>setTimeout(r,300));
+  await createUpdater({root,dataDir:data,version:'1.1.0',build:'1.1.0+old',port:1,feed:gh.feed}).download();
+  const done=await applyPending({top,dataDir:data});
+  assert.equal(done.result,'failed');
+  assert.equal(JSON.parse(await readFile(path.join(top,'app','package.json'),'utf8')).version,'1.1.0');
+  assert.equal(await exists(path.join(top,'update','ready.json')),true,'the update still waits for the next start');
+ }finally{busy.kill();gh.close();await new Promise(r=>setTimeout(r,300));await rm(top,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});

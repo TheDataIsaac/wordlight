@@ -231,3 +231,9 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .fade-in{animation:wordlight-fade-in .4s ease-in-out}
 @keyframes wordlight-fade-out{from{opacity:1}to{opacity:0}}
 @keyframes wordlight-fade-in{from{opacity:0}to{opacity:1}}
+/* Updates in Settings, and the Settings button when an update is waiting. */
+.update-state{font-size:13px;margin:8px 0}
+.update-build{color:var(--muted);font-size:11px}
+.update-notes{white-space:pre-wrap;font:12px/1.45 'DM Sans',Segoe UI,sans-serif;background:#f2f3eb;border-radius:6px;padding:8px 10px;max-height:160px;overflow:auto;margin:6px 0}
+.button.has-update{position:relative}
+.button.has-update::after{content:'';position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:#c0712c}

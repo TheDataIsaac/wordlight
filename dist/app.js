@@ -18,6 +18,7 @@ import {looksLikeWords,verseResultsMarkup} from './verse-search.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
 import {openPhoneRemote} from './remote-setup.mjs';
 import {openStageDisplay} from './stage-setup.mjs';
+import {showUpdates,refreshUpdates} from './update-setup.mjs';
 import {FONTS,THEMES,DEFAULT,cleanDraft,deckFor,snapshot,validLive,occurrences,matchRegex,safeColor,getHighlights,nextHighlightColor,highlightPalette,highlightSegments,safeEmphasis,contrastInk,cleanTextSlide,fitPadding,FIT_PADDING,assetId,referenceSize,lowerReferenceSize,REFERENCE_SIZE,LOWER_REFERENCE_SIZE} from './core.mjs';
 const $=s=>document.querySelector(s);
 const e=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1368,7 +1369,7 @@ async function connectLocal(){
  if(!['localhost','127.0.0.1'].includes(location.hostname))return;
  try{
   const r=await fetch('/api/state',{signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error('not ready');const s=await r.json();if(s.app!=='wordlight')return;
-  connectTry=0;isLocal=true;localReachable=true;showAppInfo();
+  connectTry=0;isLocal=true;localReachable=true;showAppInfo();refreshUpdates();
   if(!isOutput&&(s.library||s.draft)){
    const serverLibrary=cleanLibrary(s.library,s.draft),server=Number(s.library?.savedAt||0),hasCopy=!libraryError&&Number(library.savedAt)>0,knownBase=!!acked;
    // Edits this tab made that the companion never confirmed, and whether it moved on without them.
@@ -2011,12 +2012,13 @@ function renderSettings(){
  '<section class="settings-group"><h3>Sending</h3><label>One click on a search result <select id="setResultClick"><option value="preview" '+(s.resultClick==='preview'?'selected':'')+'>Shows it in the preview</option><option value="send" '+(s.resultClick==='send'?'selected':'')+'>Sends it to the screen</option></select></label><label>One tap on the phone <select id="setPhoneTap"><option value="select" '+(s.phoneTap==='select'?'selected':'')+'>Selects it</option><option value="send" '+(s.phoneTap==='send'?'selected':'')+'>Sends it to the screen</option></select></label>'+settingRow('setCheckFirst','Songs marked Check first always stop at the preview',s.checkFirst)+'</section>'+
  '<section class="settings-group"><h3>Screens</h3>'+settingRow('setFade','Fade between slides on the projector and OBS (0.4 s)',s.fadeSlides)+'</section>'+
  '<section class="settings-group"><h3>Song search</h3>'+settingRow('setFreeShow','Include FreeShow songs, by title',s.searchFreeShow)+settingRow('setReserve','Include Check first songs',s.searchReserve)+'</section>'+
- '<section class="settings-group"><h3>Keys</h3>'+keysTable()+'</section><p id="settingsError" class="small-note status-error" aria-live="polite"></p>'+button('Back to defaults','settings-reset');
+ '<section class="settings-group" id="updateSection"></section><section class="settings-group"><h3>Keys</h3>'+keysTable()+'</section><p id="settingsError" class="small-note status-error" aria-live="polite"></p>'+button('Back to defaults','settings-reset');
  const send=change=>changeSettings(change);
  $('#setLines').addEventListener('change',ev=>send({linesPerSlide:Number(ev.target.value)}));
  $('#setResultClick').addEventListener('change',ev=>send({resultClick:ev.target.value}));
  $('#setPhoneTap').addEventListener('change',ev=>send({phoneTap:ev.target.value}));
  for(const [id,key] of [['setRepeat','hideRepeatMarks'],['setCaps','allCaps'],['setFooter','songFooter'],['setCheckFirst','checkFirst'],['setFreeShow','searchFreeShow'],['setReserve','searchReserve'],['setFade','fadeSlides']])$('#'+id).addEventListener('change',ev=>send({[key]:ev.target.checked}));
+ showUpdates();
 }
 function openSettings(){if(!isLocal)return;renderSettings();if(!$('#settingsDialog').open)$('#settingsDialog').showModal();}
 async function changeSettings(change){

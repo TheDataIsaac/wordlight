@@ -18,6 +18,7 @@ import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
 import {stageState,cleanStageMessage} from './dist/stage.mjs';
+import {createUpdater} from './updates.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const port=Number(process.env.WORDLIGHT_PORT)||18765;
 const dataDir=process.env.WORDLIGHT_DATA_DIR||path.join(root,'.wordlight-data');
@@ -568,7 +569,7 @@ function broadcastStage(){
  const message='data: '+JSON.stringify(stageNow())+'\n\n';
  for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
 }
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}
@@ -621,6 +622,21 @@ async function handle(req,res){
   const text=cleanStageMessage(body?.message);stageMessage=text?{text,at:Date.now()}:null;
   broadcastStage();remote.stageChanged();
   json(res,200,{message:stageMessage,screens:stageClients.size+remote.stageScreens()});return;
+ }
+ // Updates (local studio only): status, check now, download, restart into the update, go back to the previous version.
+ if(url.pathname==='/api/update'&&req.method==='GET'){json(res,200,await updater.status());return;}
+ if(url.pathname.startsWith('/api/update/')&&req.method==='POST'){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
+  if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+  const action=url.pathname.slice('/api/update/'.length);
+  try{
+   if(action==='check'){json(res,200,await updater.check());return;}
+   if(action==='download'){json(res,200,await updater.download());return;}
+   if(action==='restart'){updater.restart();json(res,200,{restarting:true});return;}
+   if(action==='back'){await updater.goBack();json(res,200,{restarting:true});return;}
+   json(res,404,{error:'Not found'});
+  }catch(err){json(res,err.status>=400&&err.status<600?err.status:500,{error:err.message||'The update failed.'});}
+  return;
  }
  if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}
  if(url.pathname==='/api/settings'&&req.method==='POST'){
@@ -689,6 +705,7 @@ function saveNewest(){
 // locked or full disk never holds up the next slide.
 const keepScreen=()=>{const saved=saveNewest();return saveProblem?true:Promise.race([saved,new Promise(resolve=>setTimeout(resolve,SAVE_WAIT_MS,true))]);};
 const projector=createProjector({url:'http://127.0.0.1:'+port+'/?view=output&projector=1',dataDir});
+const updater=createUpdater({root,dataDir,version:APP_VERSION,build:APP_BUILD,port});
 const remote=createRemote({getState:()=>state,commitLive,dataDir,root,localOrigins,bible:createBibleLookup({bibles:bibleLibrary,apiBible,search:bibleSearch}),stage:()=>stageNow(),findSongs,readSong,settings:{get:settings,change:changeSettings}});
 // Any unexpected failure answers this request with an error instead of stopping the companion.
 const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.error(err?.message||err);if(!res.headersSent)json(res,500,{error:'The companion hit an error. Try again.'});else res.end();});});
@@ -705,6 +722,7 @@ server.listen(port,'127.0.0.1',()=>{
  // The phone remote starts only after the companion itself is running, and only if it was turned on. If it cannot
  // start, the studio and OBS outputs keep running.
  remote.start().catch(err=>console.error('The phone remote could not start: '+(err?.message||err)));
+ updater.schedule();
  if(process.argv.includes('--open')){
   if(process.platform==='win32')spawn('explorer.exe',[url],{stdio:'ignore',windowsHide:true}).unref();
   else spawn(process.platform==='darwin'?'open':'xdg-open',[url],{stdio:'ignore'}).unref();

@@ -1,7 +1,10 @@
-// Builds build/Wordlight-portable-<version>-win-x64.zip: the app, the launcher scripts and the official Node.js runtime
-// (node.exe and its LICENSE from the nodejs.org Windows zip, checked against nodejs.org's SHA256SUMS), plus the official
-// open Bible archives as seed packs that are installed on first start. Only the listed app files are packed; no data
-// folder, shows, keys or tests.
+// Builds the three files of a release, in build/:
+//   Wordlight-portable-<version>-win-x64.zip  the full package for a first install: the app, the Start and Stop scripts,
+//     the official Node.js runtime (node.exe and its LICENSE from the nodejs.org Windows zip, checked against
+//     nodejs.org's SHA256SUMS) and the official open Bible archives as seed packs installed on first start;
+//   Wordlight-app-<version>.zip  only the app folder, which is what the studio downloads to update an installed package;
+//   SHA256SUMS.txt  checksums of both, which the updater checks before it unpacks anything.
+// Only the listed app files are packed; no data folder, shows, keys or tests.
 //   node tools/build-portable.mjs
 import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -11,7 +14,7 @@ import {zipEntries,readZipEntry,writeZip} from '../ziputil.mjs';
 import {CATALOG} from '../bibles.mjs';
 import {execFileSync} from 'node:child_process';
 
-const NODE_VERSION='v24.18.0';
+const NODE_VERSION='v24.22.3';
 const repo=path.join(path.dirname(fileURLToPath(import.meta.url)),'..'),cacheDir=path.join(repo,'build','cache');
 const sha=buf=>createHash('sha256').update(buf).digest('hex');
 async function cached(name,url){
@@ -34,7 +37,8 @@ const version=JSON.parse(await readFile(path.join(repo,'package.json'),'utf8')).
 const git=args=>execFileSync('git',args,{cwd:repo,encoding:'utf8'}).trim();
 const build=version+'+'+git(['rev-parse','--short','HEAD'])+(git(['status','--porcelain'])?'-dirty':'');
 const files={};
-files[top+'app/build.json']=Buffer.from(JSON.stringify({version,build,builtAt:new Date().toISOString()}));
+// node: the runtime this app was built for. An update for another runtime asks for the full package instead.
+files[top+'app/build.json']=Buffer.from(JSON.stringify({version,build,builtAt:new Date().toISOString(),node:NODE_VERSION}));
 // Seed packs: the official single-file archives, unchanged (each keeps its own notice inside).
 const seedLines=[];
 for(const [id,info] of Object.entries(CATALOG)){
@@ -46,9 +50,10 @@ for(const [id,info] of Object.entries(CATALOG)){
 }
 files[top+'bibles/BIBLES.txt']=Buffer.from('Bible text packs installed on first start (only for versions not installed yet).\r\nEach archive is the unchanged official download from eBible.org and contains its own copyright notice.\r\n\r\n'+seedLines.join('\r\n\r\n')+'\r\n');
 const add=async(source,target)=>{files[top+target]=await readFile(path.join(repo,source));};
-for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs'])await add(name,'app/'+name);
+for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','updates.mjs'])await add(name,'app/'+name);
+// The launcher with crash recovery, the same one Start Wordlight.cmd uses, and the step that installs a downloaded update.
+for(const name of ['start.mjs','supervisor.mjs','shared.mjs','update.mjs'])await add('tools/launcher/'+name,'app/tools/launcher/'+name);
 for(const name of (await readdir(path.join(repo,'dist'))).filter(n=>/\.(html|css|js|mjs)$/.test(n)).sort())await add('dist/'+name,'app/dist/'+name);
-await add('tools/portable/launcher.mjs','launcher/launcher.mjs');
 for(const name of ['Start Wordlight.vbs','Stop Wordlight.vbs','Start with Windows.vbs'])await add('tools/portable/'+name,name);
 files[top+'runtime/node.exe']=pick('node.exe');
 files[top+'runtime/LICENSE.txt']=pick('LICENSE');
@@ -73,6 +78,13 @@ No NKJV text is included. Licence and third-party notices: app/LICENSE and app/T
 Includes Node.js ${NODE_VERSION} (runtime/node.exe), licensed as described in runtime/LICENSE.txt.
 `.replace(/\n/g,'\r\n'));
 
-const out=path.join(repo,'build','Wordlight-portable-'+version+'-win-x64.zip'),zip=writeZip(files);
-await writeFile(out,zip);
-console.log(out);console.log('build '+build);console.log(Object.keys(files).length+' files, '+(zip.length/1e6).toFixed(1)+' MB, sha256 '+sha(zip));
+const fullName='Wordlight-portable-'+version+'-win-x64.zip',appName='Wordlight-app-'+version+'.zip';
+const zip=writeZip(files);
+// The update ZIP holds the same app files, with names starting "app/".
+const appFiles=Object.fromEntries(Object.entries(files).filter(([name])=>name.startsWith(top+'app/')).map(([name,data])=>[name.slice(top.length),data]));
+const appZip=writeZip(appFiles);
+await writeFile(path.join(repo,'build',fullName),zip);await writeFile(path.join(repo,'build',appName),appZip);
+await writeFile(path.join(repo,'build','SHA256SUMS.txt'),sha(zip)+'  '+fullName+'\n'+sha(appZip)+'  '+appName+'\n');
+console.log('build '+build);
+console.log(fullName+': '+Object.keys(files).length+' files, '+(zip.length/1e6).toFixed(1)+' MB, sha256 '+sha(zip));
+console.log(appName+': '+Object.keys(appFiles).length+' files, '+(appZip.length/1e6).toFixed(2)+' MB, sha256 '+sha(appZip));

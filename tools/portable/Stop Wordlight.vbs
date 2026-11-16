@@ -1,10 +1,13 @@
-' Stops Wordlight. Saves finish first; OBS outputs from Wordlight go blank until it is started again.
+' Stops Wordlight on purpose: saves finish first and crash recovery does not start it again.
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 folder = fso.GetParentFolderName(WScript.ScriptFullName)
-If MsgBox("Stop Wordlight? OBS outputs from Wordlight go blank until you start it again.", vbYesNo + vbQuestion, "Wordlight") = vbYes Then
-  code = sh.Run("""" & folder & "\runtime\node.exe"" """ & folder & "\launcher\launcher.mjs"" stop", 0, True)
-  messageFile = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Wordlight\data\launcher-message.txt"
+dataDir = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Wordlight\data"
+sh.CurrentDirectory = folder
+sh.Environment("PROCESS")("WORDLIGHT_DATA_DIR") = dataDir
+If MsgBox("Stop Wordlight? OBS and the projector stop updating until you start it again.", vbYesNo + vbQuestion, "Wordlight") = vbYes Then
+  code = sh.Run("""" & folder & "\runtime\node.exe"" """ & folder & "\app\tools\launcher\start.mjs"" stop", 0, True)
+  messageFile = dataDir & "\launcher-message.txt"
   text = "Done."
   If fso.FileExists(messageFile) Then text = fso.OpenTextFile(messageFile, 1, False, -2).ReadAll
   If code = 0 Then
