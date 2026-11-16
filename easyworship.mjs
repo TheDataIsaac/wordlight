@@ -24,6 +24,7 @@ export function readEasyWorship(folder,{limit,timeoutMs=60000}){
  });
 }
 
+const MAX_WORDS=2_000_000;
 if(!isMainThread){
  const {DatabaseSync}=await import('node:sqlite');
  const {fromEasyWorship}=await import('./dist/song-import.mjs');
@@ -32,19 +33,32 @@ if(!isMainThread){
   songsDb=new DatabaseSync(path.join(workerData.folder,'Songs.db'),{readOnly:true});
   wordsDb=new DatabaseSync(path.join(workerData.folder,'SongWords.db'),{readOnly:true});
   // Real tables only: a view under the same name could make every read slow.
-  const isTable=(db,name)=>db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
-  if(!isTable(songsDb,'song')||!isTable(wordsDb,'word'))throw new Error('the song tables are missing');
+  // Ordinary stored tables and columns only. A view, a virtual table or a generated column runs code at every read,
+  // and SQLite's own memory is outside this thread's limit, so a crafted file could use them to exhaust the computer.
+  const plainTable=(db,name,columns)=>{
+   const row=db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(name);
+   if(!row||/^\s*create\s+virtual/i.test(String(row.sql)))return false;
+   const kinds=new Map(db.prepare('SELECT name,hidden FROM pragma_table_xinfo(?)').all(name).map(c=>[String(c.name).toLowerCase(),Number(c.hidden)]));
+   return columns.every(c=>kinds.get(c)===0);
+  };
+  if(!plainTable(songsDb,'song',['title','author','copyright','vendor_id'])||!plainTable(wordsDb,'word',['song_id','words']))throw new Error('the song tables are missing or not plain tables');
   // All the words in one pass: EasyWorship has no index on song_id, so a lookup per song would read the whole table
   // once for every song.
   const words=new Map();
-  for(const row of wordsDb.prepare('SELECT song_id,words FROM word').iterate())if(row.words&&!words.has(row.song_id))words.set(row.song_id,String(row.words));
+  // Words longer than MAX_WORDS (no real song comes close) are left out, and that song is named as skipped.
+  const tooLong=new Set();
+  for(const row of wordsDb.prepare('SELECT song_id,words FROM word').iterate()){
+   if(!row.words||words.has(row.song_id))continue;
+   if(String(row.words).length>MAX_WORDS){tooLong.add(row.song_id);continue;}
+   words.set(row.song_id,String(row.words));
+  }
   // The first few songs left out are named, so the operator knows which to look at.
   const songs=[],problems=[];let skipped=0,tooMany=false;
   const leaveOut=(title,why)=>{skipped++;if(problems.length<10)problems.push((String(title||'').trim().slice(0,80)||'A song without a title')+': '+why);};
   for(const row of songsDb.prepare('SELECT rowid,title,author,copyright,vendor_id FROM song').iterate()){
    if(songs.length>=workerData.limit){tooMany=true;break;}
    const text=words.get(row.rowid);
-   if(!text){leaveOut(row.title,'no words');continue;}
+   if(!text){leaveOut(row.title,tooLong.has(row.rowid)?'its words are too long':'no words');continue;}
    try{const {id,...song}=fromEasyWorship({title:row.title,author:row.author,copyright:row.copyright,ccli:row.vendor_id,words:text});songs.push(song);}
    catch(err){leaveOut(row.title,err.message||'could not be read');}
   }

@@ -212,5 +212,19 @@ test('EasyWorship 6 and 7 song databases are imported into the library, once',as
   const view=await send(songsFile,await readFile(viewDb));
   assert.equal(view.status,400);assert.match(view.body.error,/song tables are missing/);
   assert.equal((await send(songsFile,Buffer.alloc(0))).status,400,'one file alone is refused');
+  // A generated column runs code at every read: refused too.
+  const generatedDb=path.join(folder,'Generated.db');{const db=new DatabaseSync(generatedDb);db.exec("CREATE TABLE word (song_id INTEGER, raw TEXT, words TEXT GENERATED ALWAYS AS (raw || raw) VIRTUAL)");db.close();}
+  const generated=await send(songsFile,await readFile(generatedDb));
+  assert.equal(generated.status,400);assert.match(generated.body.error,/not plain tables/);
+  // One import at a time: a second one sent while the first is still arriving is turned away. The first holds back its
+  // second file until the second import has been answered.
+  let release;const held=new Promise(r=>{release=r;});
+  const slow=fetch('http://127.0.0.1:18785/api/songs/library/import-easyworship?songsBytes='+songsFile.length,{method:'POST',headers:{'Content-Type':'application/octet-stream'},duplex:'half',
+   body:new ReadableStream({async start(c){c.enqueue(songsFile);await held;c.enqueue(wordsFile);c.close();}})});
+  await new Promise(r=>setTimeout(r,200));
+  const busy=await send(songsFile,wordsFile);
+  assert.equal(busy.status,409);assert.match(busy.body.error,/already running/);release();
+  assert.equal((await slow).status,200,'the first one finishes');
+  assert.equal((await send(songsFile,wordsFile)).status,200,'and the next one is accepted');
  }finally{await rm(folder,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });

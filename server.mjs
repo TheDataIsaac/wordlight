@@ -263,6 +263,7 @@ async function handleAssetsInner(req,res,url,trusted=false){
 // the studio last saw, so an older copy cannot overwrite a newer one. Removed songs move to songs/removed/.
 // If the index cannot be written, the song files are put back as they were, so a failed change changes nothing.
 const SONG_LIBRARY_LIMIT=6000,SEARCH_BATCH=40,SONG_FILE_BYTES=50_000_000,songDir=path.join(dataDir,'songs'),songIndexFile=path.join(songDir,'index.json'),songUsageFile=path.join(songDir,'usage.json');
+let easyWorshipImporting=false;
 const nativeId=id=>typeof id==='string'&&/^wl-[a-z0-9-]{8,60}$/.test(id);
 const songPath=id=>path.join(songDir,id+'.json');
 let songQueue=Promise.resolve();
@@ -475,7 +476,11 @@ async function handleSongs(req,res,url,trusted=false){
    const chooseBoth={error:'Choose both Songs.db and SongWords.db from EasyWorship (in its Databases\\Data folder).'};
    const split=Number(q.get('songsBytes'));
    if(!Number.isInteger(split)||split<=0){req.resume();json(res,400,chooseBoth);return;}
-   const temp=path.join(dataDir,'easyworship-'+Date.now());
+   // One import at a time: each one holds two database files on disk and a reader thread with up to 512 MB.
+   if(easyWorshipImporting){req.resume();json(res,409,{error:'An EasyWorship import is already running. Wait for it to finish.'});return;}
+   easyWorshipImporting=true;
+   try{
+   const temp=path.join(dataDir,'easyworship-'+Date.now()+'-'+randomBytes(4).toString('hex'));
    let read=null,problem=null;
    try{
     await mkdir(temp,{recursive:true});
@@ -494,6 +499,7 @@ async function handleSongs(req,res,url,trusted=false){
    if(read.tooMany){json(res,409,{added:0,skipped:0,failed:0,error:'This EasyWorship library has more than '+SONG_LIBRARY_LIMIT+' songs, more than Wordlight\'s library holds. Nothing was imported.'});return;}
    const result=await importNativeSongs(read.songs);
    json(res,result.code,{...result.body,failed:(result.body.failed||0)+read.skipped,errors:[...read.problems,...(result.body.errors||[])].slice(0,10)});return;
+   }finally{easyWorshipImporting=false;}
   }
   if(url.pathname==='/api/songs/library/import'&&req.method==='POST'){
    let body;try{body=await readJSON(req,SONG_FILE_BYTES);}catch(err){json(res,err.status||400,{error:err.status?'The file is too large.':'Invalid JSON.'});return;}
@@ -833,7 +839,7 @@ const server=http.createServer((req,res)=>{handle(req,res).catch(err=>{console.e
 server.on('error',err=>{if(err.code==='EADDRINUSE')console.error('Wordlight is already running, or port '+port+' is in use. Open http://127.0.0.1:'+port);else console.error(err.message);process.exitCode=1;});
 await loadSettings();
 // An EasyWorship import cut short by a crash or power cut leaves its temporary folder; it is cleared at the next start.
-readdir(dataDir).then(names=>Promise.all(names.filter(n=>/^easyworship-\d+$/.test(n)).map(n=>rm(path.join(dataDir,n),{recursive:true,force:true,maxRetries:5})))).catch(()=>{});
+readdir(dataDir).then(names=>Promise.all(names.filter(n=>/^easyworship-\d+(-[0-9a-f]+)?$/.test(n)).map(n=>rm(path.join(dataDir,n),{recursive:true,force:true,maxRetries:5})))).catch(()=>{});
 server.listen(port,'127.0.0.1',()=>{
  bibleLibrary.seedMissing().catch(err=>console.error('Seed Bibles: '+(err?.message||err)));
  // Line search loads here, so the first song search during a service doesn't have to wait for it.
