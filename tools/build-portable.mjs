@@ -16,6 +16,7 @@ import {fileURLToPath} from 'node:url';
 import {zipEntries,readZipEntry,writeZip} from '../ziputil.mjs';
 import {CATALOG} from '../bibles.mjs';
 import {signedByRelease} from '../updates.mjs';
+import {missingImports} from './missing-imports.mjs';
 import {execFileSync} from 'node:child_process';
 
 const NODE_VERSION='v24.22.3';
@@ -101,6 +102,8 @@ const fullName='Wordlight-portable-'+version+'-win-x64.zip',appName='Wordlight-a
 const zip=writeZip(files);
 // The update ZIP holds the same app files, with names starting "app/".
 const appFiles=Object.fromEntries(Object.entries(files).filter(([name])=>name.startsWith(top+'app/')).map(([name,data])=>[name.slice(top.length),data]));
+const missing=missingImports(appFiles);
+if(missing.length)throw new Error('The package would be missing modules it imports; nothing was built:\n'+missing.join('\n'));
 const appZip=writeZip(appFiles);
 await writeFile(path.join(repo,'build',fullName),zip);await writeFile(path.join(repo,'build',appName),appZip);
 // The companion ZIP the web studio offers for download, built from the same commit.

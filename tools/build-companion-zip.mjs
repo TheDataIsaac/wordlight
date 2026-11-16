@@ -8,13 +8,14 @@ import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeZip} from '../ziputil.mjs';
+import {missingImports} from './missing-imports.mjs';
 
 const repo=path.join(path.dirname(fileURLToPath(import.meta.url)),'..');
 const commit=process.argv[2]||'HEAD',out=process.argv[3]||path.join(repo,'dist','wordlight-obs-companion.zip');
 const git=args=>execFileSync('git',args,{cwd:repo,maxBuffer:64e6});
 const tracked=String(git(['ls-tree','-r','--name-only',commit])).split('\n').filter(Boolean);
 // The companion itself, its start script, licence and notices; the studio pages; no tests, data, tools or this ZIP.
-const top=['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','notices.mjs','updates.mjs','Start Wordlight.cmd','Stop Wordlight.cmd',
+const top=['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','easyworship.mjs','notices.mjs','updates.mjs','Start Wordlight.cmd','Stop Wordlight.cmd',
  // Start and Stop Wordlight.cmd run the launcher with crash recovery from tools/launcher.
  'tools/launcher/run.cmd','tools/launcher/start.mjs','tools/launcher/supervisor.mjs','tools/launcher/shared.mjs','tools/launcher/update.mjs'];
 const names=[...top,...tracked.filter(n=>/^dist\/[^/]+\.(html|css|js|mjs)$/.test(n)).sort()];
@@ -23,6 +24,8 @@ for(const name of names){
  if(!tracked.includes(name))throw new Error(name+' is not in '+commit+'; nothing was built.');
  files[name]=git(['show',commit+':'+name]);
 }
+const missing=missingImports(files);
+if(missing.length)throw new Error('The companion ZIP would be missing modules it imports; nothing was built:\n'+missing.join('\n'));
 const zip=writeZip(files);
 await writeFile(out,zip);
 console.log(out);console.log(names.length+' files from '+String(git(['rev-parse','--short',commit])).trim()+', sha256 '+createHash('sha256').update(zip).digest('hex'));

@@ -1,8 +1,10 @@
 // Checks the built Windows package the way a church would first use it: unpacks build/Wordlight-portable-<version>-win-x64.zip
 // into a throwaway folder, starts it with its own runtime on a free test port and a throwaway data folder, and checks
 // that the companion answers with the right build, serves the studio, the stage page and the update status, and stops.
+// Then the same for the companion source ZIP the web studio offers (build/wordlight-obs-companion.zip): unpacked and
+// started with node, so a module left out of it shows here instead of on a church's computer.
 //   node tools/smoke-package.mjs
-import {execFileSync,spawnSync} from 'node:child_process';
+import {execFileSync,spawnSync,spawn} from 'node:child_process';
 import {mkdtemp,readFile,rm,writeFile,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -35,5 +37,25 @@ try{
  console.log('Package '+build+': started, answered in '+health.memory.rssMB+' MB, studio, stage, output and update status all fine.');
  const stop=spawnSync(node,['app/tools/launcher/start.mjs','stop'],{cwd:top,env,encoding:'utf8',timeout:60000});
  if(stop.status!==0)fail('the package did not stop: '+stop.stdout+stop.stderr);
+ // The companion source ZIP, run with the package's own node.
+ const companionZip=await readFile(path.join(repo,'build','wordlight-obs-companion.zip')),source=path.join(folder,'companion');
+ for(const entry of zipEntries(companionZip)){
+  if(entry.name.endsWith('/'))continue;
+  const target=path.join(source,entry.name);await mkdir(path.dirname(target),{recursive:true});
+  await writeFile(target,readZipEntry(companionZip,entry,200e6));
+ }
+ // Its own ports, so a package that did not stop cannot answer for it.
+ const companionBase='http://127.0.0.1:'+(port+5),getCompanion=async p=>{const r=await fetch(companionBase+p);return {status:r.status,text:await r.text()};};
+ const companion=spawn(node,['server.mjs'],{cwd:source,env:{...env,WORDLIGHT_PORT:String(port+5),WORDLIGHT_REMOTE_PORT:String(port+6),WORDLIGHT_DATA_DIR:path.join(folder,'companion-data')},stdio:['ignore','ignore','pipe']});
+ let companionErrors='';companion.stderr.on('data',d=>{companionErrors+=d;});
+ try{
+  let up=false;
+  for(let i=0;i<60&&!up&&companion.exitCode===null;i++){try{up=(await fetch(companionBase+'/api/health')).ok;}catch{}if(!up)await new Promise(r=>setTimeout(r,500));}
+  if(!up)fail('the companion ZIP did not start: '+companionErrors.slice(0,500));
+  else{
+   for(const page of ['/','/app.js','/?view=output&obs=1'])if((await getCompanion(page)).status!==200)fail('companion ZIP: '+page+' did not load');
+   console.log('Companion ZIP: started, studio and output fine.');
+  }
+ }finally{companion.kill();await new Promise(r=>companion.exitCode===null?companion.once('exit',r):r());}
 }catch(err){fail(err.message);}
 finally{await rm(folder,{recursive:true,force:true,maxRetries:5,retryDelay:300}).catch(()=>{});}
