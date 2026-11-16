@@ -140,8 +140,10 @@ export function fromChordPro(text,fallbackTitle=''){
    else if(key==='start_of_verse'||key==='sov')start(value||'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1));
    else if(/^end_of_|^eo[cvb]$/.test(key)){close();current=null;}
    else if(['comment','c','ci','comment_italic','cb'].includes(key)&&HEADING.test(value)){
+    // The words before it are stored first, so a chorus written just above counts as written.
+    close();
     const label=tidyHeading(value),again=sections.find(s=>s.label.toLowerCase()===label.toLowerCase()&&s.slides.length);
-    if(again){close();current=null;repeat={label,again};}else start(label);
+    if(again){current=null;repeat={label,again};}else start(label);
    }
    continue;
   }
@@ -225,13 +227,18 @@ export function fromEasyWorship({title,author,copyright,ccli,words}){
 
 // ProPresenter 6 (and 5): XML. Each group (named "Verse 1", "Chorus"…) holds slides, and each slide's words are in its
 // text element as base64, either plain text or RTF. A saved arrangement, if there is one, gives the order sung.
-const base64Text=s=>new TextDecoder('utf-8').decode(Uint8Array.from(atob(String(s).replace(/\s+/g,'')),c=>c.charCodeAt(0)));
+// Plain text must be valid UTF-8: a damaged slide is refused rather than shown with replacement marks. RTF is 7-bit
+// with escapes, but some programs write raw Windows-1252 letters into it, so RTF that is not UTF-8 is read as that.
+const base64Bytes=s=>Uint8Array.from(atob(String(s).replace(/\s+/g,'')),c=>c.charCodeAt(0));
+const UTF8=new TextDecoder('utf-8',{fatal:true});
+const base64Text=s=>UTF8.decode(base64Bytes(s));
+const base64Rtf=s=>{const bytes=base64Bytes(s);try{return UTF8.decode(bytes);}catch{return CP1252.decode(bytes);}};
 // The value runs to the next quote, found once: with no closing quote there is no value (and no rescan of the rest).
 const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="','i').exec(tag);if(!m)return '';const start=m.index+m[0].length,end=tag.indexOf('"',start);return end<0?'':decode(tag.slice(start,end));};
 function slideWords(slide,number){
  const element=elements(slide,'RVTextElement',1)[0];if(!element)return '';
  const field=name=>(new RegExp('<NSString[^<>]*rvXMLIvarName="'+name+'"[^<>]*>([^<]*)<','i').exec(element.inner)||[])[1]||attribute('<x'+element.attrs+'>',name);
- try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Text(rtf)):'';}
+ try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Rtf(rtf)):'';}
  catch{throw new Error('slide '+number+'\'s words are damaged, so the song was not imported');}
 }
 export function fromProPresenter6(xml,fallbackTitle=''){

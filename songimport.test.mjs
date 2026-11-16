@@ -151,6 +151,7 @@ test('ProPresenter: two groups with the same name keep their own words in the ar
  assert.deepEqual(sections(song),[['Chorus',['First chorus']],['Chorus 2',['Second chorus']]]);
  assert.equal(order(song),'Chorus, Chorus 2, Chorus');
  assert.throws(()=>songFromImportedFile('Twice.pro6',doc('<RVSlideGrouping name="Chorus" uuid="g1"><array>'+plain(b64('Fine'))+plain('%%not base64%%')+'</array></RVSlideGrouping>')),/slide 2.*damaged/);
+ assert.throws(()=>songFromImportedFile('Bad.pro6',doc('<RVSlideGrouping name="Verse 1" uuid="g1"><array>'+plain('/w==')+'</array></RVSlideGrouping>')),/slide 1.*damaged/,'text that is not UTF-8 is damaged');
 });
 
 test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord tags stay off the screen, SongSelect authors split on |',()=>{
@@ -163,6 +164,9 @@ test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord ta
  assert.equal(order(plain),'Verse, Chorus, Verse 2, Chorus');
  const two=songFromImportedFile('t.chordpro','{title:T}\n{c: Chorus}\nFirst chorus\n\n{c: Verse 1}\nA verse\n{c: Chorus}\nOther chorus words\n');
  assert.deepEqual(sections(two),[['Chorus',['First chorus']],['Verse 1',['A verse']],['Chorus 2',['Other chorus words']]]);
+ // A chorus marked again straight after its own words is sung twice.
+ const twice=songFromImportedFile('c.chordpro','{title:C}\n{c:Chorus}\nThe chorus\n{c:Chorus}\n\n{c:Verse 1}\nA verse\n');
+ assert.equal(order(twice),'Chorus, Chorus, Verse 1');
  const openlp=songFromImportedFile('d.xml','<song xmlns="http://openlyrics.info/namespace/2009/song" version="0.8"><properties><titles><title>T</title></titles></properties><lyrics><verse name="v1"><lines><tag name="c">[D]</tag>Holy <tag name="c">[Ami]</tag>Spirit<br/>co<chord name="G"/>me &#99999999;</lines></verse></lyrics></song>');
  assert.deepEqual(sections(openlp),[['Verse 1',['Holy Spirit\ncome']]]);
  assert.equal(songFromImportedFile('s.txt','Test Song\n\nVerse 1\nLine one\n\nCCLI Song # 123\nAuthor One | Author Two\n© 2011 Someone\n').meta.author,'Author One, Author Two');
