@@ -63,7 +63,8 @@ test('Paired live updates reach output streams, are saved, and never replace a n
  const t=Date.now()+1000,sent=await request('POST','/api/bridge/live',{headers:auth,body:{live:live(t,'From hosted')}});
  assert.equal(sent.status,200);await new Promise(r=>setTimeout(r,150));
  assert.ok(events.seen.join('').includes('From hosted'),'output stream received it');
- const saved=JSON.parse(await readFile(path.join(dataDir,'session.json'),'utf8'));assert.equal(saved.live.updated,t);
+ // A screen change saves only the screen (live.json), never every show.
+ const saved=JSON.parse(await readFile(path.join(dataDir,'live.json'),'utf8'));assert.equal(saved.live.updated,t);
  const stale=await request('POST','/api/bridge/live',{headers:auth,body:{live:live(t-5,'Older')}});
  assert.equal(stale.status,409);assert.equal(stale.body.liveUpdated,t);
  assert.equal((await request('GET','/api/state')).body.live.updated,t,'older state was ignored');
@@ -121,6 +122,11 @@ test('Rotating the code locks out the old pairing',async()=>{
  assert.equal((await request('POST','/api/bridge/code',{headers:{Origin:hosted,Authorization:'Bearer '+code}})).status,403);
 });
 test('The companion keeps a rolling backup of the previous save',async()=>{
+ // Two library saves: the second keeps a copy of the first in backups/ before replacing it.
+ for(let i=0;i<2;i++){
+  const {library}=(await request('GET','/api/state')).body;
+  assert.equal((await request('POST','/api/state',{body:{library:{...library,savedAt:Date.now()+i},baseSavedAt:library.savedAt||0}})).status,200);
+ }
  const files=await readdir(path.join(dataDir,'backups'));assert.ok(files.some(f=>/^session-.*\.json$/.test(f)));
 });
 test('The companion serves every module the studio imports',async()=>{

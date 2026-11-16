@@ -230,7 +230,7 @@ test('A new song can still be kept in the show when the library cannot be writte
  await until("fetch('/api/state').then(r=>r.json()).then(s=>s.draft.songs?.some(x=>x.song.title==='Library Is Down'))",'the song in the show');
 });
 test('A studio that opens during a save failure is told straight away',{skip},async()=>{
- const blocker=path.join(dir,'data','session.tmp');await mkdir(blocker);
+ const blocker=path.join(dir,'data','live.tmp');await mkdir(blocker);
  const s=await (await fetch(site+'api/state')).json();
  const answer=await (await fetch(site+'api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({live:{...s.live,updated:Date.now()+90000}})})).json();
  assert.equal(answer.saveFailed,true);

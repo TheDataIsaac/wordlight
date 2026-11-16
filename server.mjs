@@ -31,7 +31,8 @@ const APP_PREVIEW=process.env.WORDLIGHT_PREVIEW==='1';
 const APP_BUILD=await readFile(path.join(root,'build.json'),'utf8').then(t=>String(JSON.parse(t).build||'dev')).catch(()=>'dev');
 const initialLibrary=cleanLibrary(null,DEFAULT);initialLibrary.shows.forEach(s=>s.updated=0);initialLibrary.savedAt=0;
 let state={app:'wordlight',library:initialLibrary,draft:activeShow(initialLibrary).draft,live:{...snapshot(DEFAULT),blank:true}};
-function loadSaved(saved){if(saved.library||saved.draft){state.library=cleanLibrary(saved.library,saved.draft);state.draft=activeShow(state.library).draft;}if(validLive(saved.live)){state.live=saved.live;try{state.live.graphics=cleanGraphics(saved.live.graphics);}catch(err){console.error('Saved graphics settings were not valid and were reset: '+err.message);state.live.graphics=cleanGraphics();}}}
+let liveFromDisk=false;
+function loadSaved(saved){if(saved.library||saved.draft){state.library=cleanLibrary(saved.library,saved.draft);state.draft=activeShow(state.library).draft;}if(validLive(saved.live)){liveFromDisk=true;state.live=saved.live;try{state.live.graphics=cleanGraphics(saved.live.graphics);}catch(err){console.error('Saved graphics settings were not valid and were reset: '+err.message);state.live.graphics=cleanGraphics();}}}
 // Windows can refuse a read or rename for a moment while another program (OneDrive, antivirus, an indexer) holds
 // the file. This tries again a few times over about 1.5 s before giving up.
 async function retryBusy(work){
@@ -67,6 +68,9 @@ const backupTime=name=>{const m=/^session-(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)
   }
  }
 }
+// The screen saved on its own after the last library save, if it is newer than the one in session.json (or session.json
+// had none: the starting blank screen is stamped with the time Wordlight started, so it is not compared).
+try{const saved=JSON.parse(await retryBusy(()=>readFile(path.join(dataDir,'live.json'),'utf8')));if(validLive(saved?.live)&&(!liveFromDisk||Number(saved.live.updated)>Number(state.live.updated||0)))loadSaved({live:saved.live});}catch{}
 // Pairing for the hosted studio bridge. The code lives only in this data folder and is shown in the local studio.
 // The bridge accepts live screen state, never shows, and only from the configured hosted origins.
 // The web-studio bridge is off unless WORDLIGHT_BRIDGE_ORIGINS names the https site allowed to send screens.
@@ -100,6 +104,9 @@ let stateQueue=Promise.resolve();
 // The id of the last library save, so a tab whose answer was lost can tell that save was its own.
 let lastWriteId='';
 const inStateQueue=task=>{const run=stateQueue.then(task,task);stateQueue=run.catch(()=>{});return run;};
+// A screen change (the next slide, a verse from the phone) saves only the screen, in live.json, so it never rewrites
+// every show. Library saves still write the whole session to session.json. At start the newer screen of the two wins.
+function persistLive(){const json=JSON.stringify({live:state.live});writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});const tmp=path.join(dataDir,'live.tmp');await writeFile(tmp,json,'utf8');await retryBusy(()=>rename(tmp,path.join(dataDir,'live.json')));});return writes;}
 function persist(){const json=JSON.stringify(state);writes=writes.catch(()=>{}).then(async()=>{await mkdir(dataDir,{recursive:true});await backup().catch(()=>{});const tmp=path.join(dataDir,'session.tmp');await writeFile(tmp,json,'utf8');await retryBusy(()=>rename(tmp,path.join(dataDir,'session.json')));});return writes;}
 function json(res,code,data,extra={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));}
 const localOrigins=()=>['http://127.0.0.1:'+port,'http://localhost:'+port];
@@ -558,7 +565,7 @@ async function handleBridge(req,res,url){
    if(!(Number(update.live.updated)>Number(state.live.updated||0))){json(res,409,{error:'The companion already has a newer screen.',liveUpdated:state.live.updated||0},cors);return;}
    // Graphics belong to the local studio (they refer to images stored here), so a web studio screen keeps them.
    const previous=state;state={...state,live:{...update.live,graphics:state.live.graphics}};
-   try{await persist();}catch{state=previous;json(res,500,{error:'The companion could not save the screen.'},cors);return;}
+   try{await persistLive();}catch{state=previous;json(res,500,{error:'The companion could not save the screen.'},cors);return;}
    broadcast();json(res,200,{ok:true,liveUpdated:state.live.updated,viewers},cors);
   });return;
  }
@@ -751,7 +758,7 @@ function announceSave(problem){if(problem===saveProblem)return;saveProblem=probl
 let saving=null,saveAgain=false;
 function saveNewest(){
  if(saving){saveAgain=true;return saving;}
- saving=persist().then(()=>{announceSave(false);return true;},err=>{
+ saving=persistLive().then(()=>{announceSave(false);return true;},err=>{
   console.error('The screen changed but could not be saved: '+(err?.message||err));announceSave(true);
   if(!saveRetry)saveRetry=setTimeout(()=>{saveRetry=null;saveNewest();},5000);
   return false;

@@ -98,3 +98,18 @@ test('A live stream that stops reading is closed instead of filling memory, and 
   assert.equal((await (await fetch('http://127.0.0.1:'+port+'/api/health')).json()).app,'wordlight');
  }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true});}
 });
+
+test('At start the newer screen wins: the one saved on its own in live.json, or the one in session.json',async()=>{
+ const live=(updated,text)=>({...snapshot(cleanDraft({...DEFAULT,passage:text})),blank:false,updated});
+ for(const [sessionAt,liveAt,expected] of [[1000,2000,'from live.json'],[3000,2000,'from session.json']]){
+  const dataDir=await mkdtemp(path.join(tmpdir(),'wordlight-recovery-test-'));
+  await writeFile(path.join(dataDir,'session.json'),JSON.stringify({...lib('Show'),live:live(sessionAt,'from session.json')}));
+  await writeFile(path.join(dataDir,'live.json'),JSON.stringify({live:live(liveAt,'from live.json')}));
+  const server=startCompanion(dataDir);
+  try{
+   const state=await readState();
+   assert.equal(state.live.slides[0].text,expected);
+   assert.equal(state.library.shows[0].draft.title,'Show','the shows still come from session.json');
+  }finally{await stopCompanion(server);await rm(dataDir,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+ }
+});

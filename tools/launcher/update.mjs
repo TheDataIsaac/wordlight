@@ -12,7 +12,7 @@
 import {cp,mkdir,open,readFile,rename,rm,stat} from 'node:fs/promises';
 import path from 'node:path';
 
-const DATA_FILES=['session.json','settings.json','remote.json','songs/index.json'];
+const DATA_FILES=['session.json','live.json','settings.json','remote.json','songs/index.json'];
 // A lock older than this was left by a start that died; it no longer holds anything.
 const LOCK_STALE_MS=2*60*1000;
 

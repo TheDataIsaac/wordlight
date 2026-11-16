@@ -68,8 +68,8 @@ test('An older screen, or a change made from an older screen, never moves the sc
  assert.equal(fine.body.ok,true);assert.ok(!fine.body.superseded);assert.match((await state()).live.slides[0].text,/next words/);
 });
 test('A failed save still changes the screen, says so, and catches up when the disk works again',async()=>{
- // A folder in the temporary file's place makes every session save fail.
- const blocker=path.join(dir,'session.tmp');await mkdir(blocker);
+ // A folder in the temporary file's place makes every screen save (live.json) fail.
+ const blocker=path.join(dir,'live.tmp');await mkdir(blocker);
  // The studio hears about a failed save on its live stream, even when the save fails after the slide was answered.
  const stream=await fetch('http://127.0.0.1:'+port+'/api/events'),reader=stream.body.getReader(),decoder=new TextDecoder();
  try{
@@ -79,7 +79,7 @@ test('A failed save still changes the screen, says so, and catches up when the d
   let heard='';while(!heard.includes('"saveProblem":true')){const {value,done}=await Promise.race([reader.read(),wait(5000).then(()=>({done:true}))]);if(done)break;heard+=decoder.decode(value);}
   assert.ok(heard.includes('"saveProblem":true'),'open studios are told the save failed');
  }finally{await reader.cancel().catch(()=>{});await rm(blocker,{recursive:true,force:true});}
- for(let i=0;i<80;i++){await wait(100);try{if(JSON.parse(await readFile(path.join(dir,'session.json'),'utf8')).live.slides[0].text.includes('on screen anyway'))return;}catch{}}
+ for(let i=0;i<80;i++){await wait(100);try{if(JSON.parse(await readFile(path.join(dir,'live.json'),'utf8')).live.slides[0].text.includes('on screen anyway'))return;}catch{}}
  assert.fail('The screen was never saved after the disk recovered.');
 });
 test('The phone: stays signed in across a restart, changes only its own settings, and cannot act on a stale list',async()=>{
