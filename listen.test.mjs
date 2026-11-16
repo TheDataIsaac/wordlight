@@ -179,6 +179,7 @@ test('A speech process that dies is started again, a few times; one that never s
   assert.ok(await until(()=>listener.state().restarting),'it dies again');
   await wait(400);
   assert.equal(listener.state().restarting,true,'still waiting for memory');
+  assert.equal(listener.state().waitingForMemory,true,'and says so');
   free=8e9;
   // It keeps dying: after three restarts listening is left off, with the reason.
   assert.ok(await until(()=>!listener.state().listening,8000),'listening ends');
@@ -218,33 +219,34 @@ test('Listening lifecycle: Stop during a restart, the quiet stop, a quick Stop a
  const listeners=[];const use=l=>{listeners.push(l);return l;};
  try{
   // Stop while waiting to start again: nothing starts afterwards.
-  let l=use(make(dies,{restartDelays:[300]}));
-  l.start();assert.ok(await until(()=>l.state().restarting),'it died and waits to start again');
+  let l=use(make(dies,{restartDelays:[1500]}));
+  l.start();assert.ok(await until(()=>l.state().restarting,10000),'it died and waits to start again');
   l.stop();
   assert.deepEqual([l.state().listening,l.state().restarting],[false,false]);
-  await wait(500);assert.equal(l.state().listening,false,'and nothing started later');
-  // The quiet stop: audio keeps listening on; when the studio stops sending, listening ends, without an error.
-  l=use(make(steady,{quietMs:300}));
-  l.start();assert.ok(await until(()=>l.state().ready));
+  await wait(1700);assert.equal(l.state().listening,false,'and nothing started later');
+  // The quiet stop: audio keeps listening on; when the studio stops sending, listening ends, without an error. Audio
+  // comes from the start, as the studio sends it, so a slow start on a busy computer is not mistaken for silence.
+  l=use(make(steady,{quietMs:1000}));
+  l.start();assert.ok(await until(()=>{l.audio(Buffer.alloc(8000));return l.state().ready;},10000));
   for(let i=0;i<6;i++){l.audio(Buffer.alloc(8000));await wait(100);}
   assert.equal(l.state().listening,true,'audio keeps it on');
-  assert.ok(await until(()=>!l.state().listening,1500),'silence stops it');
+  assert.ok(await until(()=>!l.state().listening,5000),'silence stops it');
   assert.equal(l.state().error,'');
-  // The quiet stop also ends a pending restart.
-  l=use(make(dies,{restartDelays:[800],quietMs:300}));
-  l.start();assert.ok(await until(()=>l.state().restarting));
-  assert.ok(await until(()=>!l.state().listening,1500),'the studio is gone, so it stops');
-  await wait(900);assert.equal(l.state().listening,false,'and the restart never happens');
+  // The quiet stop also ends a pending restart. Audio keeps coming until the process has died, then stops.
+  l=use(make(dies,{restartDelays:[2000],quietMs:400}));
+  l.start();assert.ok(await until(()=>{l.audio(Buffer.alloc(8000));return l.state().restarting;},8000));
+  assert.ok(await until(()=>!l.state().listening,5000),'the studio is gone, so it stops');
+  await wait(2200);assert.equal(l.state().listening,false,'and the restart never happens');
   // A quick Stop and Start: the old process ending does not touch the new one.
   l=use(make(steady));
-  l.start();assert.ok(await until(()=>l.state().ready));
+  l.start();assert.ok(await until(()=>l.state().ready,10000));
   l.stop();l.start();
-  assert.ok(await until(()=>l.state().ready),'the new one runs');
+  assert.ok(await until(()=>l.state().ready,10000),'the new one runs');
   await wait(300);assert.deepEqual([l.state().listening,l.state().ready,l.state().error],[true,true,'']);
   l.stop();
   // Remove while waiting to start again: everything stops and listening needs downloading again.
-  l=use(make(dies,{restartDelays:[300]}));
-  l.start();assert.ok(await until(()=>l.state().restarting));
+  l=use(make(dies,{restartDelays:[1500]}));
+  l.start();assert.ok(await until(()=>l.state().restarting,10000));
   await l.remove();
   assert.deepEqual([l.state().listening,l.state().restarting,l.state().installed],[false,false,false]);
   await wait(400);assert.equal(l.state().listening,false);

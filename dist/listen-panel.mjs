@@ -81,7 +81,7 @@ export function paintBar(){
  if(!state||(!state.listening&&!items.length&&!state.error)){bar.hidden=true;bar.innerHTML='';bar.dataset.look='';return;}
  bar.hidden=false;
  const last=state.partial||state.phrases?.at(-1)?.text||'';
- const heard=state.listening?(state.restarting?'The speech process stopped; starting it again shortly…':state.ready?last||'Listening…':'Starting the speech model…'):state.error||'Listening is off';
+ const heard=state.listening?(state.waitingForMemory?'The speech process stopped. Waiting for free memory to start it again (closing other programs helps)…':state.restarting?'The speech process stopped; starting it again shortly…':state.ready?last||'Listening…':'Starting the speech model…'):state.error||'Listening is off';
  const look=JSON.stringify([state.listening,state.skipped,items.map(s=>[s.id,s.confidence])]);
  if(bar.dataset.look!==look||!bar.querySelector('.listen-heard')){
   bar.dataset.look=look;

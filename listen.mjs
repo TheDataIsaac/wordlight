@@ -56,12 +56,12 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
  restartDelays=RESTART_DELAYS,restartWaitMs=RESTART_WAIT_MS,quietMs=QUIET_STOP_MS,freeMemory=os.freemem}){
  const folder=path.join(dataDir,'listen'),marker=path.join(folder,'installed.json');
  let installing=null,progress=null,error='',worker=null,ready=false,behind=0,skipped=false,quietTimer=null,startedAt=0;
- let restartTimer=null,restarts=[],ranOnce=false;
+ let restartTimer=null,restarts=[],ranOnce=false,waitingForMemory=false;
  let phrases=[],partial='',suggestions=[],context={},heard=0;
 
  const installed=()=>existsSync(marker)&&existsSync(path.join(folder,'model','tokens.txt'));
  function state(){
-  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker||!!restartTimer,restarting:!!restartTimer,ready,skipped,
+  return {installed:installed(),installing:!!installing,progress,error,listening:!!worker||!!restartTimer,restarting:!!restartTimer,waitingForMemory,ready,skipped,
    downloadMB:Math.round(downloads.reduce((n,d)=>n+d.size,0)/1e6),phrases:phrases.slice(-KEEP_PHRASES),partial,suggestions};
  }
  const changed=()=>notify(state());
@@ -162,7 +162,8 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
  function restartLater(ms){
   restartTimer=setTimeout(()=>{
    restartTimer=null;
-   if(freeMemory()<RESTART_FREE_BYTES){restartLater(restartWaitMs);changed();return;}
+   if(freeMemory()<RESTART_FREE_BYTES){waitingForMemory=true;restartLater(restartWaitMs);changed();return;}
+   waitingForMemory=false;
    // fork can throw when the computer is out of memory; that must not stop the companion.
    try{launch();}catch{giveUp('The speech process could not start again. The computer may be short of memory: close other programs, then start listening again.');}
    changed();
@@ -171,7 +172,7 @@ export function createListener({dataDir,search,notify=()=>{},request=fetch,downl
  }
  function giveUp(message){clearTimeout(quietTimer);error=message;}
  function stop(){
-  clearTimeout(quietTimer);clearTimeout(restartTimer);restartTimer=null;
+  clearTimeout(quietTimer);clearTimeout(restartTimer);restartTimer=null;waitingForMemory=false;
   if(worker){const w=worker;worker=null;ready=false;w.kill();}
   partial='';changed();return state();
  }
