@@ -272,3 +272,5 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .gs-text{flex:1}.gs-mark{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#eef1ea;color:var(--muted);font-weight:700}
 .gs-steps li.done .gs-mark{background:#2e7d52;color:#fff}.gs-steps li.done .gs-text{color:var(--muted)}
 .gs-steps li.warn .gs-mark{background:#e0b25a;color:#1b1300}
+/* A slow send: "sending..." by LIVE until the companion answers. */
+.live-sending .live-label::after{content:' \00B7  sending\2026';font-weight:400;opacity:.8}

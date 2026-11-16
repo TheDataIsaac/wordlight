@@ -129,8 +129,11 @@ async function publish(next,base){
  // The web studio holds its own screen: a send that waited (a lookup, a song) is dropped if the screen changed meanwhile.
  if(!isLocal&&base!==undefined&&Number(live.updated||0)!==Number(base)){toast('The screen just changed. Check it and press again.');return false;}
  if(isLocal){
-  let answer;
+  // A send that takes longer than usual (a busy computer) shows "sending…" by LIVE, so the operator waits for it
+  // instead of pressing again.
+  let answer;const slow=setTimeout(()=>document.body.classList.add('live-sending'),400);
   try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide.');return false;}
+  finally{clearTimeout(slow);document.body.classList.remove('live-sending');}
   if(answer.superseded){toast('The screen just changed. Check it and press again.');reconcileWithCompanion();return false;}
   if(answer.saveFailed)showSaveProblem(true);
  }
