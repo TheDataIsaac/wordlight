@@ -24,6 +24,8 @@ export function cleanDraft(v){
  const d={...DEFAULT,...v};
  delete d.library;delete d.shows;d.verseRange=cleanVerseRange(v.verseRange);d.bibleVerses=cleanBibleVerses(v.bibleVerses);d.passageLayout=v.passageLayout==='flow'?'flow':'verses';d.excludedSlides=(Array.isArray(v.excludedSlides)?v.excludedSlides:[]).filter(x=>typeof x==='string').slice(0,25000);
  d.scriptureAttribution=str(v.scriptureAttribution,1000);d.scriptureSource=cleanScriptureSource(v.scriptureSource);
+ // A second version of the same verses, shown under each verse slide, with its own short name and licence line.
+ d.secondVerses=cleanBibleVerses(v.secondVerses);d.secondTranslation=str(v.secondTranslation,30);d.secondAttribution=str(v.secondAttribution,1000);
  d.title=str(v.title,100)||'Sunday Service'; d.reference=str(v.reference,100);
  d.translation=str(v.translation,30); d.passage=str(v.passage,500000);
  d.theme=THEMES[v.theme]?v.theme:'midnight';d.font=FONTS[v.font]?v.font:'serif';d.bold=!!v.bold;d.italic=!!v.italic;
@@ -77,7 +79,10 @@ export function makeDeck(d){
  const verses=d.includePassage===false?[]:cleanBibleVerses(d.bibleVerses).filter(v=>!excluded.has('passage-'+v.bookId+'-'+v.chapter+'-'+v.verse));
  const passage=(d.bibleVerses||[]).length?verses.map(v=>v.text).join('\n'):d.passage;
  const pages=d.includePassage===false?[]:(d.bibleVerses||[]).length?paginate(passage,d.wordsPerSlide):paginateSections(passage,d.wordsPerSlide);
- const slides=verses.length&&d.passageLayout!=='flow'?verses.map((v,i)=>({id:'passage-'+v.bookId+'-'+v.chapter+'-'+v.verse,type:'passage',text:v.text,reference:v.reference,translation:d.translation,versePoint:{bookId:v.bookId,chapter:v.chapter,verse:v.verse},page:i+1,pages:verses.length,title:v.reference})):pages.map((text,i)=>({id:'passage-'+i,type:'passage',text,reference:d.reference,translation:d.translation,page:i+1,pages:pages.length,title:pages.length>1?'Passage '+(i+1):'Passage'}));
+ // The second version goes with one verse per slide only: flowing text has no verse boundaries to line it up with.
+ const second=new Map(cleanBibleVerses(d.secondVerses).map(v=>[v.bookId+'-'+v.chapter+'-'+v.verse,v.text]));
+ const secondFor=v=>second.has(v.bookId+'-'+v.chapter+'-'+v.verse)?{second:{text:second.get(v.bookId+'-'+v.chapter+'-'+v.verse),translation:d.secondTranslation}}:{};
+ const slides=verses.length&&d.passageLayout!=='flow'?verses.map((v,i)=>({id:'passage-'+v.bookId+'-'+v.chapter+'-'+v.verse,type:'passage',text:v.text,reference:v.reference,translation:d.translation,versePoint:{bookId:v.bookId,chapter:v.chapter,verse:v.verse},page:i+1,pages:verses.length,title:v.reference,...secondFor(v)})):pages.map((text,i)=>({id:'passage-'+i,type:'passage',text,reference:d.reference,translation:d.translation,page:i+1,pages:pages.length,title:pages.length>1?'Passage '+(i+1):'Passage'}));
  for(const n of d.includePassage===false?[]:d.notes){
   if(n.slideId)continue;
   if(![n.meaning,n.original,n.transliteration,n.strong].some(v=>typeof v==='string'&&v.trim()))continue;
@@ -119,13 +124,13 @@ export function deckFor(d){
  // Song snapshots are never edited in place except for the chosen arrangement, so they are keyed by identity
  // (plus arrangement) instead of stringifying every song's lyrics on each call.
  const songKey=(d.songs||[]).map(s=>[s.entryId,s.song.arrangementId,songIdentity(s.song)]);
- const key=JSON.stringify([d.includePassage,d.passageLayout,d.wordsPerSlide,d.translation,d.reference,d.passage,d.bibleVerses,d.excludedSlides,d.notes,d.textSlides,d.slideOrder,songKey,d.fitPadding,d.bold,d.italic,settings()]);
+ const key=JSON.stringify([d.includePassage,d.passageLayout,d.wordsPerSlide,d.translation,d.reference,d.passage,d.bibleVerses,d.secondVerses,d.secondTranslation,d.excludedSlides,d.notes,d.textSlides,d.slideOrder,songKey,d.fitPadding,d.bold,d.italic,settings()]);
  const hit=deckCache.get(d);if(hit&&hit.key===key)return hit.deck;
  const deck=makeDeck(d);deckCache.set(d,{key,deck});return deck;
 }
 export function snapshot(d,id=d.previewId){
  const slides=makeDeck(d);const index=Math.max(0,slides.findIndex(s=>s.id===id));
- return {schema:1,slides,index,blank:false,style:{scriptureAttribution:d.scriptureAttribution,fit:!!d.fit,fitPadding:fitPadding(d.fitPadding),theme:d.theme,font:d.font,fontSize:d.fontSize,brand:d.brand,accent:d.accent,backgroundAssetId:assetId(d.backgroundAssetId),backgroundDim:d.backgroundDim??45,referenceSize:referenceSize(d.referenceSize),lowerReferenceSize:lowerReferenceSize(d.lowerReferenceSize),referenceColor:safeColor(d.referenceColor)||'',bold:!!d.bold,italic:!!d.italic,highlightWords:d.notes.map(n=>n.word),highlights:getHighlights(d)},updated:Date.now()};
+ return {schema:1,slides,index,blank:false,style:{scriptureAttribution:d.scriptureAttribution,secondAttribution:slides.some(s=>s.second)?d.secondAttribution:'',fit:!!d.fit,fitPadding:fitPadding(d.fitPadding),theme:d.theme,font:d.font,fontSize:d.fontSize,brand:d.brand,accent:d.accent,backgroundAssetId:assetId(d.backgroundAssetId),backgroundDim:d.backgroundDim??45,referenceSize:referenceSize(d.referenceSize),lowerReferenceSize:lowerReferenceSize(d.lowerReferenceSize),referenceColor:safeColor(d.referenceColor)||'',bold:!!d.bold,italic:!!d.italic,highlightWords:d.notes.map(n=>n.word),highlights:getHighlights(d)},updated:Date.now()};
 }
 export function validLive(v){
  return !!v&&v.schema===1&&Array.isArray(v.slides)&&v.slides.length<=25000&&

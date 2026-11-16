@@ -3,7 +3,7 @@ import {fitStage} from './fit.mjs';
 import {readLibrary,saveLibrary,chooseLocalLibrary,libraryTime} from './storage.mjs';
 import {lookupYoruba,YORUBA_CREDIT} from './yoruba.mjs';
 import {cleanTimer,timerValue,formatTimer,changeTimer,cleanTimerAppearance,timerAppearanceStyle} from './timer.mjs';
-import {applyPastedNKJV,applyBiblePassage,cleanLibrary,createShow,activeShow,mergeShows,slideGroups,moveGroups,removeGroups,copyGroups,groupKey,MAX_SHOWS,MAIN_SCENE,activeScene,sceneDraft,switchScene,addScene,renameScene,removeScene,restoreScene,copyShow,moveSlides,removeSlides,copySlides,itemSummary,isEmptyDraft,addItem,moveScene,applyDesignToAll,undoDesignToAll,backgroundAssetIds,wordsToAll,undoWordsToAll,planSplit,splitItem,undoSplit,addContent} from './library.mjs';
+import {applyPastedNKJV,applyBiblePassage,applySecondVersion,cleanLibrary,createShow,activeShow,mergeShows,slideGroups,moveGroups,removeGroups,copyGroups,groupKey,MAX_SHOWS,MAIN_SCENE,activeScene,sceneDraft,switchScene,addScene,renameScene,removeScene,restoreScene,copyShow,moveSlides,removeSlides,copySlides,itemSummary,isEmptyDraft,addItem,moveScene,applyDesignToAll,undoDesignToAll,backgroundAssetIds,wordsToAll,undoWordsToAll,planSplit,splitItem,undoSplit,addContent} from './library.mjs';
 import {parseReference,suggestBooks,withBook} from './reference.mjs';
 import {lowerThirdFlow,cleanLowerThird,lowerThirdBandStyle,lowerThirdContent} from './lowerthird.mjs';
 import {cleanGraphics,graphicsMarkup,graphicsTimerShown,GRAPHICS_POSITIONS,CARD_POSITIONS,GRAPHICS_LIMITS} from './graphics.mjs';
@@ -12,7 +12,7 @@ import {readPairing,savePairing,forgetPairing,companionStatus,sendToCompanion,ne
 import {SECTIONS,pickerBooks,pickVerse,selectionReference,chapterReference,versesIn,readRecent,rememberRecent} from './picker.mjs';
 import {matchingBooks,completeBook} from './reference.mjs';
 import {newSong,editSong,songToText,arrangementText,readSongFile,songFile,captureSong,addCapturedLine,setlistLines,settings,applySettings,cleanSettings,matchedSlide,LINES_PER_SLIDE} from './songs.mjs';
-import {adjacentVerse,adjacentByChapter,rangeFromResponse,TRANSLATIONS,isLookupKey} from './scripture.mjs';
+import {adjacentVerse,adjacentByChapter,rangeFromResponse,TRANSLATIONS,isLookupKey,versesReference} from './scripture.mjs';
 import {readLimitedJSON} from './readlimit.mjs';
 import {looksLikeWords,verseResultsMarkup} from './verse-search.mjs';
 import {AO_CATALOG_URL,catalogRows,filterRows,coverage,aoCredit,aoChapter,lookupAO,readPinned,savePinned} from './versions.mjs';
@@ -148,7 +148,7 @@ function renderPanel(){
  if(tab==='slides')renderSlides();else if(tab==='passage')renderPassage();else if(tab==='songs')renderSongs();else if(tab==='words')renderWords();else renderDesign();
 }
 function renderPassage(){
- $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="Romans 12:1-2, or words from the verse" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div><div id="verseResults" class="verse-results"></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div><p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow','primary')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
+ $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="Romans 12:1-2, or words from the verse" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div><div id="verseResults" class="verse-results"></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div>'+(isLocal?label('Second version under each verse','secondVersion')+'<select id="secondVersion">'+secondVersionOptions()+'</select>':'')+'<p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow','primary')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
  $('#lookupStatus').insertAdjacentHTML('beforebegin',label('Passage layout','passageLayout')+'<select id="passageLayout"><option value="verses" '+(draft.passageLayout!=='flow'?'selected':'')+'>One verse per slide</option><option value="flow" '+(draft.passageLayout==='flow'?'selected':'')+'>Flowing text (split by length)</option></select>'+tip('Choose how this show displays a range. You can switch after lookup without downloading it again.')+'');
  $('#passageLayout').addEventListener('change',ev=>{draft.passageLayout=ev.target.value;draft.previewId='';remember();renderPreview();renderDeck();renderVerseNavigation();updateStats();});
  $('#lookupStatus').insertAdjacentHTML('afterend','<div id="panelVerseNav"></div>'+button('Add passage as new item','keep-passage','plus')+''+tip('Looks up the reference above as a separate Scripture item, for example a second reading. Look up changes the current Scripture item.')+'');renderVerseNavigation();
@@ -159,6 +159,7 @@ function renderPassage(){
  if(companionReady()&&!nkjvState)refreshNKJV();
  if(companionReady()&&!installedBibles)refreshInstalledBibles();
  setupBookAutocomplete($('#referenceLookup'));paintVerseResults();
+ $('#secondVersion')?.addEventListener('change',ev=>changeSettings({secondVersion:ev.target.value}));
  for(const [id,key] of [['passageText','passage'],['referenceLabel','reference'],['versionLabel','translation']]){
   $('#'+id).addEventListener('input',ev=>{
    if(key==='passage'&&ev.target.value.trim()&&['Song','Presentation'].includes(itemSummary(draft,deckFor(draft)).kind)){
@@ -309,11 +310,11 @@ function drawStage(frame,slide,style,blank=false,words=[]){
  if(slide?.type==='text'&&safeColor(slide.format?.background))colors.bg=safeColor(slide.format.background);
  const custom=Object.entries(colors).filter(([k])=>k!=='name').map(([k,v])=>'--'+k+':'+v).join(';');
  const note=slide?.note;const highlights=words.length?words:(note?[{word:note.word,color:safeColor(note.color)||colors.accent}]:[]);const noteColor=safeColor(note?.color)||highlights.find(h=>h?.word?.toLowerCase()===note?.word?.toLowerCase())?.color||colors.accent;
- const credit=slide?.type==='text'?slide.format?.attribution:style.scriptureAttribution;
+ const credit=slide?.type==='text'?slide.format?.attribution:[style.scriptureAttribution,slide?.second?style.secondAttribution:''].filter(Boolean).join(' · ');
  const image=!blank&&slide&&/^[a-f0-9]{16}$/.test(style.backgroundAssetId||'')&&!(slide.type==='text'&&safeColor(slide.format?.background))?style.backgroundAssetId:'',dim=Math.max(0,Math.min(80,Number(style.backgroundDim)||0));
  const html='<div class="stage-canvas '+(blank?'blank':'')+(image?' has-background':'')+'" style="'+custom+';--slide-font:'+font.replaceAll('"','')+'">'+(image?'<img class="stage-background" alt="" src="'+e(assetUrl(image))+'"><div class="stage-dim" style="opacity:'+dim/100+'"></div>':'')+'<div class="stage-inner">'+
- (slide?.type==='text'?textSlideMarkup(slide,colors,words):(slide?'<div class="slide-kicker">'+e(style.brand||'SCRIPTURE')+'</div><div class="slide-rule"></div><div class="slide-content'+(style.fit?' fit-mode':'')+'" data-fit="'+!!style.fit+'" data-fit-pad="'+fitPadding(style.fitPadding)+'" style="--fit-pad:'+fitPadding(style.fitPadding)+'px"><div class="verse-area"><div class="verse-text" data-base-size="'+Math.max(52,Math.min(112,Number(style.fontSize)||88))+'" style="font-size:'+Math.max(52,Math.min(112,Number(style.fontSize)||88))+'px;font-weight:'+(style.bold?'700':'400')+';font-style:'+(style.italic?'italic':'normal')+'">'+highlight(slide.text,highlights,colors.accent)+'</div></div>'+
- (note?'<div class="study-area" style="--accent:'+safeColor(noteColor)+'"><div class="study-label">WORD STUDY</div><h2 class="study-word">'+highlight(note.word,[{word:note.word,color:noteColor,emphasis:note.emphasis,bold:note.bold,italic:note.italic}],colors.accent)+'</h2>'+(note.original?'<div class="study-original" dir="auto">'+e(note.original)+'</div>':'')+'<div class="study-meta">'+e([note.transliteration,note.strong].filter(Boolean).join(' · '))+'</div>'+(note.meaning?'<p class="study-meaning">'+e(note.meaning)+'</p>':'')+'</div>':'')+'</div><div class="slide-footer scripture-footer" style="font-size:'+referenceSize(style.referenceSize)+'px'+(safeColor(style.referenceColor)?';color:'+safeColor(style.referenceColor)+';opacity:1':'')+'"><span>'+e(slide.reference)+' &nbsp; <span class="scripture-version">'+e(slide.translation)+'</span></span><span>'+e(slide.pages>1?slide.page+' / '+slide.pages:'')+'</span></div>':'<div class="empty-stage">Add text or a Bible passage to begin.</div>'))+'</div></div>';
+ (slide?.type==='text'?textSlideMarkup(slide,colors,words):(slide?'<div class="slide-kicker">'+e(style.brand||'SCRIPTURE')+'</div><div class="slide-rule"></div><div class="slide-content'+(style.fit?' fit-mode':'')+'" data-fit="'+!!style.fit+'" data-fit-pad="'+fitPadding(style.fitPadding)+'" style="--fit-pad:'+fitPadding(style.fitPadding)+'px"><div class="verse-area"><div class="verse-text" data-base-size="'+Math.max(52,Math.min(112,Number(style.fontSize)||88))+'" style="font-size:'+Math.max(52,Math.min(112,Number(style.fontSize)||88))+'px;font-weight:'+(style.bold?'700':'400')+';font-style:'+(style.italic?'italic':'normal')+'">'+highlight(slide.text,highlights,colors.accent)+(slide.second?'<div class="verse-second" dir="auto">'+highlight(slide.second.text,highlights,colors.accent)+'</div>':'')+'</div></div>'+
+ (note?'<div class="study-area" style="--accent:'+safeColor(noteColor)+'"><div class="study-label">WORD STUDY</div><h2 class="study-word">'+highlight(note.word,[{word:note.word,color:noteColor,emphasis:note.emphasis,bold:note.bold,italic:note.italic}],colors.accent)+'</h2>'+(note.original?'<div class="study-original" dir="auto">'+e(note.original)+'</div>':'')+'<div class="study-meta">'+e([note.transliteration,note.strong].filter(Boolean).join(' · '))+'</div>'+(note.meaning?'<p class="study-meaning">'+e(note.meaning)+'</p>':'')+'</div>':'')+'</div><div class="slide-footer scripture-footer" style="font-size:'+referenceSize(style.referenceSize)+'px'+(safeColor(style.referenceColor)?';color:'+safeColor(style.referenceColor)+';opacity:1':'')+'"><span>'+e(slide.reference)+' &nbsp; <span class="scripture-version">'+e(slide.translation+(slide.second?' · '+slide.second.translation:''))+'</span></span><span>'+e(slide.pages>1?slide.page+' / '+slide.pages:'')+'</span></div>':'<div class="empty-stage">Add text or a Bible passage to begin.</div>'))+'</div></div>';
  // Same slide, style and credit: keep the fitted DOM (and timer overlay) instead of rebuilding and refitting.
  // Edits that don't show on the slide, and repeated live messages, used to redraw the screen each time.
  const key=html+'|'+(credit||'');
@@ -654,6 +655,36 @@ async function stepVerse(delta){
  // Sent from the screen as it stood when the step began: if the phone or another tab changed it, the verse stays in preview.
  const sent=await publish({...currentSnapshot(),blank:live.blank},screenBase);if(sent)toast(sentMessage(slide?.reference||'Verse',sent));
 }
+// The second version chosen in Settings: the same verses, shown under each verse slide. A slow or failed second version
+// never holds up the verse: after 2 s, or on any error, the verse goes ahead alone and the operator is told why.
+async function lookupVersion(tr,reference){
+ if(installedBible(tr))return lookupInstalled(tr,reference);
+ if(tr==='oycb')return lookupYoruba(reference,getBibleData);
+ if(tr==='nkjv')return lookupNKJV(reference);
+ return getBibleData('/'+encodeURIComponent(reference)+'?translation='+tr+'&single_chapter_book_matching=indifferent');
+}
+async function secondVersionOf(data,primary){
+ const key=isLocal?settings().secondVersion:'',reference=versesReference(data.verses);
+ if(!key||key===primary||!reference)return {};
+ try{
+  const found=await Promise.race([lookupVersion(key,reference),new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),2000))]);
+  if(!Array.isArray(found?.verses)||!found.verses.length)throw new Error('empty');
+  return {second:{...found,translation:key}};
+ }catch{return {problem:key.toUpperCase()+' could not be loaded, so the verse is shown without it.'};}
+}
+function secondVersionOptions(){
+ const chosen=settings().secondVersion;
+ return '<option value="">None</option>'+BUILT_IN.map(([key,name])=>'<option value="'+key+'" '+(key===chosen?'selected':'')+'>'+e(name)+'</option>').join('');
+}
+// After the second version changes (here or on the phone), the passage in the preview gets it at once. The screen keeps
+// what it shows until the next send.
+async function refreshSecondVersion(){
+ const target=draft,verses=target.bibleVerses||[];if(!verses.length)return;
+ const {second,problem}=await secondVersionOf({verses},target.verseRange?.translation||target.translation.toLowerCase());
+ if(target!==draft||target.bibleVerses!==verses)return;
+ applySecondVersion(target,second);remember();renderPreview();renderDeck();
+ toast(problem||(second?'The preview now shows '+target.secondTranslation+' under each verse. Send to screen when ready.':'The second version is off. The screen changes at the next send.'));
+}
 async function lookupPassage(delta=0,options={}){
  // A manual lookup replaces any verse steps still loading.
  if(!options.quiet){verseIntent++;if(verseStepping){++lookupId;lookupBusy=false;}}
@@ -691,6 +722,12 @@ async function lookupPassage(delta=0,options={}){
   if(draft.passage!==oldText||draft.reference!==oldReference){toast('Your passage changed during lookup. Try again when ready.');return;}
   if(!data){toast(delta<0?'You are at the first verse in this translation.':'You are at the last verse in this translation.');return;}
   if(typeof data.text!=='string'||!data.text.trim())throw new Error('No passage found.');
+  // Only single verses or ranges (verse slides) can carry a second version. The checks above run again after the wait.
+  const {second,problem:secondProblem}=Array.isArray(data.verses)&&data.verses.length?await secondVersionOf(data,tr):{};
+  if(request!==lookupId||showId!==library.activeShowId||sceneId!==activeShow(library).activeSceneId)return false;
+  if(options.quiet&&draft.previewId!==oldPreview)return false;
+  if(draft.passage!==oldText||draft.reference!==oldReference){toast('Your passage changed during lookup. Try again when ready.');return;}
+  if(second)data.second=second;
   lastRemovedBible=null;const reference=data.reference||normalized;
   // AO versions: the short label goes on screen with the version's licence line; the key stays in the verse range.
   if(data&&tr.startsWith('ao:')){const v=versionInfo(tr);Object.assign(data,{label:v.label,attribution:v.credit,source:{provider:'AO Bible API',bibleId:tr.slice(3),fetchedAt:Date.now()}});}
@@ -705,7 +742,7 @@ async function lookupPassage(delta=0,options={}){
     applyBiblePassage(draft,{...data,reference},tr);
    }}
   rememberRecent(localStorage,reference,tr);
-  remember();render();if(fellBack)toast('The companion is not reachable, so '+tr.toUpperCase()+' was looked up online.');else if(!options.quiet)toast(reference+' loaded in preview. Send to screen when ready.');
+  remember();render();if(fellBack)toast('The companion is not reachable, so '+tr.toUpperCase()+' was looked up online.');else if(secondProblem)toast(secondProblem);else if(!options.quiet)toast(reference+' loaded in preview. Send to screen when ready.');
   return true;
  }catch(err){if(request===lookupId&&showId===library.activeShowId){const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';offerInstalledBibles(el,tr);}toast(err.message);}}
  finally{if(request===lookupId){lookupBusy=false;renderVerseNavigation();}}
@@ -1974,8 +2011,9 @@ function handleSettingsAction(a){
 }
 // Settings can change from the phone too. Slide numbers depend on them, so a preview that no longer exists moves to a slide that does.
 function receiveSettings(next){
- const before=JSON.stringify(settings()),shown=deckFor(draft).find(s=>s.id===draft.previewId);applySettings(next);
+ const before=JSON.stringify(settings()),secondBefore=settings().secondVersion,shown=deckFor(draft).find(s=>s.id===draft.previewId);applySettings(next);
  if(before===JSON.stringify(settings()))return;
+ if(settings().secondVersion!==secondBefore){const select=$('#secondVersion');if(select)select.value=settings().secondVersion;refreshSecondVersion();}
  // The preview stays on the same words when a song is split differently.
  if(!deckFor(draft).some(s=>s.id===draft.previewId)){
   const part=shown?.song?deckFor(draft).filter(s=>s.song?.entryId===shown.song.entryId&&s.song.position===shown.song.position):[];

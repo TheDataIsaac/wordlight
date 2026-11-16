@@ -177,13 +177,23 @@ export function copySlides(source,target,selected){
  target.slideOrder=order;return added;
 }
 
+// NKJV carries the provider's copyright line. AO catalogue versions carry their licence line and a short label; the
+// key ("ao:BSB") never appears on screen.
+const scriptureCredit=(translation,data)=>translation==='oycb'?YORUBA_CREDIT:translation==='nkjv'?(data.copyright||NKJV_CREDIT):translation.startsWith('ao:')?String(data.attribution||'').slice(0,1000):'';
+const versionLabel=(translation,data)=>translation.startsWith('ao:')?String(data.label||translation.slice(3)).slice(0,30):translation.toUpperCase();
+// second: the same verses in a second version ({verses, translation, copyright…}), or nothing to remove it.
+export function applySecondVersion(draft,second){
+ draft.secondVerses=second?cleanBibleVerses(second.verses):[];
+ draft.secondTranslation=second?versionLabel(second.translation,second):'';
+ draft.secondAttribution=second?scriptureCredit(second.translation,second):'';
+}
 export function applyBiblePassage(draft,data,translation){
  // Words belong to the show. Changing the passage never edits the chosen words or their styles.
- // NKJV carries the provider's copyright line and where and when it was fetched.
- // AO catalogue versions carry their licence line and a short label; the key ("ao:BSB") never appears on screen.
+ // NKJV also records where and when it was fetched.
  const ao=translation.startsWith('ao:');
- draft.scriptureAttribution=translation==='oycb'?YORUBA_CREDIT:translation==='nkjv'?(data.copyright||NKJV_CREDIT):ao?String(data.attribution||'').slice(0,1000):'';
- draft.scriptureSource=(translation==='nkjv'||ao)&&data.source?{...data.source}:null;draft.includePassage=true;draft.reference=data.reference;draft.passage=data.text.trim();draft.translation=ao?String(data.label||translation.slice(3)).slice(0,30):translation.toUpperCase();
+ draft.scriptureAttribution=scriptureCredit(translation,data);
+ draft.scriptureSource=(translation==='nkjv'||ao)&&data.source?{...data.source}:null;draft.includePassage=true;draft.reference=data.reference;draft.passage=data.text.trim();draft.translation=versionLabel(translation,data);
+ applySecondVersion(draft,data.second);
  draft.excludedSlides=[];draft.bibleVerses=cleanBibleVerses(data.verses);draft.verseRange=rangeFromResponse(data,translation);
  draft.previewId=draft.bibleVerses.length?'passage-'+draft.bibleVerses[0].bookId+'-'+draft.bibleVerses[0].chapter+'-'+draft.bibleVerses[0].verse:'passage-0';
 }

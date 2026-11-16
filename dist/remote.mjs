@@ -44,6 +44,7 @@ async function loadSettings(){
  if(r.status!==200)return;
  songSettings=r.data;
  if(!$('setLines').options.length)$('setLines').replaceChildren(...[[0,'As typed'],[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[6,'6'],[8,'8']].map(([value,name])=>{const o=element('option','',name);o.value=String(value);return o;}));
+ if([...$('secondVersion').options].some(o=>o.value===(r.data.secondVersion||'')))$('secondVersion').value=r.data.secondVersion||'';
  $('setLines').value=String(r.data.linesPerSlide);$('setRepeat').checked=r.data.hideRepeatMarks;$('setCaps').checked=r.data.allCaps;$('setFooter').checked=r.data.songFooter;$('setTap').checked=r.data.phoneTap==='send';
 }
 async function changeSettings(change){
@@ -51,6 +52,8 @@ async function changeSettings(change){
  if(r?.status===200){songSettings=r.data;say('Saved.');}else{say('The setting was not saved. Try again.');await loadSettings();}
 }
 $('setLines').addEventListener('change',ev=>changeSettings({linesPerSlide:Number(ev.target.value)}));
+// A second version under each verse sent from now on (shared with the studio). The verse on screen keeps its look.
+$('secondVersion').addEventListener('change',ev=>changeSettings({secondVersion:ev.target.value}));
 $('setRepeat').addEventListener('change',ev=>changeSettings({hideRepeatMarks:ev.target.checked}));
 $('setCaps').addEventListener('change',ev=>changeSettings({allCaps:ev.target.checked}));
 $('setFooter').addEventListener('change',ev=>changeSettings({songFooter:ev.target.checked}));
@@ -168,6 +171,7 @@ async function loadBible(){
   books=b.data.books;versions=v.data.versions;
   const choice=saved('wordlight-remote-version',live?.version||'')||v.data.versions[0]?.id;
   $('version').replaceChildren(...v.data.versions.map(x=>option(x.id,x.id.toUpperCase()+(x.installed?'':' (online)'),x.id===choice)));
+  $('secondVersion').replaceChildren(option('','No second version',!songSettings.secondVersion),...v.data.versions.map(x=>option(x.id,x.id.toUpperCase()+(x.installed?'':' (online)'),x.id===songSettings.secondVersion)));
   versionsLoaded=true;paintPicker();
  }catch{}
 }

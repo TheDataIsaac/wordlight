@@ -224,3 +224,5 @@ html.lower-page,html.lower-page body.lower-body,.lower-body #app,.lower-body .ou
 .verse-result-text{display:block;color:#4d5a52;font-size:12px}
 .verse-result-text b{color:var(--ink);font-weight:700}
 .verse-results .small-note{margin:6px 4px 2px}
+/* A second Bible version under the verse (Settings): smaller and softer, sized together with the verse when it is fitted. */
+.verse-second{display:block;margin-top:.5em;padding-top:.42em;border-top:2px solid var(--line);font-size:.8em;line-height:1.4;opacity:.84}

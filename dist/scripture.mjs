@@ -60,6 +60,14 @@ export async function adjacentByChapter(range,delta,get,prefix){
  }
  return {...data,reference:verse.book+' '+verse.chapter+':'+verse.verse,text:verse.text,verses:[verse],translation_id:range.translation};
 }
+// The English reference that covers looked-up verses ("John 3:16-18", "Luke 10:42-11:2"), built from book ids so a
+// passage looked up with a Yoruba book name can be looked up again in any other version.
+export function versesReference(verses){
+ const first=verses?.[0],last=verses?.at(-1),book=BIBLE_BOOKS.find(b=>b.id===(first?.bookId||first?.book_id));
+ if(!book)return '';
+ const end=last.chapter!==first.chapter?'-'+last.chapter+':'+last.verse:last.verse!==first.verse?'-'+last.verse:'';
+ return book.english+' '+first.chapter+':'+first.verse+end;
+}
 // Where looked-up text came from, kept with the show so it can be checked again later.
 export function cleanScriptureSource(v){
  if(!v||typeof v.provider!=='string'||!/^[A-Za-z0-9 .-]{1,40}$/.test(v.provider))return null;

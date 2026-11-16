@@ -24,11 +24,13 @@ import {cleanTimer,changeTimer} from './dist/timer.mjs';
 import {cleanLowerThird} from './dist/lowerthird.mjs';
 import {cleanGraphics} from './dist/graphics.mjs';
 import {songSlides} from './dist/songs.mjs';
+import {versesReference} from './dist/scripture.mjs';
+import {parseReference} from './dist/reference.mjs';
 import {phoneReference,bibleBooks,bibleScreen,songScreen,textScreen,slideVersion,toggleWord} from './remote-content.mjs';
 
 export const REMOTE_PORT=18766;
 // A week, so a phone signed in at a rehearsal is still signed in through the service the next day.
-const SESSION_MS=7*24*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
+const SECOND_WAIT_MS=2000,SESSION_MS=7*24*60*60*1000,MAX_SESSIONS=20,MAX_STREAMS=10,MAX_QUEUE=4,MAX_BACK=10,PAGE=100,LOOKUP_LIMIT_MS=15000;
 const SCRYPT={N:16384,r:8,p:1,keylen:32};
 const COOKIE='wordlight_remote';
 
@@ -153,7 +155,7 @@ function showList(library){
 }
 
 // Settings the phone page offers. The rest, such as Check first, stay with the laptop.
-const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap'],STREAM_UNREAD_BYTES=1e6;
+const PHONE_SETTINGS=['linesPerSlide','hideRepeatMarks','allCaps','songFooter','phoneTap','secondVersion'],STREAM_UNREAD_BYTES=1e6;
 export function createRemote({getState,commitLive,dataDir,root,localOrigins,bible,findSongs,readSong,settings,port=Number(process.env.WORDLIGHT_REMOTE_PORT)||REMOTE_PORT,bind=process.env.WORDLIGHT_REMOTE_BIND==='127.0.0.1'?'127.0.0.1':'0.0.0.0'}){
  const configFile=path.join(dataDir,'remote.json'),sessionFile=path.join(dataDir,'remote-sessions.json');
  let config={version:1,enabled:false,password:null};
@@ -232,18 +234,29 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   if(!answer.next)return answer;
   return {status:200,body:{ok:true,live:summary(getState().live)}};
  }
+ // The second version chosen in Settings goes with a verse from the phone, as it does in the studio. If it is slow or
+ // fails, the verse goes alone: the wait is at most 2 s, and never more than the time the phone's lookup has left.
+ async function withSecond(version,data,started){
+  const key=settings.get().secondVersion,reference=data&&versesReference(data.verses);
+  const wait=Math.min(SECOND_WAIT_MS,LOOKUP_LIMIT_MS-1000-(Date.now()-started));
+  if(!key||key===version||!reference||wait<=0)return data;
+  try{
+   const second=await Promise.race([bible.passage(key,parseReference(reference)),new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),wait))]);
+   return {...data,second:{...second,translation:key}};
+  }catch{return data;}
+ }
  // Slow work happens here, before a command joins the line: the Bible text, a song, or the neighbouring verse when
  // Next or Previous runs off the end of the verses on screen. decide() then only builds the screen.
- async function prepare(body){
+ async function prepare(body,started=Date.now()){
   const live=getState().live,slide=live.slides[live.index],waited=value=>({...value,screen:screenNow(live)});
   if(body.action==='bible'){
    const version=String(body.version||'');
-   return waited({version,data:await bible.passage(version,phoneReference(body.reference,slide?.versePoint))});
+   return waited({version,data:await withSecond(version,await bible.passage(version,phoneReference(body.reference,slide?.versePoint)),started)});
   }
   if(body.action==='song')return waited({song:(await readSong(String(body.songId||''))).song});
   if(body.action==='next'||body.action==='previous'){
    const delta=body.action==='next'?1:-1,edge=delta>0?live.index>=live.slides.length-1:live.index===0,version=slideVersion(live,slide);
-   if(edge&&slide?.versePoint&&version&&Number(body.base)===Number(live.updated||0))return {version,verse:await bible.adjacent(version,slide.versePoint,delta)};
+   if(edge&&slide?.versePoint&&version&&Number(body.base)===Number(live.updated||0))return {version,verse:await withSecond(version,await bible.adjacent(version,slide.versePoint,delta),started)};
   }
   return {};
  }
@@ -332,7 +345,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
   queued++;
   // A lookup finishes before the command joins the line, so a slow online Bible never holds up Next or Hide.
   const started=Date.now(),signedIn=generation,stillSignedIn=()=>generation===signedIn&&sessions.has(session.key);
-  const run=prepare(body).then(ready=>{
+  const run=prepare(body,started).then(ready=>{
    // The phone has given up by now, so a late verse must not appear on screen out of nowhere.
    if(Date.now()-started>LOOKUP_LIMIT_MS)return {status:504,body:{error:'That took too long, so nothing changed.'}};
    // A phone signed out while its verse was loading has no say any more.
