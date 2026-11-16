@@ -2174,8 +2174,9 @@ $('#songFile')?.addEventListener('change',async ev=>{
   if(!ewSongs||!ewWords){toast('Choose both Songs.db and SongWords.db from EasyWorship (in its Databases\\Data folder).');return;}
   toast('Reading the EasyWorship songs…');
   try{
-   const base64=async file=>{const bytes=new Uint8Array(await file.arrayBuffer());let text='';for(let i=0;i<bytes.length;i+=0x8000)text+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(text);};
-   const r=await localFetch('/api/songs/library/import-easyworship',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({songs:await base64(ewSongs),words:await base64(ewWords)})});
+   // Sent as the files themselves, one after the other, so the browser never holds a copy of the databases in memory.
+   if(ewSongs.size+ewWords.size>100e6){toast('These EasyWorship databases are too large to import ('+Math.round((ewSongs.size+ewWords.size)/1e6)+' MB together; the limit is 100 MB).');return;}
+   const r=await localFetch('/api/songs/library/import-easyworship?songsBytes='+ewSongs.size,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Blob([ewSongs,ewWords])});
    const result=await r.json().catch(()=>({}));
    if(!r.ok)throw new Error(result.error||'The EasyWorship songs could not be added.');
    toast('Added '+result.added+' EasyWorship song'+(result.added===1?'':'s')+' to the library.'+(result.skipped?' '+result.skipped+' already there were skipped.':'')+(result.failed?' '+result.failed+' had no words or could not be read.':''));

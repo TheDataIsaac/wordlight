@@ -194,15 +194,22 @@ test('EasyWorship 6 and 7 song databases are imported into the library, once',as
   addSong.run(2,'Easy Two','Ben Composer','','');addWords.run(2,String.raw`{\rtf1\ansi Second song words\par}`);
   addSong.run(3,'No Words','','','');
   songs.close();words.close();
-  const body={songs:(await readFile(path.join(folder,'Songs.db'))).toString('base64'),words:(await readFile(path.join(folder,'SongWords.db'))).toString('base64')};
-  const first=await withFs('/api/songs/library/import-easyworship',{method:'POST',body});
+  const songsFile=await readFile(path.join(folder,'Songs.db')),wordsFile=await readFile(path.join(folder,'SongWords.db'));
+  // The studio sends both files' bytes, one after the other, and where the first ends.
+  const send=async(first,second)=>{const r=await fetch('http://127.0.0.1:18785/api/songs/library/import-easyworship?songsBytes='+first.length,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:Buffer.concat([first,second])});return {status:r.status,body:await r.json()};};
+  const first=await send(songsFile,wordsFile);
   assert.equal(first.status,200,JSON.stringify(first.body));
   assert.deepEqual([first.body.added,first.body.skipped,first.body.failed],[2,0,1],'two songs; the one without words is counted as not read');
   assert.ok((await withFs('/api/songs?q='+encodeURIComponent('easy chorus line'))).body.items.some(s=>s.name==='Easy One'),'findable by its words');
-  const again=await withFs('/api/songs/library/import-easyworship',{method:'POST',body});
+  const again=await send(songsFile,wordsFile);
   assert.deepEqual([again.body.added,again.body.skipped],[0,2],'the same databases again add nothing');
-  const wrong=await withFs('/api/songs/library/import-easyworship',{method:'POST',body:{songs:Buffer.from('not a database').toString('base64'),words:''}});
+  const wrong=await send(Buffer.from('not a database'),Buffer.from('nor this'));
   assert.equal(wrong.status,400);assert.match(wrong.body.error,/not EasyWorship/);
   assert.ok(!(await readdir(path.join(dir,'data'))).some(n=>n.startsWith('easyworship-')),'nothing is left behind');
+  // A view where the words table should be is refused rather than read.
+  const viewDb=path.join(folder,'View.db');{const db=new DatabaseSync(viewDb);db.exec('CREATE TABLE w (song_id INTEGER, words TEXT); CREATE VIEW word AS SELECT * FROM w');db.close();}
+  const view=await send(songsFile,await readFile(viewDb));
+  assert.equal(view.status,400);assert.match(view.body.error,/song tables are missing/);
+  assert.equal((await send(songsFile,Buffer.alloc(0))).status,400,'one file alone is refused');
  }finally{await rm(folder,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 });
