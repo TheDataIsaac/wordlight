@@ -88,7 +88,8 @@ function setSaveStatus(text){saveStatusText=text;const el=$('#saveStatus');if(el
 const stateUrl=()=>isOutput?'/api/state?only=live':'/api/state';
 async function apiWrite(data){const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(5000)});if(!r.ok)throw Object.assign(new Error('Could not save to the local app.'),{status:r.status,detail:await r.json().catch(()=>null)});return r.json();}
 function cacheLive(){try{localStorage.setItem('wordlight-live',JSON.stringify(live));}catch{}}
-function receive(data){if(data?.type==='live'&&validLive(data.live)&&Number(data.live.updated||0)>=Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else renderLive();}}
+// Another tab's copy is taken only when newer: each open page passes on the same screen, which is already shown here.
+function receive(data){if(data?.type==='live'&&validLive(data.live)&&Number(data.live.updated||0)>Number(live.updated||0)){live=data.live;cacheLive();if(isOutput)renderOutput();else renderLive();}}
 window.addEventListener('storage',ev=>{
  if(ev.key==='wordlight-live'&&ev.newValue){try{receive({type:'live',live:JSON.parse(ev.newValue)});}catch{}}
  // Another tab changed the shows: follow it once its save has reached the companion.
@@ -370,8 +371,12 @@ function drawStage(frame,slide,style,blank=false,words=[]){
  startFade(frame,cover);
  if(!observer)observer=new ResizeObserver(entries=>{for(const entry of entries)scaleFrame(entry.target);});
  if(!observed.has(frame)){observer.observe(frame);observed.add(frame);}
- requestAnimationFrame(()=>{scaleFrame(frame);fitText(frame);});
+ queueLayout(frame);
 }
+// One sizing pass per screen at a time. A hidden page (an OBS source outside the current scene) runs no frames, so
+// otherwise every slide sent meanwhile would queue its own pass, all kept in memory and all run at once when shown.
+const layoutQueued=new WeakSet();
+function queueLayout(frame){if(layoutQueued.has(frame))return;layoutQueued.add(frame);requestAnimationFrame(()=>{layoutQueued.delete(frame);scaleFrame(frame);fitText(frame);});}
 function scaleFrame(frame){const canvas=frame.firstElementChild;if(canvas){const scale=Math.min(frame.clientWidth/1920,frame.clientHeight/1080);canvas.style.transform='scale('+scale+')';canvas.style.left=((frame.clientWidth-1920*scale)/2)+'px';canvas.style.top=((frame.clientHeight-1080*scale)/2)+'px';}}
 function showFitNotice(frame){const el=$('#fitNotice');if(el)el.textContent=frame.dataset.fitmode==='true'?'Fit to screen: text is sized to fill the space inside the padding.':frame.dataset.autofit==='true'?'Text was reduced to fit. Split this slide for larger type.':'Sizes are in pixels on the 1920 × 1080 canvas.';}
 function fitText(frame){fitStage(frame);if(frame.querySelector('.text-slide-layout')&&frame.id==='preview')showFitNotice(frame);}
@@ -497,7 +502,7 @@ function mountStage(frame,html){
  drawnStages.set(frame,html);frame.innerHTML=html;startFade(frame,cover);
  if(!observer)observer=new ResizeObserver(entries=>{for(const entry of entries)scaleFrame(entry.target);});
  if(!observed.has(frame)){observer.observe(frame);observed.add(frame);}
- requestAnimationFrame(()=>{scaleFrame(frame);fitText(frame);});
+ queueLayout(frame);
 }
 // NKJV: the local companion holds the API.Bible key and returns whole chapters or the requested verses.
 // Nothing from it is kept in browser storage.
