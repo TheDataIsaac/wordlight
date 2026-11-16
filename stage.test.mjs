@@ -150,3 +150,14 @@ test('Verse search answers in the local studio and on the phone, from the instal
  assert.equal(phone.body.results[0].reference,'John 11:35');
  assert.equal((await request(remotePort,'GET','/remote/api/bible/search?q=jesus%20wept')).status,401);
 });
+
+test('Verse listening is off and not downloaded at first, and only the local studio can control it',async()=>{
+ const local={Origin:'http://127.0.0.1:'+port};
+ const state=(await request(port,'GET','/api/listen')).body;
+ assert.equal(state.installed,false);assert.equal(state.listening,false);assert.ok(state.downloadMB>400);
+ assert.equal((await request(port,'POST','/api/listen/start',{body:{},headers:{Origin:'https://evil.example'}})).status,403);
+ const start=await request(port,'POST','/api/listen/start',{body:{},headers:local});
+ assert.equal(start.status,409);assert.match(start.body.error,/Download verse listening first/);
+ const audio=await request(port,'POST','/api/listen/audio',{body:{},headers:local});
+ assert.equal(audio.status,415,'audio must be raw bytes');
+});

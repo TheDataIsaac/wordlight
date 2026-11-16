@@ -73,3 +73,14 @@ is sent to API.Bible.
 Wordlight reads a FreeShow song library on the user's computer (https://freeshow.app/) and never changes it. No
 FreeShow code, songs, lyrics, shows, images, keys or other user data are included in this repository or the portable
 package.
+
+## Verse listening (optional download)
+Not included in the repository or the portable package. When the operator chooses **Download verse listening**,
+Wordlight downloads these once from their publishers, checks each against a SHA-256 hash written in `listen.mjs`, and
+keeps them in the data folder. They run on the user's computer; no audio or text is sent anywhere.
+
+- sherpa-onnx (sherpa-onnx-node and sherpa-onnx-win-x64 2.0.1), Apache License 2.0, by the k2-fsa project
+  (https://github.com/k2-fsa/sherpa-onnx). It includes ONNX Runtime (MIT License, https://github.com/microsoft/onnxruntime).
+- NVIDIA Nemotron Speech Streaming English 0.6B, converted to ONNX (int8, 560 ms chunks) by the k2-fsa project, under the
+  NVIDIA Open Model License Agreement (https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
+  Source model: https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b

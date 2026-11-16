@@ -110,6 +110,7 @@ Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser so
 - Through the bridge, with the same checks: `GET /api/bridge/songs`, `/songs/categories`, `/songs/item`, `POST /api/bridge/songs/library`; `GET /api/bridge/bibles`, `/bibles/passage`, `/bible/status`, `/bible/nkjv`; `GET /api/bridge/assets`, `/assets/<id>`, `POST /api/bridge/assets`. Every other route answers 404 through the bridge.
 - `GET /api/bibles/search?q=…` – verses containing the typed words, from the installed Bibles (also through the bridge).
 - `GET /stage` and `GET /stage/events` – the stage display page and its stream. `GET /api/stage` reads the message and the number of stage screens; `POST /api/stage` with `{"message":"…"}` sets it, an empty message clears it, and `{"hidden":true}` or `{"hidden":false}` hides or shows the current one (local studio only). On the phone remote port: `/remote/stage` and `/remote/api/stage`, after sign-in.
+- `GET /api/listen` and `GET /api/listen/events` – verse listening's state and stream; `POST /api/listen/install|start|stop|clear|remove`, and `POST /api/listen/audio` with 16 kHz mono 16-bit samples as `application/octet-stream` (local studio only).
 - `GET /api/remote/status`, `POST /api/remote/password|enabled|signout` – phone remote settings (local studio only).
 Set `WORDLIGHT_PORT` and `WORDLIGHT_DATA_DIR` to run a separate test copy with its own data. `WORDLIGHT_REMOTE_PORT` moves the phone remote (default 18766); `WORDLIGHT_REMOTE_BIND=127.0.0.1` keeps it off the network for tests.
 
@@ -144,6 +145,21 @@ A screen facing the singers or the preacher. It shows the words on screen now (s
 - On a tablet or phone on the same Wi-Fi, turn on the **Phone remote**, sign in on that device with its password, then open the remote address with `/stage` added, for example `http://192.168.1.23:18766/remote/stage`. The Stage dialog lists the addresses. Signing out all phones or turning the remote off closes it too.
 - The timer turns amber near zero (its warning time, one minute by default) and red at zero and past it. **SCREEN HIDDEN** shows while the screen is hidden. A second Bible version shows under the verse.
 - **Next slide on the stage** in the Stage dialog shows its first line, its first two lines (the default) or the whole slide.
+
+## Verse listening
+Wordlight can listen to the sermon and suggest the verse the preacher calls ("Second Corinthians chapter ten, verses three and four", "John three sixteen", or "verse nine" in the chapter already open) or reads aloud. Suggestions appear in a bar under the preview, newest first, marked **said** or **read** with how sure Wordlight is. Click one (or press **L** for the newest) to put it in the preview, double-click to send it. Nothing goes on screen by itself.
+
+- **Listen** in the local studio. The first time, it offers a one-time download of about 475 MB: the sherpa-onnx speech engine and NVIDIA's Nemotron streaming English model. Each file is checked against a SHA-256 hash written in `listen.mjs` and kept in the data folder (`listen\`). Do it at home, not on the church connection. **Remove verse listening** in the same dialog deletes it.
+- Choose the sound desk as the input (for example USB Audio CODEC), not the laptop microphone, then **Start listening**. The model takes about 15 seconds to load. Listening stops with **Stop listening**, or by itself 20 seconds after the studio stops sending sound (closed or refreshed).
+- Everything runs on this computer. No sound and no words are sent anywhere.
+- English speech only. The interpreter's Yoruba is heard as noise and ignored; a reference said only in Yoruba is not caught.
+- The speech model runs in its own process at below-normal priority, so OBS and the screen come first. On the church laptop (Core i5-1135G7) it keeps about half of one processor core busy and uses about 0.8 GB of memory, all freed when listening stops; on a laptop with 8 GB, close what you don't need first. If the computer is too busy to keep up, a moment of sound is skipped (the bar says so) rather than falling further behind.
+- A verse read aloud is suggested only when the words heard match it clearly: verse search's score at least 1.0, ahead of the next verse by 0.25, and at least four meaningful words in common. That keeps prayer and chanting from matching verses.
+
+**How well it works**, measured on two recorded services from this church (the 13 and 15 November 2026 convention sermons, about 110 minutes, preacher in English with a Yoruba interpreter), against careful transcripts:
+- References said out loud: 22 of the transcripts' 31 mentions were matched exactly. Of the other 9, 5 were slips in the transcript itself (twice listening was the more complete, for example "John chapter eight verse thirty-two" where the transcript has "John chapter eight verse"), and 4 mentions of 3 verses were real misses, where the speech model did not hear the words clearly ("Revelation chapter twelve verse ten"). Two of those 3 verses were still suggested when they were read aloud.
+- Verses read aloud: 17 suggestions, all of them correct. Some correct but thin matches are left out on purpose.
+- To measure again (another sermon, a new model): `tools/listen-eval/transcribe.mjs` turns a recording into what the model hears, and `tools/listen-eval/score.mjs` compares that with a timed transcript. Both explain their arguments at the top.
 
 ## Direct TV projection
 Click Present in the local studio to fill the extended display. The hosted studio opens a window to move onto the display, then click Full screen. The OBS output URLs have no buttons.

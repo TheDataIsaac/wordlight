@@ -97,7 +97,7 @@ export function createBibleSearch({root,listInstalled}){
   }
   const results=[...best.values()].sort((a,b)=>b.score-a.score||a.number-b.number).slice(0,MAX_RESULTS).map(hit=>{
    const book=BIBLE_BOOKS[Math.floor(hit.number/1e6)],chapter=Math.floor(hit.number/1e3)%1e3,verse=hit.number%1e3;
-   return {reference:book.english+' '+chapter+':'+verse,bookId:book.id,chapter,verse,text:hit.text,translation:hit.translation,exact:hit.exact};
+   return {reference:book.english+' '+chapter+':'+verse,bookId:book.id,chapter,verse,text:hit.text,translation:hit.translation,exact:hit.exact,score:Math.round(hit.score*1000)/1000};
   });
   return {results,searched:bibles.map(b=>b.abbreviation)};
  }

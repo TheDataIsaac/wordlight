@@ -14,6 +14,7 @@ import {cleanLibrary,activeShow,backgroundAssetIds} from './dist/library.mjs';
 import {createApiBible} from './apibible.mjs';
 import {createBibleLibrary} from './bibles.mjs';
 import {createBibleSearch} from './bible-search.mjs';
+import {createListener} from './listen.mjs';
 import {createRemote} from './remote-server.mjs';
 import {createBibleLookup,wordsOnLive} from './remote-content.mjs';
 import {createProjector} from './projector.mjs';
@@ -465,6 +466,12 @@ const seedDir=process.env.WORDLIGHT_BIBLE_SEEDS||path.join(root,'..','bibles');
 const bibleLibrary=createBibleLibrary({dataDir,seedDir,...(testBase?{base:testBase+'/ebible/'}:{})});
 // Finding a verse by its words, in the Bibles installed on this computer.
 const bibleSearch=createBibleSearch({root:path.join(dataDir,'bibles'),listInstalled:()=>bibleLibrary.list()});
+// Verse listening: suggestions from what the preacher says, for the local studio (listen.mjs). Off until turned on.
+const listenClients=new Set();
+const listener=createListener({dataDir,search:bibleSearch,notify:state=>{
+ const message='data: '+JSON.stringify(state)+'\n\n';
+ for(const client of listenClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
+}});
 // Installed Bibles: list, install from the official archive, remove, and offline lookups. Local studio only.
 async function handleBibles(req,res,url,trusted=false){
  const origin=req.headers.origin;if(!trusted&&origin&&!localOrigins().includes(origin)){json(res,403,{error:'Installed Bibles are only available in the local studio.'});return;}
@@ -571,7 +578,7 @@ function broadcastStage(){
  const message='data: '+JSON.stringify(stageNow())+'\n\n';
  for(const client of stageClients){if(client.writableLength>1e6){client.destroy();continue;}client.write(message);}
 }
-const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
+const allowed=new Map([['/','index.html'],['/index.html','index.html'],['/app.js','app.js'],['/refresh.mjs','refresh.mjs'],['/fit.mjs','fit.mjs'],['/reference.mjs','reference.mjs'],['/lowerthird.mjs','lowerthird.mjs'],['/versification.mjs','versification.mjs'],['/picker.mjs','picker.mjs'],['/bridge.mjs','bridge.mjs'],['/songs.mjs','songs.mjs'],['/versions.mjs','versions.mjs'],['/bolls.mjs','bolls.mjs'],['/readlimit.mjs','readlimit.mjs'],['/graphics.mjs','graphics.mjs'],['/core.mjs','core.mjs'],['/storage.mjs','storage.mjs'],['/yoruba.mjs','yoruba.mjs'],['/timer.mjs','timer.mjs'],['/library.mjs','library.mjs'],['/scripture.mjs','scripture.mjs'],['/verse-search.mjs','verse-search.mjs'],['/stage','stage.html'],['/stage.mjs','stage.mjs'],['/stage-page.mjs','stage-page.mjs'],['/stage.css','stage.css'],['/stage-setup.mjs','stage-setup.mjs'],['/listen-panel.mjs','listen-panel.mjs'],['/listen-worklet.js','listen-worklet.js'],['/update-setup.mjs','update-setup.mjs'],['/styles.css','styles.css'],['/wordlight-obs-companion.zip','wordlight-obs-companion.zip']]);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.zip':'application/zip'};
 async function handle(req,res){
  const hosts=new Set(['127.0.0.1:'+port,'localhost:'+port]);if(!hosts.has(req.headers.host)){json(res,403,{error:'Use the local Wordlight address.'});return;}
@@ -640,6 +647,33 @@ async function handle(req,res){
    if(action==='back'){await updater.goBack();json(res,200,{restarting:true});return;}
    json(res,404,{error:'Not found'});
   }catch(err){json(res,err.status>=400&&err.status<600?err.status:500,{error:err.message||'The update failed.'});}
+  return;
+ }
+ // Verse listening (local studio only): its state and stream, the one-time download, start and stop, and the audio
+ // the studio captures (16 kHz mono 16-bit, a quarter of a second at a time).
+ if(url.pathname==='/api/listen'&&req.method==='GET'){json(res,200,listener.state());return;}
+ if(url.pathname==='/api/listen/events'&&req.method==='GET'){
+  res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Content-Type-Options':'nosniff'});
+  res.write('retry: 2000\ndata: '+JSON.stringify(listener.state())+'\n\n');listenClients.add(res);
+  const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);listenClients.delete(res);});return;
+ }
+ if(url.pathname.startsWith('/api/listen/')&&req.method==='POST'){
+  const origin=req.headers.origin;if(origin&&!localOrigins().includes(origin)){json(res,403,{error:'This request must come from the local studio.'});return;}
+  const action=url.pathname.slice('/api/listen/'.length);
+  try{
+   if(action==='audio'){
+    if(req.headers['content-type']!=='application/octet-stream'){json(res,415,{error:'Send audio as application/octet-stream.'});return;}
+    const parts=[];let size=0;for await(const part of req){size+=part.length;if(size>64000){json(res,413,{error:'Too large.'});return;}parts.push(part);}
+    json(res,200,listener.audio(Buffer.concat(parts)));return;
+   }
+   if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON is required.'});return;}
+   if(action==='install'){json(res,202,await listener.install());return;}
+   if(action==='start'){json(res,200,listener.start());return;}
+   if(action==='stop'){json(res,200,listener.stop());return;}
+   if(action==='clear'){json(res,200,listener.clear());return;}
+   if(action==='remove'){json(res,200,await listener.remove());return;}
+   json(res,404,{error:'Not found'});
+  }catch(err){json(res,err.status>=400&&err.status<600?err.status:500,{error:err.message||'Listening did not work.'});}
   return;
  }
  if(url.pathname==='/api/settings'&&req.method==='GET'){json(res,200,settings());return;}

@@ -423,3 +423,14 @@ test('The Stage dialog hides a message and shows it again, and sets how much of 
  await until("document.querySelector('#nextText')?.dataset.lines==='2'",'back to two lines');
  assert.deepEqual(pageErrors,[],'no script error on the stage page');
 });
+
+test('Listen offers the one-time download before anything else, and the bar stays hidden while listening is off',{skip},async()=>{
+ await open();
+ assert.equal(await run("document.querySelector('#listenBar').hidden"),true);
+ await run("document.querySelector('[data-action=listen-open]').click()");
+ await until("document.querySelector('#listenDialog')?.open&&document.querySelector('[data-listen=install]')",'the download button');
+ assert.match(await run("document.querySelector('#listenDialog').textContent"),/one-time download of about \d+ MB/);
+ await run("document.querySelector('[data-listen=close]').click()");
+ assert.equal(await run("document.querySelector('#listenDialog').open"),false);
+ assert.deepEqual(pageErrors,[],'no script error in the studio');
+});
