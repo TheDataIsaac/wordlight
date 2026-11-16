@@ -455,3 +455,18 @@ test('Hiding the screen while a verse is still loading keeps it hidden: the late
  await run("document.querySelector('#screenToggle').click()");
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
+
+test('When the library is full, changes from a stale tab are saved as a file instead of being dropped',{skip},async()=>{
+ await open();
+ await run("window.__downloads=[];HTMLAnchorElement.prototype.click=function(){window.__downloads.push(this.download);}");
+ const original=await run("fetch('/api/state').then(r=>r.json()).then(s=>s.library.shows.length)");
+ // Another tab fills the library to 100 shows.
+ await run("fetch('/api/state').then(r=>r.json()).then(s=>{const next=structuredClone(s.library);while(next.shows.length<100)next.shows.push({...structuredClone(next.shows[0]),id:'full-'+next.shows.length});next.savedAt=Date.now()+1000;return fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:next,baseSavedAt:s.library.savedAt||0})});})");
+ await run("document.querySelector('#sessionTitle').value='Edited when full';document.querySelector('#sessionTitle').dispatchEvent(new Event('input',{bubbles:true}))");
+ await until("window.__downloads.length>0",'the kept changes downloaded');
+ assert.match(await run("window.__downloads[0]"),/Wordlight-changes-kept-from-this-tab/);
+ assert.match(await run("document.querySelector('#toast').textContent"),/library is full/);
+ // Put the library back for the tests after this one.
+ await run("fetch('/api/state').then(r=>r.json()).then(s=>{const next=structuredClone(s.library);next.shows=next.shows.filter(x=>!String(x.id).startsWith('full-')).slice(0,"+original+");next.activeShowId=next.shows[0].id;next.savedAt=Date.now()+2000;return fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:next,baseSavedAt:s.library.savedAt||0})});})");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});

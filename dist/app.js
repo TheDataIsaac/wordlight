@@ -1361,14 +1361,19 @@ async function adoptServerLibrary(){
  try{
   const s=await (await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)})).json();
   const copyName=title=>title.endsWith(COPY_NAME)?title:title.slice(0,80)+COPY_NAME;
-  const mine=library,next=cleanLibrary(s.library,s.draft),agreed=showStamps(next),copies=losingShows(mine,next).map(show=>copyShow(show,copyName(show.draft.title))).slice(0,Math.max(0,MAX_SHOWS-next.shows.length));
+  const mine=library,next=cleanLibrary(s.library,s.draft),agreed=showStamps(next),changed=losingShows(mine,next).map(show=>copyShow(show,copyName(show.draft.title)));
+  // The library holds 100 shows. Copies that do not fit are saved as a file at once (Import shows brings them back),
+  // so no change is lost and the message never claims more than was kept.
+  const room=Math.max(0,MAX_SHOWS-next.shows.length),copies=changed.slice(0,room),overflow=changed.slice(room);
+  if(overflow.length){try{downloadJSON(await withImages({format:'wordlight-library',version:1,savedAt:Date.now(),activeShowId:overflow[0].id,shows:overflow},overflow),'Wordlight changes kept from this tab');}catch{}}
   // Only the companion's own library is agreed. The copies are not on disk until a save says so, so a second conflict
   // keeps them too.
   confirmSave(next.savedAt||0,agreed);next.shows.push(...copies);library=next;draft=activeShow(library).draft;savedRevision=saveRevision;summaryCache=new WeakMap();songState.peekEntryId='';
   if(copies.length){library.savedAt=Math.max(Date.now(),Number(library.savedAt||0)+1);saveRevision++;clearTimeout(saveTimer);saveTimer=setTimeout(flushLocalSave,450);}
   try{saveLibrary(localStorage,library);}catch{}
   setSaveStatus(copies.length?'Saving…':'Saved on this computer · loaded newer changes');render();
-  toast(copies.length?'Another Wordlight tab saved newer changes. Your changes are kept as “'+copies[0].draft.title+'”. Keep one tab open.':'Another Wordlight tab saved newer changes, so this tab has loaded them. Keep one tab open.');
+  toast(overflow.length?'Another Wordlight tab saved newer changes and the library is full, so '+(overflow.length===1?'one of your changed shows was':overflow.length+' of your changed shows were')+' saved as a file in Downloads (“Wordlight changes kept from this tab”). Use Import shows to bring '+(overflow.length===1?'it':'them')+' back. Keep one tab open.':
+   copies.length?'Another Wordlight tab saved newer changes. Your changes are kept as “'+copies[0].draft.title+'”. Keep one tab open.':'Another Wordlight tab saved newer changes, so this tab has loaded them. Keep one tab open.');
  }catch{setSaveStatus('Reconnecting to local app…');}
 }
 // afterOutage: the companion restarted or the link came back, so a newer browser copy is the one to keep and save.
