@@ -168,6 +168,10 @@ test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord ta
  const full=songFromImportedFile('f.chordpro','{title:F}\n{c: Chorus}\nThe chorus\n{c: Verse 1}\nA verse\n{c: Chorus}\nThe chorus\n');
  assert.deepEqual(sections(full),[['Chorus',['The chorus']],['Verse 1',['A verse']]]);
  assert.equal(order(full),'Chorus, Verse 1, Chorus');
+ // After a merged one, the next chorus with new words is Chorus 2.
+ const gap=songFromImportedFile('g.chordpro','{title:G}\n{c: Chorus}\nThe chorus\n{c: Verse 1}\nA verse\n{c: Chorus}\nThe chorus\n{c: Verse 2}\nB verse\n{c: Chorus}\nNew chorus words\n');
+ assert.deepEqual(sections(gap).map(s=>s[0]),['Chorus','Verse 1','Verse 2','Chorus 2']);
+ assert.equal(order(gap),'Chorus, Verse 1, Chorus, Verse 2, Chorus 2');
  // A chorus marked again straight after its own words is sung twice.
  const twice=songFromImportedFile('c.chordpro','{title:C}\n{c:Chorus}\nThe chorus\n{c:Chorus}\n\n{c:Verse 1}\nA verse\n');
  assert.equal(order(twice),'Chorus, Chorus, Verse 1');

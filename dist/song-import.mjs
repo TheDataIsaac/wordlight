@@ -128,7 +128,7 @@ export function fromChordPro(text,fallbackTitle=''){
  const close=()=>{const slides=paragraphs(buffer.join('\n'));buffer=[];if(!slides.length)return;if(!current){current={label:'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1),slides:[]};sections.push(current);order.push(current);}current.slides.push(...slides);};
  const start=label=>{close();current={label,slides:[],named:true};sections.push(current);order.push(current);};
  const numbered=label=>{const base=label.replace(/\s+\d+$/,''),taken=new Set(sections.map(s=>s.label.toLowerCase()));let n=2;while(taken.has((base+' '+n).toLowerCase()))n++;return base+' '+n;};
- const settle=newWords=>{if(!repeat)return;const r=repeat;repeat=null;if(newWords){start(numbered(r.label));current.repeatOf=r.again;}else order.push(r.again);};
+ const settle=newWords=>{if(!repeat)return;const r=repeat;repeat=null;if(newWords){start(numbered(r.label));current.repeatOf=r.again;current.heading=r.label;}else order.push(r.again);};
  for(const raw of String(text).replace(/\r/g,'').split('\n')){
   const line=raw.trim();
   if(line.startsWith('#'))continue;
@@ -162,6 +162,9 @@ export function fromChordPro(text,fallbackTitle=''){
  settle(false);close();
  // A chorus written out again in full, with the same words, is the same chorus sung again, not "Chorus 2".
  for(const s of sections.filter(s=>s.repeatOf&&s.slides.join('\n\n')===s.repeatOf.slides.join('\n\n'))){sections.splice(sections.indexOf(s),1);order[order.indexOf(s)]=s.repeatOf;}
+ // The ones with new words are numbered again, in order, so a merged one leaves no gap (Chorus, Chorus 2, not Chorus 3).
+ for(const s of sections.filter(s=>s.repeatOf))s.label='';
+ for(const s of sections.filter(s=>s.repeatOf))s.label=numbered(s.heading);
  return songFrom({title:title||fallbackTitle,meta,sections,order});
 }
 
