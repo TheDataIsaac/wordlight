@@ -164,6 +164,10 @@ test('Real-file shapes: ChordPro {c: Chorus} repeats the chorus, OpenLP chord ta
  assert.equal(order(plain),'Verse, Chorus, Verse 2, Chorus');
  const two=songFromImportedFile('t.chordpro','{title:T}\n{c: Chorus}\nFirst chorus\n\n{c: Verse 1}\nA verse\n{c: Chorus}\nOther chorus words\n');
  assert.deepEqual(sections(two),[['Chorus',['First chorus']],['Verse 1',['A verse']],['Chorus 2',['Other chorus words']]]);
+ // A chorus written out again with the same words is the same chorus, sung again.
+ const full=songFromImportedFile('f.chordpro','{title:F}\n{c: Chorus}\nThe chorus\n{c: Verse 1}\nA verse\n{c: Chorus}\nThe chorus\n');
+ assert.deepEqual(sections(full),[['Chorus',['The chorus']],['Verse 1',['A verse']]]);
+ assert.equal(order(full),'Chorus, Verse 1, Chorus');
  // A chorus marked again straight after its own words is sung twice.
  const twice=songFromImportedFile('c.chordpro','{title:C}\n{c:Chorus}\nThe chorus\n{c:Chorus}\n\n{c:Verse 1}\nA verse\n');
  assert.equal(order(twice),'Chorus, Chorus, Verse 1');
@@ -183,8 +187,11 @@ test('Damaged or hostile files take time in proportion to their size: unclosed t
   ['b.xml',openlyrics('<verse name="v1"><lines>'+'<!--'.repeat(200000)+'</lines></verse>')],
   ['a.pro6','<RVPresentationDocument CCLISongTitle="x">'+'<RVSlideGrouping name="a">'.repeat(40000)+'</RVPresentationDocument>'],
   ['b.pro6','<RVPresentationDocument'+' CCLIAuthor="'.repeat(80000)+'>'],
+  ['d.pro6','<RVPresentationDocument CCLISongTitle="x"><RVSlideGrouping name="V"><RVDisplaySlide><RVTextElement><NSString'+' rvXMLIvarName="PlainText"'.repeat(12000)+'</RVTextElement></RVDisplaySlide></RVSlideGrouping></RVPresentationDocument>'],
   ['a.chordpro','{title:x}\n'+'[G'.repeat(300000)],
   ['a.txt','Title\n'+'\n'.repeat(1000000)],
+  ['b.txt','Title\n\nVerse'+' '.repeat(1000000)+'x'],
+  ['c.pro6','<RVPresentationDocument CCLISongTitle="x"><RVSlideGrouping name="Verse'+' '.repeat(500000)+'x"></RVSlideGrouping></RVPresentationDocument>'],
  ];
  for(const [name,text] of files){
   const start=performance.now();

@@ -226,7 +226,8 @@ function readLyrics(text){
   if(header){closePage();open(header[1].trim().slice(0,60));continue;}
   if(!raw.trim()){closePage();continue;}
   if(!current)open('Verse 1');
-  page.push(raw.replace(/\s+$/,'').replace(/^\\(?=\s*\[)/,''));
+  // trimEnd, not /\s+$/: that pattern rescans every long run of spaces that is not at the end of the line.
+  page.push(raw.trimEnd().replace(/^\\(?=\s*\[)/,''));
  }
  closePage();
  if(!typed.length)throw new Error('Add the lyrics, or at least one section such as [Verse 1].');

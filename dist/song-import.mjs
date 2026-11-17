@@ -12,7 +12,13 @@ import {newSong,editSong} from './songs.mjs';
 export const SONG_IMPORT_EXTENSIONS=['.usr','.txt','.xml','.cho','.chordpro','.chopro','.pro','.pro6','.pro5'];
 const OPENLYRICS_LABELS={v:'Verse',c:'Chorus',b:'Bridge',p:'Pre-Chorus',e:'Ending',i:'Intro',o:'Other',t:'Tag'};
 // Section headings as SongSelect and most lyric sheets write them: "Verse 1", "Chorus", "Pre-Chorus 2", "Tag".
-const HEADING=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda|slide)(\s*\d+)?\s*:?\s*$/i;
+// A section heading such as "Verse 2" or "Chorus:". Written so that no two parts can take the same spaces (two \s*
+// either side of an optional ":" made a long line of spaces take minutes), and only short lines are tried.
+const HEADING_PATTERN=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda|slide)(?:\s*\d+)?\s*(?::\s*)?$/i;
+const HEADING={test:text=>String(text).length<=60&&HEADING_PATTERN.test(text)};
+// Names separated by "|" (SongSelect) or "/" and ";" (EasyWorship), joined with commas. Split and trimmed, not
+// /\s*\|\s*/: that pattern rescans every long run of spaces without a separator after it.
+const joinNames=(text,separator)=>String(text||'').split(separator).map(name=>name.trim()).filter(Boolean).join(', ');
 const tidyHeading=text=>text.trim().replace(/:$/,'').replace(/\s+/g,' ').replace(/^\w/,c=>c.toUpperCase()).replace(/^Pre-?chorus/i,'Pre-Chorus');
 const paragraphs=text=>String(text).replace(/\r/g,'').split(/\n\s*\n/).map(p=>p.split('\n').map(l=>l.trim()).filter(Boolean).join('\n')).filter(Boolean);
 
@@ -42,7 +48,7 @@ export function fromSongSelectUsr(text){
  const value=key=>(new RegExp('^'+key+'=(.*)$','mi').exec(text)||[])[1]?.trim()||'';
  const fields=value('Fields').split('/t'),words=value('Words').split('/t');
  const sections=fields.map((label,i)=>({label:tidyHeading(label)||'Verse '+(i+1),slides:paragraphs((words[i]||'').split('/n').join('\n'))}));
- return songFrom({title:value('Title'),meta:{author:value('Author').replace(/\s*\|\s*/g,', '),copyright:value('Copyright'),ccli:(/^\[S\s*A?(\d+)\]/mi.exec(text)||[])[1]||''},sections});
+ return songFrom({title:value('Title'),meta:{author:joinNames(value('Author'),'|'),copyright:value('Copyright'),ccli:(/^\[S\s*A?(\d+)\]/mi.exec(text)||[])[1]||''},sections});
 }
 
 // SongSelect lyrics .txt: the title, then headed sections, then a footer from "CCLI Song #" on.
@@ -52,7 +58,7 @@ export function fromSongSelectText(text){
  const body=footerAt>=0?lines.slice(0,footerAt):lines,footer=footerAt>=0?lines.slice(footerAt).map(l=>l.trim()).filter(Boolean):[];
  const titleAt=body.findIndex(l=>l.trim());
  const sections=readHeaded(body.slice(titleAt+1).join('\n'));
- const author=(footer.find((l,i)=>i>0&&!/^©|^\(c\)|^for use|^ccli|^all rights|^www\./i.test(l))||'').replace(/\s*\|\s*/g,', ');
+ const author=joinNames(footer.find((l,i)=>i>0&&!/^©|^\(c\)|^for use|^ccli|^all rights|^www\./i.test(l)),'|');
  return songFrom({title:body[titleAt]?.trim(),meta:{author,copyright:(footer.find(l=>/^©|^\(c\)/i.test(l))||'').replace(/^©\s*|^\(c\)\s*/i,''),ccli:(/CCLI Song #\s*(\d+)/i.exec(text)||[])[1]||''},sections});
 }
 // Text with heading lines ("Verse 1", "Chorus") or [Verse 1] markers. Paragraphs under a heading are its slides; text
@@ -122,7 +128,7 @@ export function fromChordPro(text,fallbackTitle=''){
  const close=()=>{const slides=paragraphs(buffer.join('\n'));buffer=[];if(!slides.length)return;if(!current){current={label:'Verse '+(sections.filter(s=>/^Verse/.test(s.label)).length+1),slides:[]};sections.push(current);order.push(current);}current.slides.push(...slides);};
  const start=label=>{close();current={label,slides:[],named:true};sections.push(current);order.push(current);};
  const numbered=label=>{const base=label.replace(/\s+\d+$/,''),taken=new Set(sections.map(s=>s.label.toLowerCase()));let n=2;while(taken.has((base+' '+n).toLowerCase()))n++;return base+' '+n;};
- const settle=newWords=>{if(!repeat)return;const r=repeat;repeat=null;if(newWords)start(numbered(r.label));else order.push(r.again);};
+ const settle=newWords=>{if(!repeat)return;const r=repeat;repeat=null;if(newWords){start(numbered(r.label));current.repeatOf=r.again;}else order.push(r.again);};
  for(const raw of String(text).replace(/\r/g,'').split('\n')){
   const line=raw.trim();
   if(line.startsWith('#'))continue;
@@ -154,6 +160,8 @@ export function fromChordPro(text,fallbackTitle=''){
   buffer.push(raw.replace(/\[[^\][]*\]/g,'').replace(/\s{2,}/g,' ').trim());
  }
  settle(false);close();
+ // A chorus written out again in full, with the same words, is the same chorus sung again, not "Chorus 2".
+ for(const s of sections.filter(s=>s.repeatOf&&s.slides.join('\n\n')===s.repeatOf.slides.join('\n\n'))){sections.splice(sections.indexOf(s),1);order[order.indexOf(s)]=s.repeatOf;}
  return songFrom({title:title||fallbackTitle,meta,sections,order});
 }
 
@@ -222,7 +230,7 @@ export function rtfToText(rtf){
 // "Chorus") are lines of their own, and a blank line starts a new slide.
 export function fromEasyWorship({title,author,copyright,ccli,words}){
  const text=/^\s*\{\\rtf/.test(String(words||''))?rtfToText(words):String(words||'');
- return songFrom({title,meta:{author:String(author||'').split(/\s*[\/;]\s*/).filter(Boolean).join(', '),copyright:copyright||'',ccli:String(ccli||'').replace(/\D/g,'')},sections:readHeaded(text)});
+ return songFrom({title,meta:{author:joinNames(author,/[\/;]/),copyright:copyright||'',ccli:String(ccli||'').replace(/\D/g,'')},sections:readHeaded(text)});
 }
 
 // ProPresenter 6 (and 5): XML. Each group (named "Verse 1", "Chorus"…) holds slides, and each slide's words are in its
@@ -237,7 +245,10 @@ const base64Rtf=s=>{const bytes=base64Bytes(s);try{return UTF8.decode(bytes);}ca
 const attribute=(tag,name)=>{const m=new RegExp('\\s'+name+'="','i').exec(tag);if(!m)return '';const start=m.index+m[0].length,end=tag.indexOf('"',start);return end<0?'':decode(tag.slice(start,end));};
 function slideWords(slide,number){
  const element=elements(slide,'RVTextElement',1)[0];if(!element)return '';
- const field=name=>(new RegExp('<NSString[^<>]*rvXMLIvarName="'+name+'"[^<>]*>([^<]*)<','i').exec(element.inner)||[])[1]||attribute('<x'+element.attrs+'>',name);
+ // Each NSString read once, by the forward scan, and its rvXMLIvarName compared (a pattern around that attribute
+ // rescanned a tag that repeats it thousands of times).
+ const strings=elements(element.inner,'NSString');
+ const field=name=>(strings.find(s=>attribute('<x'+s.attrs+'>','rvXMLIvarName')===name)?.inner.split('<')[0])||attribute('<x'+element.attrs+'>',name);
  try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Rtf(rtf)):'';}
  catch{throw new Error('slide '+number+'\'s words are damaged, so the song was not imported');}
 }
