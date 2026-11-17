@@ -24,6 +24,15 @@ Wordlight runs on your own computer. It needs no account, sign-in or online serv
 
 **From source:** `git clone https://github.com/TheDataIsaac/wordlight.git`, then with Node.js 20.12 or newer double-click **Start Wordlight.cmd** (or run `node server.mjs --open` on Mac or Linux, without crash recovery). The studio opens at http://127.0.0.1:18765. No npm install or API key is needed. See [Start and crash recovery](#start-and-crash-recovery-windows-from-source). To build the portable ZIP: `node tools/build-portable.mjs` (downloads the official Node.js runtime, checked against nodejs.org's SHA256SUMS, and the open Bible packs into build/). `node tools/build-companion-zip.mjs` rebuilds `dist/wordlight-obs-companion.zip` from the current commit. Tests: `npm test`.
 
+### What it needs
+Windows 10 or 11 (64-bit). Measured over a 3-hour rehearsal on a Core i5-1135G7 laptop recording 1080p30 in OBS (Intel Quick Sync) with Wordlight's three OBS pages and a slide every 6 seconds:
+
+- Wordlight itself: about 130-150 MB of memory, and almost no processor time between sends. A send reaches the screen in about 7 ms.
+- Wordlight's pages in OBS: about 0.4-0.5 GB, in OBS's own browser processes.
+- Verse listening, only while it is on: about 0.8 GB more and half of one processor core.
+
+8 GB of memory is enough without verse listening. With listening and OBS on an 8 GB laptop, close other programs (browsers especially) first; 16 GB leaves room to spare.
+
 ### Updates (portable package)
 **Settings → Updates** shows the version and whether a newer one is out. The package asks GitHub once a day (a minute after start, then every 24 hours); **Check now** asks at once. Nothing is downloaded or installed by itself.
 
@@ -157,7 +166,8 @@ Wordlight can listen to the sermon and suggest the verse the preacher calls ("Se
 - Choose the sound desk as the input (for example USB Audio CODEC), not the laptop microphone, then **Start listening**. The model takes about 15 seconds to load. Listening stops with **Stop listening**, or by itself 20 seconds after the studio stops sending sound (closed or refreshed).
 - Everything runs on this computer. No sound and no words are sent anywhere.
 - English speech only. The interpreter's Yoruba is heard as noise and ignored; a reference said only in Yoruba is not caught.
-- The speech model runs in its own process at below-normal priority, so OBS and the screen come first. On the church laptop (Core i5-1135G7) it keeps about half of one processor core busy and uses about 0.8 GB of memory, all freed when listening stops; on a laptop with 8 GB, close what you don't need first. If the computer is too busy to keep up, a moment of sound is skipped (the bar says so) rather than falling further behind.
+- The speech model runs in its own process at below-normal priority, so OBS and the screen come first. On a Core i5-1135G7 laptop it keeps about half of one processor core busy and uses about 0.8 GB of memory, all freed when listening stops; on a laptop with 8 GB, close what you don't need first.
+- If the speech process stops (Windows ends programs when the computer runs out of memory), Wordlight starts it again after 5 seconds, then 30 seconds, then 2 minutes, and only once at least 1.2 GB of memory is free, so OBS keeps what it needs. The bar says what is happening. After a fourth stop within a few minutes, listening stays off and says why. If the computer is too busy to keep up, a moment of sound is skipped (the bar says so) rather than falling further behind.
 - A verse read aloud is suggested only when the words heard match it clearly: verse search's score at least 1.0, ahead of the next verse by 0.25, and at least four meaningful words in common. That keeps prayer and chanting from matching verses.
 
 **How well it works**, measured on two recorded services from this church (the 13 and 15 November 2026 convention sermons, about 110 minutes, preacher in English with a Yoruba interpreter), against careful transcripts:
