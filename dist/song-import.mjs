@@ -161,7 +161,11 @@ export function fromChordPro(text,fallbackTitle=''){
  }
  settle(false);close();
  // A chorus written out again in full, with the same words, is the same chorus sung again, not "Chorus 2".
- for(const s of sections.filter(s=>s.repeatOf&&s.slides.join('\n\n')===s.repeatOf.slides.join('\n\n'))){sections.splice(sections.indexOf(s),1);order[order.indexOf(s)]=s.repeatOf;}
+ // Every place it is sung points to the chorus it repeats (following a chain of repeats), and then it is removed.
+ const merged=new Set(sections.filter(s=>s.repeatOf&&s.slides.join('\n\n')===s.repeatOf.slides.join('\n\n')));
+ const kept=s=>{while(merged.has(s))s=s.repeatOf;return s;};
+ for(let i=0;i<order.length;i++)order[i]=kept(order[i]);
+ for(const s of merged)sections.splice(sections.indexOf(s),1);
  // The ones with new words are numbered again, in order, so a merged one leaves no gap (Chorus, Chorus 2, not Chorus 3).
  for(const s of sections.filter(s=>s.repeatOf))s.label='';
  for(const s of sections.filter(s=>s.repeatOf))s.label=numbered(s.heading);
@@ -251,7 +255,7 @@ function slideWords(slide,number){
  // Each NSString read once, by the forward scan, and its rvXMLIvarName compared (a pattern around that attribute
  // rescanned a tag that repeats it thousands of times).
  const strings=elements(element.inner,'NSString');
- const field=name=>(strings.find(s=>attribute('<x'+s.attrs+'>','rvXMLIvarName')===name)?.inner.split('<')[0])||attribute('<x'+element.attrs+'>',name);
+ const field=name=>(strings.find(s=>attribute('<x'+s.attrs+'>','rvXMLIvarName').toLowerCase()===name.toLowerCase())?.inner.split('<')[0])||attribute('<x'+element.attrs+'>',name);
  try{const plain=field('PlainText');if(plain)return base64Text(plain).trim();const rtf=field('RTFData');return rtf?rtfToText(base64Rtf(rtf)):'';}
  catch{throw new Error('slide '+number+'\'s words are damaged, so the song was not imported');}
 }
