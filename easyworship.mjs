@@ -32,14 +32,14 @@ if(!isMainThread){
  try{
   songsDb=new DatabaseSync(path.join(workerData.folder,'Songs.db'),{readOnly:true});
   wordsDb=new DatabaseSync(path.join(workerData.folder,'SongWords.db'),{readOnly:true});
-  // Real tables only: a view under the same name could make every read slow.
   // Ordinary stored tables and columns only. A view, a virtual table or a generated column runs code at every read,
   // and SQLite's own memory is outside this thread's limit, so a crafted file could use them to exhaust the computer.
   const plainTable=(db,name,columns)=>{
    const row=db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(name);
    if(!row||/^\s*create\s+virtual/i.test(String(row.sql)))return false;
+   // Every column plain (a generated one could even be named rowid), and the ones read must exist.
    const kinds=new Map(db.prepare('SELECT name,hidden FROM pragma_table_xinfo(?)').all(name).map(c=>[String(c.name).toLowerCase(),Number(c.hidden)]));
-   return columns.every(c=>kinds.get(c)===0);
+   return [...kinds.values()].every(hidden=>hidden===0)&&columns.every(c=>kinds.has(c));
   };
   if(!plainTable(songsDb,'song',['title','author','copyright','vendor_id'])||!plainTable(wordsDb,'word',['song_id','words']))throw new Error('the song tables are missing or not plain tables');
   // All the words in one pass: EasyWorship has no index on song_id, so a lookup per song would read the whole table

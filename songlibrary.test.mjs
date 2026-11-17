@@ -216,6 +216,10 @@ test('EasyWorship 6 and 7 song databases are imported into the library, once',as
   const generatedDb=path.join(folder,'Generated.db');{const db=new DatabaseSync(generatedDb);db.exec("CREATE TABLE word (song_id INTEGER, raw TEXT, words TEXT GENERATED ALWAYS AS (raw || raw) VIRTUAL)");db.close();}
   const generated=await send(songsFile,await readFile(generatedDb));
   assert.equal(generated.status,400);assert.match(generated.body.error,/not plain tables/);
+  // Even a generated column called rowid, which the reader also selects.
+  const rowidDb=path.join(folder,'Rowid.db');{const db=new DatabaseSync(rowidDb);db.exec("CREATE TABLE song (id INTEGER, rowid INTEGER GENERATED ALWAYS AS (id*2) VIRTUAL, title TEXT, author TEXT, copyright TEXT, vendor_id TEXT)");db.close();}
+  const rowid=await send(await readFile(rowidDb),wordsFile);
+  assert.equal(rowid.status,400);assert.match(rowid.body.error,/not plain tables/);
   // One import at a time: a second one sent while the first is still arriving is turned away. The first holds back its
   // second file until the second import has been answered.
   let release;const held=new Promise(r=>{release=r;});

@@ -122,7 +122,7 @@ async function readJSON(req,limit){return JSON.parse(await readBytes(req,limit))
 // A request body written straight to two files, the first `split` bytes to `first` and the rest to `second`, so a large
 // upload never sits in memory. Returns the number of bytes received.
 async function saveSplitUpload(req,limit,split,first,second){
- const a=await open(first,'w'),b=await open(second,'w');let size=0;
+ const a=await open(first,'w');let b;try{b=await open(second,'w');}catch(err){await a.close();throw err;}let size=0;
  try{
   for await(const part of req){
    const at=size;size+=part.length;if(size>limit)throw Object.assign(new Error('Too large.'),{status:413});
