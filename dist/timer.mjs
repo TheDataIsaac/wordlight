@@ -12,7 +12,10 @@ export function cleanTimer(raw={}){
   // A time-of-day timer always runs: it follows the clock.
   running:mode==='until'?targetAt>0:raw?.running===true&&Number(raw.startedAt)>0,startedAt:bounded(raw?.startedAt,0,1e15),
   targetAt,untilTime:/^([01]\d|2[0-3]):[0-5]\d$/.test(raw?.untilTime||'')?raw.untilTime:'10:00',overrun,warnMs:bounded(raw?.warnMs,60000,3600000),
-  visible:raw?.visible===true,position:['top-left','top-right','bottom-left','bottom-right'].includes(raw?.position)?raw.position:'top-right'};
+  visible:raw?.visible===true,
+  // Where the overlay shows: onScreen for the projector or TV (and the Present window), onObs for OBS pages (obs=1),
+  // so a church can give the preacher a timer on the TV without putting it on the livestream. Both on unless turned off.
+  onScreen:raw?.onScreen!==false,onObs:raw?.onObs!==false,position:['top-left','top-right','bottom-left','bottom-right'].includes(raw?.position)?raw.position:'top-right'};
 }
 // When "10:00" is, as a moment: today, unless that was more than 6 hours ago, then tomorrow. So 10:00 set at 10:05
 // shows the service is 5 minutes late, and 08:00 set the evening before counts down to the next morning.

@@ -59,6 +59,14 @@ test('Old saved timers still work: the new fields get their defaults',()=>{
  assert.equal(cleanTimer({mode:'until',untilTime:'25:00'}).untilTime,'10:00','an impossible time falls back');
 });
 
+test('The timer shows on the TV and in OBS unless one is turned off, and keeps that through start, hide and reset',()=>{
+ assert.deepEqual([cleanTimer({}).onScreen,cleanTimer({}).onObs],[true,true],'older saved timers show in both places');
+ const tvOnly=cleanTimer({visible:true,onObs:false});
+ assert.deepEqual([tvOnly.onScreen,tvOnly.onObs],[true,false]);
+ for(const action of ['start','pause','reset','hide','show'])assert.equal(changeTimer(tvOnly,action,at(9,0)).onObs,false,action+' keeps OBS off');
+ assert.equal(cleanTimer({onScreen:'no'}).onScreen,true,'only false turns a place off');
+});
+
 test('The graphics timer hides at zero only when it is not set to run over',()=>{
  const g={timer:{visible:true,hideAtZero:true}};
  assert.equal(graphicsTimerShown(g,{mode:'countdown'},0),false);
