@@ -224,6 +224,9 @@ function readLyrics(text){
  for(const raw of String(text).replace(/\r\n?/g,'\n').split('\n')){
   const header=raw.trim().match(/^\[(.+)\]$/);
   if(header){closePage();open(header[1].trim().slice(0,60));continue;}
+  // The same plain headings the song importer reads (Verse 1, Chorus, Pre-chorus 2, Bridge:), so a typed song
+  // matches an imported one and the names never show on screen as lyrics.
+  if(raw.trim().length<=60&&PLAIN_HEADING.test(raw.trim())){closePage();open(raw.trim().replace(/\s*:\s*$/,'').replace(/^./,c=>c.toUpperCase()));continue;}
   if(!raw.trim()){closePage();continue;}
   if(!current)open('Verse 1');
   // trimEnd, not /\s+$/: that pattern rescans every long run of spaces that is not at the end of the line.
@@ -270,6 +273,8 @@ export function editSong(song,{title,meta={},lyrics,arrangement}){
  return cleanSong({...song,title:String(title||'').trim()||song.title,meta:{...Object.fromEntries(Object.entries(song.meta).filter(([k])=>!(k in meta))),...kept},
   sections,arrangements:[{...current,order,hidden:unchanged?current.hidden:{}},...others],arrangementId:current.id,edited:true});
 }
+// A line that is only a section name, as lyric sheets write them. Kept in step with HEADING_PATTERN in song-import.mjs.
+const PLAIN_HEADING=/^(verse|chorus|bridge|pre-?chorus|refrain|tag|ending|intro|outro|interlude|instrumental|vamp|misc|coda|slide)(?:\s*\d+)?\s*(?::\s*)?$/i;
 export function newSong(title='New song'){
  return cleanSong({format:'wordlight-song',version:1,id:'native-'+(globalThis.crypto?.randomUUID?.()||Date.now()),title,meta:{},category:'',source:{app:'wordlight'},sections:[{id:'s1',label:'Verse 1',slides:['']}],arrangements:[{id:'main',name:'Default',order:['s1'],hidden:{}}],arrangementId:'main',skipped:[]});
 }

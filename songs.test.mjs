@@ -195,3 +195,10 @@ test('A chorus typed between verses goes between them when the arrangement is le
  const repeats=editSong(two,{lyrics:'[Verse 1]\nONE\n\n[Verse 2]\nTWO',arrangement:'Verse 1, Verse 2, Verse 1'});
  assert.equal(arrangementText(editSong(repeats,{lyrics:songToText(repeats)+'\n\n[Bridge]\nNEW',arrangement:arrangementText(repeats)})),'Verse 1, Verse 2, Bridge, Verse 1');
 });
+
+test('A section name typed on its own line is a heading, never a lyric on screen',()=>{
+ const song=editSong(newSong('Typed'),{lyrics:'Verse 1\nFirst line\nSecond line\n\nChorus:\nSing it out\n\nverse 2\nThird line',arrangement:'Verse 1'});
+ assert.deepEqual(song.sections.map(x=>x.label),['Verse 1','Chorus','Verse 2']);
+ assert.equal(song.sections.flatMap(x=>x.slides).some(t=>/^(verse|chorus)/im.test(t)),false,'no heading among the lyrics');
+ assert.equal(editSong(newSong('Brackets'),{lyrics:'[Chorus]\nStill works',arrangement:'Verse 1'}).sections[0].label,'Chorus');
+});

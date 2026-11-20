@@ -189,7 +189,7 @@ function render(){
 let renderedTab=null;
 function renderStudio(){
  document.title=APP_NAME+(appInfo?.preview?' (preview)':'');
- $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Export show file','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Refresh presentation</button>'+'</div></header>'+
+ $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Export show file','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Reload projector</button>'+'</div></header>'+
  '<div id="noticeBar" class="notice-bar" hidden></div><div id="gettingStarted" class="getting-started" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
  '<main class="main"><div class="main-heading">'+button('Timer','timer')+button('Graphics','graphics-open')+button('OBS & screens','help','screen')+(isLocal?button('Listen','listen-open')+button('Stage','stage-open')+button('Phone remote','phone-remote')+button('Settings','settings-open'):'')+'</div><div class="stage-pair"><section class="stage-column"><div class="preview-header"><span class="preview-label"><span class="dot"></span> PREVIEW</span><span class="aspect-badge">16:9 &nbsp; / &nbsp; 1920 × 1080</span></div><div id="verseNav"></div><div id="preview" class="stage-frame" aria-label="Slide preview"></div></section>'+
  '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">View:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button></div><button class="button live-lower-settings" data-action="lower-open-settings">Lower third settings</button><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
@@ -788,6 +788,7 @@ async function lookupPassage(delta=0,options={}){
  }
  const request=++lookupId,showId=library.activeShowId,sceneId=activeShow(library).activeSceneId,oldText=draft.passage,oldReference=draft.reference,oldPreview=draft.previewId;
  lookupBusy=true;renderVerseNavigation();const status=$('#lookupStatus');if(status)status.textContent='Finding your passage…';
+ {const old=$('#verseResults .lookup-error');if(old)old.remove();}
  try{
   const path='/'+encodeURIComponent(delta?draft.reference:normalized)+'?translation='+tr+'&single_chapter_book_matching=indifferent';
   // The installed list may still be loading just after a reload; a verse must not go online for that reason.
@@ -886,7 +887,7 @@ async function refreshPresentation(){
  if(isLocal&&companion.viewers?.projector){try{await projectorRequest('reload');toast('Projector window reloaded.');}catch(err){toast(err.message);}return;}
  // Obtain the existing named window during the click so popup blockers can be reported.
  const w=window.open('','wordlight-presentation','popup,width=1280,height=720');
- if(!w)return toast('Allow pop-ups for Wordlight, then click Refresh presentation again.');
+ if(!w)return toast('Allow pop-ups for Wordlight, then click Reload projector again.');
  let created=false;try{created=w.location.href==='about:blank';}catch{}
  presentationRefreshing=true;
  const control=$('[data-action="refresh-presentation"]');
@@ -903,12 +904,18 @@ async function refreshPresentation(){
  }finally{
   presentationRefreshing=false;
   const current=$('[data-action="refresh-presentation"]');
-  if(current){current.disabled=false;current.textContent='Refresh presentation';}
+  if(current){current.disabled=false;current.textContent='Reload projector';}
  }
 }
 async function projectorRequest(action){
  const r=await fetch('/api/projector/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
  const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'The projector could not be changed.');return data;
+}
+// The local studio's line under LIVE: is the projector window open, and which OBS pages are showing Wordlight.
+function outputsText(raw={}){
+ const count=n=>Number.isInteger(n)&&n>0?n:0,projector=count(raw.projector),full=Math.max(0,count(raw.output)-projector),lower=count(raw.lower),graphics=count(raw.graphics);
+ const obs=[[lower,'lower third'],[full,'full screen'],[graphics,'graphics']].filter(([n])=>n).map(([n,name])=>n+' '+name);
+ return 'Projector: '+(projector?'open':'not open (click Present)')+' · OBS: '+(obs.length?obs.join(', '):'not connected');
 }
 // The local studio fills the projector by itself. A web studio, or a laptop with no second screen, opens a normal window.
 async function present(){
@@ -939,7 +946,7 @@ function showHelp(){
  const ndi='<details class="setup-panel"><summary><h3>NDI</h3></summary><p>Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser sources in one scene that stays rendered (for example a projector of a “Wordlight NDI Engine” scene) and give each source its own Dedicated NDI output filter, such as “Wordlight Full Screen” and “Wordlight Lower Third”. Keep that projector open and OBS not minimised: a source that is not being rendered can send stale frames. The lower third keeps its transparency. Check each feed on the receiving computer.</p></details>';
  const keys='<details class="setup-panel"><summary><h3>Keys</h3></summary>'+keysTable()+'</details>';
  $('#helpContent').innerHTML=isLocal?
-  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>Projector or TV</h3><p class="small-note">With the projector connected and set to Extend (Windows+P), Present fills it with nothing else on screen. Press F5 here if you ever need to refresh it, or use Refresh presentation.</p>'+button('Present on projector','present','screen')+' '+(isLocal?button('Close projector window','projector-close')+' ':'')+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
+  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>Projector or TV</h3><p class="small-note">With the projector connected and set to Extend (Windows+P), Present fills it with nothing else on screen. Press F5 here if you ever need to refresh it, or use Reload projector.</p>'+button('Present on projector','present','screen')+' '+(isLocal?button('Close projector window','projector-close')+' ':'')+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
   '<div class="setup-panel"><h3>Local companion</h3><p>OBS reads the outputs from the Wordlight companion on this computer. Start it (Start Wordlight.cmd), open its studio at '+e(COMPANION_URL)+', copy the code from OBS &amp; screens there, and enter it here. The browser may ask to allow access to devices on your local network; allow it.</p><div class="lookup-row">'+input('pairingInput',pairing?.code||'','placeholder="ABCD-EFGH-JKLM" maxlength="14" spellcheck="false" aria-label="Pairing code"')+button(pairing?'Reconnect':'Connect','companion-pair','','primary')+'</div><p id="pairingState" class="small-note"></p>'+(pairing?button('Disconnect','companion-forget'):'')+' <a class="button" href="wordlight-obs-companion.zip" download>'+icon('download')+'Download companion</a></div>'+urls+ndi+keys+'<div class="setup-panel"><h3>TV</h3>'+button('Open presentation window','present','screen')+'</div>';
  $('#helpDialog').showModal();refreshCompanion();
 }
@@ -1028,7 +1035,7 @@ document.addEventListener('click',async ev=>{
  if(a==='timer'||a.startsWith('timer-')){await handleTimerAction(a);return;}
  if(a==='copy-url'){try{await navigator.clipboard.writeText(t.dataset.url);toast('Copied. Paste it into the URL box in OBS.');}catch{toast('Select the address and press Ctrl+C to copy it.');}return;}
  if(a==='duplicate-preview'){duplicatePreviewSlide();return;}
- if(a==='delete-preview'){if(activeTextSlide())deleteTextSlide();else{const selected=deckFor(draft).find(s=>s.id===draft.previewId);if(!selected)return;lastRemovedBible={previewId:draft.previewId,excludedSlides:[...(draft.excludedSlides||[])],songs:[...(draft.songs||[])]};lastRemovedSlide=null;removeGroups(draft,[groupKey(selected)]);remember();render();toast((selected.song?'Song':'Slide')+' deleted from this show. Undo deletion is available.');}return;}
+ if(a==='delete-preview'){if(activeTextSlide())deleteTextSlide();else{const selected=deckFor(draft).find(s=>s.id===draft.previewId);if(!selected)return;lastRemovedBible={previewId:draft.previewId,excludedSlides:[...(draft.excludedSlides||[])],songs:[...(draft.songs||[])]};lastRemovedSlide=null;removeGroups(draft,[groupKey(selected)]);remember();render();toast((selected.song?'Song':'Slide')+' deleted from this show.',{action:{label:'Undo',run:()=>$('[data-action=undo-preview]')?.click()}});}return;}
  if(a==='undo-preview'){if(lastRemovedSlide)restoreTextSlide();else if(lastRemovedBible){draft.excludedSlides=lastRemovedBible.excludedSlides;if(lastRemovedBible.songs)draft.songs=lastRemovedBible.songs;draft.previewId=lastRemovedBible.previewId;lastRemovedBible=null;remember();render();}return;}
  if(handleShowAction(a,t))return;
  if(handleDeckAction(a,t))return;
@@ -1396,7 +1403,7 @@ async function handleTimerAction(action){
   if(action==='timer-reset')timer=changeTimer(timer,'reset');
  }else if(action==='timer-places'){
   const onScreen=$('#timerOnScreen').checked,onObs=$('#timerOnObs').checked;
-  if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast('Keep one place ticked. To take the timer off everywhere, use Hide overlay.');return;}
+  if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast(timer.visible?'Keep one place ticked. To take the timer off everywhere, use Hide overlay.':'Keep at least one place ticked.');return;}
   timer=cleanTimer({...timer,onScreen,onObs,position:$('#timerPosition').value});
  }
  else timer=changeTimer(timer,action.slice(6));
@@ -1769,7 +1776,7 @@ async function handleLowerAction(action){
 // Companion connection: the web studio sends live screens to the paired local companion; the local studio
 // shows the pairing code. Status describes what the companion reports, not what OBS displays.
 function companionText(){
- if(isLocal)return companion.state==='connected'?'Companion · '+describeViewers(companion.viewers):'';
+ if(isLocal)return companion.state==='connected'?outputsText(companion.viewers):'';
  if(!pairing)return 'OBS not connected';
  return {connected:'Companion connected · '+describeViewers(companion.viewers),checking:'Checking companion…',offline:'Companion not reachable · outputs keep their last screen',unpaired:'Pairing code not accepted · enter the current code',stale:'Companion has a newer screen from another studio',error:companion.message||'Companion error'}[companion.state]||'';
 }
@@ -2287,8 +2294,8 @@ function openSongEditor(entryId){
   '<div class="field-row"><div>'+label('Title','songTitle')+input('songTitle',fresh?'':song.title,'maxlength="200" placeholder="The song\'s title"')+'</div><div>'+label('Author','songAuthor')+input('songAuthor',song.meta.author||song.meta.artist||'','maxlength="300"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Copyright','songCopyright')+input('songCopyright',song.meta.copyright||'','maxlength="300"')+'</div><div>'+label('CCLI song number','songCcli')+input('songCcli',song.meta.ccli||'','maxlength="30"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Other names or spellings','songAliases')+input('songAliases',song.meta.aliases||'','maxlength="500"')+'</div><div>'+label('Status','songStatus')+'<select id="songStatus">'+[['','Not set'],['checked','Checked'],['book','From a songbook'],['draft','Draft'],['reserve','Check first']].map(([v,n])=>'<option value="'+v+'" '+(v===(song.meta.status||'')?'selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
-  label('Lyrics','songLyrics')+'<textarea id="songLyrics" rows="16" spellcheck="false" placeholder="[Verse 1]&#10;First line of the verse&#10;Second line&#10;&#10;[Chorus]&#10;First line of the chorus">'+(fresh?'':e(songToText(song)))+'</textarea>'+
-  tip('Start each section with a label line such as [Verse 1] or [Chorus]. A blank line starts a new slide; a slide with only (blank) is a blank cue.')+
+  label('Lyrics','songLyrics')+'<textarea id="songLyrics" rows="16" spellcheck="false" placeholder="Verse 1&#10;First line of the verse&#10;Second line&#10;&#10;Chorus&#10;First line of the chorus">'+(fresh?'':e(songToText(song)))+'</textarea>'+
+  tip('Start each section with its name on its own line: Verse 1, Chorus, Bridge (or [Verse 1]). A blank line starts a new slide; a slide with only (blank) is a blank cue.')+
   label('Arrangement'+(song.arrangements.length>1?' · '+e(arrangement.name):''),'songArrangementText')+input('songArrangementText',arrangementText(song),'maxlength="4000"')+
   tip('Section labels in the order they are sung, separated by commas. Repeats are fine: Verse 1, Chorus, Verse 2, Chorus.')+
   (hiddenPages?'<p class="small-note">This arrangement hides some slides for single repeats (from FreeShow). Changing the order shows all slides of each section.</p>':'')+

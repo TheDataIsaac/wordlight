@@ -3,13 +3,15 @@
 import {inflateRawSync,deflateRawSync,crc32} from 'node:zlib';
 
 // Writes a ZIP from {name: Buffer}. Names use forward slashes; files only, no folder entries.
-export function writeZip(files){
+export function writeZip(files,when=new Date()){
  const parts=[],central=[];let offset=0;
+ // DOS date and time of each entry, so Windows shows when the package was built instead of 1980.
+ const dosTime=(when.getHours()<<11)|(when.getMinutes()<<5)|(when.getSeconds()>>1),dosDate=((when.getFullYear()-1980)<<9)|((when.getMonth()+1)<<5)|when.getDate();
  for(const [name,data] of Object.entries(files)){
   const packed=deflateRawSync(data,{level:9}),nameBuf=Buffer.from(name,'utf8'),crc=crc32(data);
-  const local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);local.writeUInt16LE(0x0800,6);local.writeUInt16LE(8,8);
+  const local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);local.writeUInt16LE(0x0800,6);local.writeUInt16LE(8,8);local.writeUInt16LE(dosTime,10);local.writeUInt16LE(dosDate,12);
   local.writeUInt32LE(crc,14);local.writeUInt32LE(packed.length,18);local.writeUInt32LE(data.length,22);local.writeUInt16LE(nameBuf.length,26);
-  const dir=Buffer.alloc(46);dir.writeUInt32LE(0x02014b50,0);dir.writeUInt16LE(20,4);dir.writeUInt16LE(20,6);dir.writeUInt16LE(0x0800,8);dir.writeUInt16LE(8,10);
+  const dir=Buffer.alloc(46);dir.writeUInt32LE(0x02014b50,0);dir.writeUInt16LE(20,4);dir.writeUInt16LE(20,6);dir.writeUInt16LE(0x0800,8);dir.writeUInt16LE(8,10);dir.writeUInt16LE(dosTime,12);dir.writeUInt16LE(dosDate,14);
   dir.writeUInt32LE(crc,16);dir.writeUInt32LE(packed.length,20);dir.writeUInt32LE(data.length,24);dir.writeUInt16LE(nameBuf.length,28);dir.writeUInt32LE(offset,42);
   parts.push(local,nameBuf,packed);central.push(dir,nameBuf);offset+=30+nameBuf.length+packed.length;
  }

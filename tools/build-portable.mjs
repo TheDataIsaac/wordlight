@@ -92,6 +92,10 @@ First time:
   2. Projector: connect it, set Windows to Extend (Windows+P), then click Present in Wordlight.
   3. Phone remote (optional): Phone remote, set a password, Turn on, and scan the code with a phone on the same Wi-Fi.
   4. Stage display (optional): Stage shows the address for a screen facing the singers or the preacher.
+  5. Songs: the Songs tab, Import songs (EasyWorship, ProPresenter, SongSelect, OpenLyrics, ChordPro, text or a
+     Wordlight song library file).
+  6. OBS (only if you stream): OBS & screens shows the steps and has a Copy button for each address.
+  The Getting started bar at the top of Wordlight shows the next step and a button that does it.
 
 Updates: Settings, Updates says when a newer version is out. Download update, then Restart now and install
 between services. The previous version is kept, so Go back undoes it. Your shows are never moved.
