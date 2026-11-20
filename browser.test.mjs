@@ -598,6 +598,12 @@ test('Song files from other programs: one goes into the show, several go into th
  await until("document.querySelector('#toast').textContent.includes('2 already there were skipped')",'the second import skipped');
  await pick([txt]);
  await until("fetch('/api/state').then(r=>r.json()).then(s=>s.draft.songs?.some(x=>x.song.title==='Plain Song'))",'the single song in the show');
+ // A Wordlight song library file chosen with Import songs goes into the library, not into the show as one song.
+ const lib=path.join(folder,'Church songs.json');
+ await writeFile(lib,JSON.stringify({format:'wordlight-song-library',version:1,songs:[editSong(newSong('Library Hymn'),{meta:{status:'book'},lyrics:'Verse 1\nLibrary hymn words',arrangement:'Verse 1'})]}));
+ await pick([lib]);
+ await until("fetch('/api/songs?q=library%20hymn').then(r=>r.json()).then(s=>s.items.some(i=>i.name==='Library Hymn'))",'the library song findable');
+ assert.equal(await run("fetch('/api/state').then(r=>r.json()).then(s=>(s.draft.songs||[]).some(x=>x.song.title==='Church songs'||x.song.title==='Library Hymn'))"),false,'nothing added to the show');
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
 

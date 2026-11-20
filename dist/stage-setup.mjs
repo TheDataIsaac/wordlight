@@ -25,6 +25,8 @@ function addresses(){
 function render(){
  if(!dialog?.open)return;
  const typed=dialog.querySelector('#stageMessageText')?.value;
+ // The refresh redraws the dialog every few seconds: keep the cursor in the box the operator is typing in.
+ const focused=dialog.contains(document.activeElement)?document.activeElement:null,focusId=focused?.id,caret=[focused?.selectionStart,focused?.selectionEnd];
  const current=stage?.message?.text||'',hidden=!!stage?.message?.hidden;
  const lines=settings?.stageNextLines??2;
  const screens=stage?stage.screens:0;
@@ -45,6 +47,8 @@ function render(){
  addresses().map(([name,url])=>'<p class="small-note"><strong>'+e(name)+'</strong><br><a href="'+e(url)+'" target="_blank" rel="noopener">'+e(url)+'</a></p>').join('')+
  (remote?.enabled&&remote?.running?'<p class="small-note">On a tablet, sign in with the phone remote password first.</p>':'<p class="small-note">For a tablet on the Wi-Fi, turn on the Phone remote; its address then appears here.</p>')+
  '</div>';
+ const again=focusId&&dialog.querySelector('#'+focusId);
+ if(again){again.focus();if(typeof caret[0]==='number'&&again.setSelectionRange)try{again.setSelectionRange(caret[0],caret[1]);}catch{}}
 }
 
 async function setMessage(message){

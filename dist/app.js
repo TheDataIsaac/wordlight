@@ -924,7 +924,7 @@ async function present(){
   try{const done=await projectorRequest('open');toast(done.already?'The projector window is already open. If it is on the wrong screen, press Close projector window, then Present.':'Opening full screen on the projector. Use Send to screen when you’re ready.');setTimeout(refreshCompanion,2500);return;}
   catch(err){
    // One screen: Windows is duplicating (the usual state just after plugging in). Say how to fix it; a window is optional.
-   if(/No projector found/i.test(err.message)){toast('Windows is showing the same picture on both screens, so there is no projector to fill. Press Windows+P, choose Extend, then click Present again.',{sticky:true,action:{label:'Open a window instead',run:presentationWindow}});return;}
+   if(/No projector found/i.test(err.message)){toast('No extended projector or TV found. Check that it is switched on and its cable is in, press Windows+P, choose Extend, then click Present again.',{sticky:true,action:{label:'Open a window instead',run:presentationWindow}});return;}
    problem=err.message+' ';
   }
  }
@@ -1363,7 +1363,7 @@ function paintTimers(){
  const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;paintState(readout);readout.parentElement.classList.toggle('not-shown',!timer.visible||!!live.blank);}
  const condition=state==='over'?'Over time':state==='expired'?'Finished':timer.mode==='until'?'Counting to '+timer.untilTime:timer.running?'Running':'Paused';
  const gState=$('#gTimerState');if(gState&&gState.textContent!==condition+' · '+formatted)gState.textContent=condition+' · '+formatted;
- const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(!timer.visible?'Overlay hidden':live.blank?'Overlay hidden because the screen is hidden. Close Timer and choose Show screen to bring both back.':'Overlay showing '+timerPlaces(timer));
+ const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(!timer.visible?'Overlay hidden'+(cleanGraphics(live.graphics).timer.visible&&timer.onObs?' · the Graphics timer is still showing in OBS':''):live.blank?'Overlay hidden because the screen is hidden. Close Timer and choose Show screen to bring both back.':'Overlay showing '+timerPlaces(timer));
 }
 function showTimer(){
  const timer=cleanTimer(live.timer);
@@ -1403,13 +1403,14 @@ async function handleTimerAction(action){
   if(action==='timer-reset')timer=changeTimer(timer,'reset');
  }else if(action==='timer-places'){
   const onScreen=$('#timerOnScreen').checked,onObs=$('#timerOnObs').checked;
-  if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast(timer.visible?'Keep one place ticked. To take the timer off everywhere, use Hide overlay.':'Keep at least one place ticked.');return;}
+  if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast(timer.visible?'Keep one place ticked. To take the timer off everywhere, use Hide overlay'+(cleanGraphics(live.graphics).timer.visible?' and Graphics > Hide timer.':'.'):'Keep at least one place ticked.');return;}
   timer=cleanTimer({...timer,onScreen,onObs,position:$('#timerPosition').value});
  }
  else timer=changeTimer(timer,action.slice(6));
  if(!await publishChange({...clone(live),timer}))return;
  if(action==='timer-apply'){showTimer();return;}
  const toggle=$('#timerDialog [data-action=timer-show],#timerDialog [data-action=timer-hide]');
+ if(action==='timer-hide'&&cleanGraphics(live.graphics).timer.visible&&timer.onObs)toast('The overlay is hidden. The Graphics timer is still showing in OBS: Graphics > Hide timer takes it off.',{sticky:true});
  if(toggle){const shown=cleanTimer(live.timer).visible;toggle.dataset.action=shown?'timer-hide':'timer-show';toggle.textContent=shown?'Hide overlay':'Show overlay';}
  paintTimers();
 }
@@ -2250,6 +2251,8 @@ async function readImportedSong(file){
 }
 $('#songFile')?.addEventListener('change',async ev=>{
  const files=[...ev.target.files];ev.target.value='';if(!files.length)return;
+ // A whole library file chosen here goes into the song library, not into the show as one song.
+ if(files.length===1&&isLocal&&await isLibraryFile(files[0])){await importLibraryFile(files[0]);return;}
  if(files.length===1&&!/\.db$/i.test(files[0].name)){try{addSongEntry(await readImportedSong(files[0]));}catch(err){toast(files[0].name+' could not be read: '+(err.message||'unknown format')+'.');}return;}
  if(!companionReady()){toast('Adding several songs at once needs the Wordlight companion. Start Wordlight on this computer, or import one song at a time.');return;}
  // EasyWorship 6 and 7: its two song databases, chosen together.
@@ -2332,13 +2335,19 @@ document.addEventListener('click',async ev=>{
   forgetCompanionSongs();if(tab==='songs')searchSongLibrary(false);
  }catch(err){$('#songEditError').textContent=(err.message||'That could not be saved.');const showOnly=$('[data-action=song-editor-show-only]');if(showOnly&&notInLibrary(entry.song))showOnly.hidden=false;}
 });
-$('#songLibraryFile')?.addEventListener('change',async ev=>{
- const file=ev.target.files[0];ev.target.value='';if(!file)return;
+// A Wordlight song library file (Export library), whichever import button chose it.
+async function importLibraryFile(file){
  try{
   if(file.size>50e6)throw new Error('That file is too large.');
+  toast('Adding the songs from '+file.name+'…');
   const r=await fetch('/api/songs/library/import',{method:'POST',headers:{'Content-Type':'application/json'},body:await file.text()}),data=await r.json();if(!r.ok)throw new Error(data.error);
-  await searchSongLibrary(false);toast(data.added+' song'+(data.added===1?'':'s')+' added to your library'+(data.skipped?', '+data.skipped+' already there':'')+(data.failed?'. '+data.failed+' not imported: '+data.errors.join('; '):'.'));
+  forgetCompanionSongs();await searchSongLibrary(false);toast(data.added+' song'+(data.added===1?'':'s')+' added to your library'+(data.skipped?', '+data.skipped+' already there':'')+(data.failed?'. '+data.failed+' not imported: '+data.errors.join('; '):'.'));
  }catch(err){toast(err.message||'That library file could not be imported.');}
+}
+const isLibraryFile=async file=>/\.json$/i.test(file.name)&&/^\s*\{\s*"format"\s*:\s*"wordlight-song-library"/.test(await file.slice(0,200).text().catch(()=>''));
+$('#songLibraryFile')?.addEventListener('change',async ev=>{
+ const file=ev.target.files[0];ev.target.value='';if(!file)return;
+ await importLibraryFile(file);
 });
 
 // Graphics panel. The dialog keeps its own draft of the settings. The preview shows the draft over a checkerboard
