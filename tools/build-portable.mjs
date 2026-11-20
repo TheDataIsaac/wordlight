@@ -58,6 +58,11 @@ const add=async(source,target)=>{files[top+target]=await readFile(path.join(repo
 for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','easyworship.mjs','notices.mjs','updates.mjs'])await add(name,'app/'+name);
 // The launcher with crash recovery, the same one Start Wordlight.cmd uses, and the step that installs a downloaded update.
 for(const name of ['start.mjs','supervisor.mjs','shared.mjs','update.mjs'])await add('tools/launcher/'+name,'app/tools/launcher/'+name);
+// The installer: Install Wordlight.cmd runs it from the unzipped package, and the release offers it on its own for
+// the one-line install (irm .../install.ps1 | iex). It copies the package to %LOCALAPPDATA%\Programs and adds shortcuts.
+await add('tools/install.ps1','app/tools/install.ps1');
+await add('tools/portable/Install Wordlight.cmd','Install Wordlight.cmd');
+await add('tools/portable/Wordlight.ico','Wordlight.ico');
 for(const name of (await readdir(path.join(repo,'dist'))).filter(n=>/\.(html|css|js|mjs)$/.test(n)).sort())await add('dist/'+name,'app/dist/'+name);
 // The .cmd files do the same as the .vbs ones, for computers where VBScript is off or blocked (they show a window).
 for(const name of ['Start Wordlight.vbs','Stop Wordlight.vbs','Start with Windows.vbs'])await add('tools/portable/'+name,name);
@@ -65,6 +70,14 @@ for(const name of ['Start Wordlight.cmd','Stop Wordlight.cmd'])await add('tools/
 files[top+'runtime/node.exe']=pick('node.exe');
 files[top+'runtime/LICENSE.txt']=pick('LICENSE');
 files[top+'README.txt']=Buffer.from(`Wordlight · Church Media ${version} (build ${build}, portable, Windows)
+
+Install (recommended):
+  1. If you are reading this inside the ZIP file, close it first: right-click the ZIP, choose Extract All, then Extract,
+     and open the Wordlight folder that appears.
+  2. Double-click "Install Wordlight". If Windows asks whether to run it, choose Run (or More info, then Run anyway).
+  3. It copies Wordlight to your user folder, adds "Wordlight" and "Stop Wordlight" to the Desktop and the Start menu,
+     and starts it. No administrator rights are needed. Afterwards this folder and the ZIP can be deleted.
+  Without installing, the files below also work from this folder.
 
 Start:  double-click "Start Wordlight". It starts Wordlight in the background and opens it in a window.
         Double-click it again at any time: it opens the running Wordlight instead of starting a second one.
@@ -110,7 +123,9 @@ await writeFile(path.join(repo,'build',fullName),zip);await writeFile(path.join(
 const companionName='wordlight-obs-companion.zip';
 execFileSync(process.execPath,[path.join(repo,'tools','build-companion-zip.mjs'),'HEAD',path.join(repo,'build',companionName)],{stdio:'ignore'});
 const companionZip=await readFile(path.join(repo,'build',companionName));
-const releaseSums=Buffer.from(sha(zip)+'  '+fullName+'\n'+sha(appZip)+'  '+appName+'\n'+sha(companionZip)+'  '+companionName+'\n');
+// The installer is a release file too, listed and signed with the others.
+const installer=await readFile(path.join(repo,'tools','install.ps1'));await writeFile(path.join(repo,'build','install.ps1'),installer);
+const releaseSums=Buffer.from(sha(zip)+'  '+fullName+'\n'+sha(appZip)+'  '+appName+'\n'+sha(companionZip)+'  '+companionName+'\n'+sha(installer)+'  install.ps1\n');
 await writeFile(path.join(repo,'build','SHA256SUMS.txt'),releaseSums);
 // Installed copies only accept an update whose checksums are signed with the release key (see RELEASE_KEY in
 // updates.mjs). The private key never goes in the repository: by default it is in the maintainer's user folder.
