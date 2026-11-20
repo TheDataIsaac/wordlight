@@ -1,7 +1,9 @@
 import {cleanTextSlide} from './dist/core.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT,paginate,makeDeck,cleanDraft,snapshot,occurrences,validLive} from './dist/core.mjs';
+import {DEFAULT as BLANK_SHOW,paginate,makeDeck,cleanDraft,snapshot,occurrences,validLive} from './dist/core.mjs';
+// New shows no longer carry a sample word study, so these tests add their own.
+const DEFAULT={...BLANK_SHOW,notes:[{id:'sample-word',word:'Word',original:'λόγος',transliteration:'logos',strong:'G3056',meaning:'Word, speech, or message.\nRead John 1:14 alongside this verse.',source:'https://biblehub.com/greek/3056.htm'}],selectedNoteId:'sample-word'};
 test('Long passages keep every word, in order, across slides',()=>{
  const text=Array.from({length:15000},(_,i)=>'verse'+i+(i%13===0?'\n\n':' ')).join('');
  const pages=paginate(text,45);assert(pages.length>300);

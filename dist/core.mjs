@@ -15,8 +15,8 @@ export const THEMES = {
 export const DEFAULT = {
  schema:1,title:'New show',reference:'John 1:1',translation:'KJV',
  passage:'In the beginning was the Word, and the Word was with God, and the Word was God.',
- notes:[{id:'example-word',word:'Word',original:'λόγος',transliteration:'logos',strong:'G3056',meaning:'Word, speech, or message.\nRead John 1:14 alongside this verse.',source:'https://biblehub.com/greek/3056.htm'}],
- theme:'midnight',font:'serif',fontSize:96,bold:true,wordsPerSlide:45,brand:'',accent:'',previewId:'passage-0',selectedNoteId:'example-word'
+ notes:[],
+ theme:'midnight',font:'serif',fontSize:96,bold:true,wordsPerSlide:45,brand:'',accent:'',previewId:'passage-0',selectedNoteId:''
 };
 const str=(v,max=2000)=>typeof v==='string'?v.slice(0,max):'';
 export function cleanDraft(v){
@@ -37,7 +37,8 @@ export function cleanDraft(v){
  d.notes=(Array.isArray(v.notes)?v.notes:[]).slice(0,200).map((n,i)=>({
  id:str(n.id,100)||'word-'+i,word:str(n.word,200),original:str(n.original,200),transliteration:str(n.transliteration,200),
  strong:str(n.strong,20),meaning:str(n.meaning,30000),source:str(n.source,1000),color:safeColor(n.color),emphasis:safeEmphasis(n.emphasis),slideId:str(n.slideId,100),bold:!!n.bold,italic:!!n.italic
- })).filter(n=>n.word);
+ // example-word was a demo study that older versions put in every new show; it is not the church's own work.
+ })).filter(n=>n.word&&n.id!=='example-word');
  d.textSlides=(Array.isArray(v.textSlides)?v.textSlides:[]).slice(0,200).map(cleanTextSlide);d.slideOrder=(Array.isArray(v.slideOrder)?v.slideOrder:[]).filter(x=>typeof x==='string').slice(0,25000);d.bibleHistory=(Array.isArray(v.bibleHistory)?v.bibleHistory:[]).slice(-50).map(h=>{
  const saved=cleanDraft({schema:1,passage:str(h?.passage,500000),reference:h?.reference,translation:h?.translation,notes:Array.isArray(h?.notes)?h.notes.filter(n=>!n.slideId):[]});
  return {reference:saved.reference,translation:saved.translation,passage:saved.passage,notes:saved.notes};

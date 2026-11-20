@@ -31,7 +31,8 @@ const APP_VERSION=JSON.parse(await readFile(path.join(root,'package.json'),'utf8
 const APP_PREVIEW=process.env.WORDLIGHT_PREVIEW==='1';
 const APP_BUILD=await readFile(path.join(root,'build.json'),'utf8').then(t=>String(JSON.parse(t).build||'dev')).catch(()=>'dev');
 const initialLibrary=cleanLibrary(null,DEFAULT);initialLibrary.shows.forEach(s=>s.updated=0);initialLibrary.savedAt=0;
-let state={app:'wordlight',library:initialLibrary,draft:activeShow(initialLibrary).draft,live:{...snapshot(DEFAULT),blank:true}};
+let state={app:'wordlight',library:initialLibrary,draft:activeShow(initialLibrary).draft,live:{...snapshot(DEFAULT),slides:[],index:0,blank:true}};
+// A new install starts with nothing on screen (not a hidden sample verse), so the studio says "Nothing sent yet".
 let liveFromDisk=false;
 function loadSaved(saved){if(saved.library||saved.draft){state.library=cleanLibrary(saved.library,saved.draft);state.draft=activeShow(state.library).draft;}if(validLive(saved.live)){liveFromDisk=true;state.live=saved.live;try{state.live.graphics=cleanGraphics(saved.live.graphics);}catch(err){console.error('Saved graphics settings were not valid and were reset: '+err.message);state.live.graphics=cleanGraphics();}}}
 // Windows can refuse a read or rename for a moment while another program (OneDrive, antivirus, an indexer) holds

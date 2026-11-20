@@ -1,7 +1,7 @@
 // Stage display in the local studio: the message for the stage screens, the addresses to open, and how many stage
 // screens are connected. Talks only to the loopback companion (/api/stage, /api/remote/status).
 const e=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let dialog,stage=null,remote=null,settings=null,note='',refreshTimer;
+let dialog,stage=null,remote=null,settings=null,note='',refreshTimer,checked=false;
 
 async function call(path,body){
  const r=await fetch(path,body===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -12,7 +12,7 @@ async function call(path,body){
 async function refresh(){
  try{[stage,remote,settings]=await Promise.all([call('/api/stage'),call('/api/remote/status').catch(()=>null),call('/api/settings').catch(()=>null)]);note='';}
  catch(err){stage=null;note=err.message;}
- render();
+ checked=true;render();
 }
 
 // Tablets reach the stage display through the phone remote's address, so it is listed only while the remote is on.
@@ -31,7 +31,7 @@ function render(){
  dialog.innerHTML='<div class="dialog-top"><span class="eyebrow">STAGE DISPLAY</span><button class="icon-button" data-stage="close" aria-label="Close stage display">×</button></div>'+
  '<h2 id="stageTitle">Stage display</h2>'+
  '<p class="small-note">A screen facing the singers or the preacher: the words on screen now, the next slide, the clock, the timer and your message. It only reads; it cannot change the screen.</p>'+
- (stage?'<p class="remote-state" role="status">'+(screens===1?'1 stage screen connected.':screens+' stage screens connected.')+'</p>':'<p class="small-note status-error">'+e(note||'The stage display needs the local companion.')+'</p>')+
+ (stage?'<p class="remote-state" role="status">'+(screens===1?'1 stage screen connected.':screens+' stage screens connected.')+'</p>':!checked?'<p class="small-note" role="status">Checking…</p>':'<p class="small-note status-error">'+e(note||'The stage display needs the local companion.')+'</p>')+
  '<div class="remote-section"><label class="label" for="stageMessageText">Message for the stage</label>'+
  '<input class="input" id="stageMessageText" maxlength="200" placeholder="e.g. 5 minutes, or Please wrap up" value="'+e(typed??current)+'">'+
  // Hide takes the message off the stage but keeps it, for showing again ("5 minutes" twice); Clear deletes it.

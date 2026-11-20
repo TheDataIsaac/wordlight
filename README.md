@@ -20,6 +20,14 @@ Open [Wordlight](https://wordlight.isaacjoresanya.com). To host your own copy, s
 ## Start on Windows
 Wordlight runs on your own computer. It needs no account, sign-in or online service to start; the internet is used only for online Bible lookups.
 
+**Install (recommended, no administrator rights needed):** open PowerShell (press the Windows key, type PowerShell, press Enter), paste this line and press Enter:
+
+```powershell
+irm https://github.com/TheDataIsaac/wordlight/releases/latest/download/install.ps1 | iex
+```
+
+It downloads the newest Windows package, checks it against the release's `SHA256SUMS.txt`, installs it in `%LOCALAPPDATA%\Programs\Wordlight`, adds **Wordlight** and **Stop Wordlight** to the Desktop and the Start menu, and starts it. Running it again updates an installed copy (it stops Wordlight first and puts the old copy back if anything fails). Without PowerShell: download the portable ZIP below, right-click it, **Extract All**, and double-click **Install Wordlight** in the extracted folder; it does the same from there. Shows and settings stay in `%LOCALAPPDATA%\Wordlight\data` either way.
+
 **Portable package (no Node.js or git needed):** download `Wordlight-portable-<version>-win-x64.zip` from https://github.com/TheDataIsaac/wordlight/releases/latest, extract it (for example to the Desktop) and double-click **Start Wordlight**. It starts Wordlight in the background with the same crash recovery as Start Wordlight.cmd (see below) and opens it in a window; double-clicking again opens the running Wordlight instead of starting a second one. Closing the window does not stop Wordlight, so OBS outputs keep working; **Stop Wordlight** stops it. **Start with Windows** turns starting at sign-in on or off (optional). If Start does nothing (VBScript turned off, or an antivirus blocking it), the **Other ways to start** folder has the same Start and Stop as .cmd files, which show a small window. Shows, settings and installed Bibles are kept in `%LOCALAPPDATA%\Wordlight\data`, so a newer Wordlight folder can replace an older one without touching them. If Wordlight is already running, Start Wordlight opens it; if another program uses port 18765, it says so and stops nothing.
 
 **From source:** `git clone https://github.com/TheDataIsaac/wordlight.git`, then with Node.js 20.12 or newer double-click **Start Wordlight.cmd** (or run `node server.mjs --open` on Mac or Linux, without crash recovery). The studio opens at http://127.0.0.1:18765. No npm install or API key is needed. See [Start and crash recovery](#start-and-crash-recovery-windows-from-source). To build the portable ZIP: `node tools/build-portable.mjs` (downloads the official Node.js runtime, checked against nodejs.org's SHA256SUMS, and the open Bible packs into build/). `node tools/build-companion-zip.mjs` rebuilds `dist/wordlight-obs-companion.zip` from the current commit. Tests: `npm test`.
@@ -100,7 +108,7 @@ OBS Browser sources, 1920 × 1080, Local file off, Shutdown source when not visi
 
 **OBS & screens** in the studio shows these URLs and how many full-screen and lower-third pages are connected to the companion. That count is the companion's own connections; it does not prove that OBS or a TV is displaying them. Output pages keep their last screen if the companion stops, and reconnect on their own.
 
-Wordlight needs no account or sign-in. To move shows from another copy of Wordlight: Save show (or Export library) there, then Import shows here. Import adds copies and never changes the live screen.
+Wordlight needs no account or sign-in. To move shows from another copy of Wordlight: Export show file (or Export library) there, then Import shows here. Import adds copies and never changes the live screen.
 
 ### Web studio connection (optional pairing)
 Off unless `WORDLIGHT_BRIDGE_ORIGINS` names an https site that hosts a Wordlight web studio. Then that web version can drive the companion's outputs once paired. In the local studio, **OBS & screens** shows a 12-character code; enter it in the web studio under **OBS & screens** and click Connect. The browser may ask to allow access to devices on the local network; allow it. Each Send then goes to the web presentation window and to the companion. If the companion cannot be reached, the web window still updates and a message says the OBS outputs were not updated. When it comes back, the web studio resends only a Send you made while it was away, and only if the companion has nothing newer. Pairing or reloading the web studio never changes the screen: it shows the companion's current screen instead, and follows screens sent from the local studio, the phone or another web studio at its next status check (every 5 seconds).
@@ -179,11 +187,11 @@ Wordlight can listen to the sermon and suggest the verse the preacher calls ("Se
 Click Present in the local studio to fill the extended display. The hosted studio opens a window to move onto the display, then click Full screen. The OBS output URLs have no buttons.
 
 ## Keys
-When you are not typing in a field: → or Page Down moves the live screen to the next slide, ← or Page Up to the previous one (presentation clickers send Page Up/Down), and B hides or restores the screen everywhere. Shift + Enter (or Alt + Enter) sends the preview, from any field except a multi-line box, where Shift + Enter starts a new line and Alt + Enter still sends. In the passage picker, Shift + Enter loads the chosen passage and sends it. While a song is on screen: 1–9 jump to that verse, C to the next chorus, G bridge, P pre-chorus, T tag, E ending. They act on the song that is live, never on the preview. Other keys do nothing while a dialog is open.
+When you are not typing in a field: Space, → or Page Down moves the live screen to the next slide, ← or Page Up to the previous one (presentation clickers send Page Up/Down), and B hides or restores the screen everywhere. Shift + Enter (or Alt + Enter) sends the preview, from any field except a multi-line box, where Shift + Enter starts a new line and Alt + Enter still sends. In the passage picker, Shift + Enter loads the chosen passage and sends it. While a song is on screen: 1–9 jump to that verse, C to the next chorus, G bridge, P pre-chorus, T tag, E ending. They act on the song that is live, never on the preview. Other keys do nothing while a dialog is open.
 
 ## Saving and backups
 The local companion saves to .wordlight-data/session.json beside the app and keeps a copy in .wordlight-data/backups at most every 10 minutes: the newest 20, and the newest of each of the last 14 days. The screen on air is saved on its own in live.json, so the next slide never rewrites every show. If session.json is ever unreadable, the companion keeps it as session-damaged-….json, starts from the newest readable backup, and says so in a bar at the top of the studio.
-Save show downloads the current show with its scenes; Export library in Shows downloads every show. Import shows restores them without changing the live screen.
+Export show file downloads the current show with its scenes; Export library in Shows downloads every show. Import shows restores them without changing the live screen.
 Browser storage is local to that browser/profile. There is no cloud account sync. The local server binds to 127.0.0.1 only.
 
 ## Internet and sources
@@ -194,7 +202,7 @@ Installed Bibles: official VPL archives from eBible.org (KJV eng-kjv2006, ASV en
 Online Bible lookup: https://bible-api.com/
 Online NKJV (when there is no NKJV file or API.Bible key): https://bolls.life/, one chapter per request as its API documentation asks.
 Greek/Hebrew dictionary: BDB / Thayer through https://bolls.life/ (API documentation: https://github.com/Bolls-Bible/bain/blob/master/docs/API.md)
-The initial Word / logos study is an editable example. Lexical source: https://biblehub.com/greek/3056.htm
+New shows start with no word study; add one with Choose a word to study.
 This app does not generate AI interpretation or infer Greek/Hebrew words from English.
 
 ## Presentation editor
@@ -215,7 +223,7 @@ Use **Organize slides** to select multiple items, move them earlier/later, dupli
 
 **Previous verse** and **Next verse** appear in Bible and above a Bible preview. They follow the loaded reference, cross chapter/book boundaries, and use the selected passage's translation. Ranges and chapters create one slide per verse with its own reference. Within the loaded range, the buttons move between verse previews; beyond its boundary, they load the adjacent verse. Verse navigation uses the selected verse. The app uses the translation's available verse sequence, including gaps. Previous and Next verse send to the screen straight away. Chosen words, explanations, colors, bold/italic, and emphasis belong to the show. Verse and translation changes preserve them exactly, including the selected word. Matching words keep their styles on new passages; absent words stay saved. Keep important passages as slides or export the show.
 
-**Save show** exports the current show with all of its scenes (older Wordlight versions import only its current scene). **Export library** in Shows exports every show. Import accepts both a library and older session files, appending independent copies without overwriting existing shows. Local saves include the whole library; hosted saves remain local to the browser/profile, with no cloud synchronization. Up to 100 shows and 200 text slides per show are supported. Storage-quota failures are reported so the library can be exported. Export files carry the images their shows use (up to 200) and are limited to 250 MB, the same for export and import; the local save API accepts up to 25 MB.
+**Export show file** exports the current show with all of its scenes (older Wordlight versions import only its current scene). **Export library** in Shows exports every show. Import accepts both a library and older session files, appending independent copies without overwriting existing shows. Local saves include the whole library; hosted saves remain local to the browser/profile, with no cloud synchronization. Up to 100 shows and 200 text slides per show are supported. Storage-quota failures are reported so the library can be exported. Export files carry the images their shows use (up to 200) and are limited to 250 MB, the same for export and import; the local save API accepts up to 25 MB.
 
 Validation: core/model tests cover migration, independent copies, bulk ordering/deletion, live snapshots, verse ranges and chapter/book boundaries, saved Bible notes, and existing formatting. Browser QA is performed only on a separate local preview. Production studio/output windows are never refreshed during development.
 
@@ -227,6 +235,8 @@ Click **Timer** above the preview. Choose a mode, then apply settings:
 - **Stopwatch**: counts up from 00:00.
 
 **Keep counting past zero** lets a countdown run over and show how far over it is (−01:20) in red, instead of stopping at 00:00. **Warning colour in the last … seconds** (60 by default, 0 for none) turns the timer amber near zero in the studio, on the stage display and on the phone; the audience outputs only turn red, at and past zero, so a countdown on the projector looks the same as before until it ends. There is no sound alarm.
+
+**Show the timer on** chooses where the overlay appears: **Projector and TVs** (the projector window and the Present window) and **OBS** (every `obs=1` page: full screen, lower third and the graphics timer). Untick OBS to keep a countdown off the livestream while the room still sees it; the studio's copies then mark the overlay "TV only". These boxes change the live timer straight away. For a timer only the preacher sees, use the stage display, which shows the timer whenever it runs. **Start** uses the mode and duration typed in the dialog, so typing 30 and pressing Start gives 30 minutes.
 
 Pick one of four corners for the overlay. **Show overlay** makes it visible; **Hide overlay** removes only the timer. The audience screen's blank control hides everything, including the timer. The timer is independent of shows and continues when switching shows or sending a new deck. It uses timestamps shared with the presentation/OBS output, so both displays show the same time. Changing only position, appearance, the warning or overrun leaves it running, while changing mode, duration or time of day resets it. The phone's timer card has the same three modes. A graphics timer set to hide at zero keeps showing when the timer runs over.
 

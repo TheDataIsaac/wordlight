@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT,cleanDraft,cleanTextSlide,makeDeck,deckFor,snapshot} from './dist/core.mjs';
+import {DEFAULT as BLANK_SHOW,cleanDraft,cleanTextSlide,makeDeck,deckFor,snapshot} from './dist/core.mjs';
+// New shows no longer carry a sample word study, so these tests add their own.
+const DEFAULT={...BLANK_SHOW,notes:[{id:'sample-word',word:'Word',original:'λόγος',transliteration:'logos',strong:'G3056',meaning:'Word, speech, or message.\nRead John 1:14 alongside this verse.',source:'https://biblehub.com/greek/3056.htm'}],selectedNoteId:'sample-word'};
 import {cleanLibrary,createShow,applyBiblePassage} from './dist/library.mjs';
 import {saveLibrary,readLibrary,LIBRARY_KEY,BACKUP_KEY} from './dist/storage.mjs';
 class MemoryStorage{

@@ -159,6 +159,95 @@ test('The projector page is counted, so a second click never opens a second wind
  await open();
 });
 
+test('Send next verse follows the screen after the arrow keys moved it on',{skip},async()=>{
+ await open();
+ await run("document.querySelector('[data-tab=passage]')?.click()");await until("document.querySelector('#referenceLookup')",'the Bible box');
+ await run("{const f=document.querySelector('#referenceLookup');f.value='John 3:16-18';f.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#lookupButton').click();}");
+ await until("document.querySelector('#preview')?.textContent.includes('Sample verse 16')",'John 3:16 in the preview');
+ await run("document.querySelector('[data-action=send]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.slides[s.live.index]?.text.includes('Sample verse 16')&&!s.live.blank)",'3:16 on screen');
+ await run("document.activeElement?.blur()");await key('ArrowRight');
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.slides[s.live.index]?.text.includes('Sample verse 17'))",'the arrow moving the screen to 3:17');
+ await run("document.querySelector('[data-action=verse-next]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.slides[s.live.index]?.text.includes('Sample verse 18'))",'Send next verse giving 3:18, not 3:17 again');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
+test('Timer Start uses the typed minutes and puts the timer on screen; Reset uses the typed minutes too',{skip},async()=>{
+ await open();
+ await run("document.querySelector('[data-action=timer]').click()");await until("document.querySelector('#timerDialog')?.open&&document.querySelector('#timerMinutes')",'the timer dialog');
+ await run("{const s=document.querySelector('#timerMode');s.value='countdown';s.dispatchEvent(new Event('change'));document.querySelector('#timerMinutes').value='30';}");
+ await run("document.querySelector('[data-action=timer-start]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.durationMs===1800000&&s.live.timer.running&&s.live.timer.visible)",'a running 30-minute timer on screen');
+ assert.equal(await run("document.querySelector('#timerMinutes').value"),'30','the typed minutes stay in the box');
+ await run("document.querySelector('#timerMinutes').value='10'");
+ await run("document.querySelector('[data-action=timer-reset]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.durationMs===600000&&!s.live.timer.running)",'Reset to the typed 10 minutes');
+ await run("document.querySelector('[data-action=timer-hide]')?.click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.live.timer.visible)",'the timer hidden again');
+ await run("document.querySelector('#timerDialog').close()");
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
+test('Send to screen and Hide screen take the click on short laptop screens',{skip},async()=>{
+ for(const [width,height] of [[1366,690],[1536,780],[1280,720]]){
+  await cdp('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+  await open();await sendPhoneVerse('A verse so Hide screen is on');await wait(300);
+  for(const action of ['send','blank']){
+   const hit=await run("(()=>{const b=document.querySelector('[data-action="+action+"]');b.scrollIntoView({block:'nearest'});const r=b.getBoundingClientRect();return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-action="+action+"]');})()");
+   assert.equal(hit,true,action+' takes the click at '+width+'x'+height);
+  }
+ }
+ await cdp('Emulation.clearDeviceMetricsOverride');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
+test('New song closed without saving leaves no empty item behind',{skip},async()=>{
+ await open();
+ const items="document.querySelector('#rundown').textContent";
+ const before=await run(items);
+ await run("document.querySelector('[data-tab=songs]').click()");await until("document.querySelector('[data-action=song-new]')",'the New song button');
+ await run("document.querySelector('[data-action=song-new]').click()");await until("document.querySelector('#songDialog')?.open",'the song editor');
+ await run("document.querySelector('[data-action=song-editor-close]').click()");await until("!document.querySelector('#songDialog').open",'the editor to close');
+ await wait(300);
+ assert.equal(await run(items),before,'the items are as they were');
+ assert.equal(await run("[...document.querySelectorAll('.song-entry')].some(x=>/New song/.test(x.textContent))"),false,'no empty New song in the item');
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
+test('The timer can show on the TV but not in OBS, and the other way round',{skip},async()=>{
+ await open();
+ await sendPhoneVerse('A verse on screen under the timer');
+ await run("document.querySelector('[data-action=timer]').click()");await until("document.querySelector('#timerDialog')?.open&&document.querySelector('#timerOnObs')",'the timer places');
+ await run("document.querySelector('[data-action=timer-show]')?.click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.visible)",'the timer shown');
+ // Untick OBS: takes effect without Apply.
+ await until("document.querySelector('#timerOnObs')?.checked===true",'the OBS box ticked by default');
+ await run("{const b=document.querySelector('#timerOnObs');b.checked=false;b.dispatchEvent(new Event('change'));}");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.onObs===false&&s.live.timer.onScreen===true)",'OBS turned off');
+ await until("/TV only/.test(document.querySelector('#timerStatus')?.textContent||'')",'the status naming the TV only');
+ // Waits for the page to show the verse (so it has the live screen), then for the overlay when one is expected.
+ const overlayOn=async(url,expected)=>{
+  await cdp('Page.navigate',{url:site+url});await until("document.body.classList.contains('output-body')&&document.querySelector('.stage-canvas:not(.blank)')!==null",url);
+  if(expected)await until("document.querySelector('.timer-overlay')!==null",'the overlay on '+url).catch(()=>{});else await wait(600);
+  return run("document.querySelector('.timer-overlay')!==null");
+ };
+ assert.equal(await overlayOn('?view=output&projector=1',true),true,'the projector shows the timer');
+ assert.equal(await overlayOn('?view=output',true),true,'the Present window shows the timer');
+ assert.equal(await overlayOn('?view=output&obs=1',false),false,'OBS does not');
+ assert.equal(await overlayOn('?view=lower&obs=1',false),false,'nor the OBS lower third');
+ // The other way round. The studio's boxes are checked above, so this sets the timer as the companion stores it.
+ const setPlaces=async(onScreen,onObs,visible=true)=>{const st=await (await fetch(site+'api/state')).json();
+  const r=await (await fetch(site+'api/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({live:{...st.live,timer:{...st.live.timer,onScreen,onObs,visible},updated:Math.max(Date.now(),st.live.updated)+1}})})).json();assert.equal(r.ok,true);};
+ await setPlaces(false,true);
+ assert.equal(await overlayOn('?view=output&obs=1',true),true,'OBS shows it now');
+ assert.equal(await overlayOn('?view=output&projector=1',false),false,'the projector does not');
+ // Back to both, hidden, for the tests after this one.
+ await setPlaces(true,true,false);
+ await open();
+ assert.deepEqual(pageErrors,[],'no script error in the page');
+});
+
 // The order of events is forced by holding back or dropping one answer in the page.
 const editTitle=async title=>{await run("document.querySelector('#sessionTitle').value="+JSON.stringify(title)+";document.querySelector('#sessionTitle').dispatchEvent(new Event('input',{bubbles:true}))");};
 const savedTitle=title=>"fetch('/api/state').then(r=>r.json()).then(s=>s.draft.title==="+JSON.stringify(title)+")";
@@ -532,19 +621,33 @@ test('Pictures become slides that show the picture, can fill the screen, and can
  assert.deepEqual(pageErrors,[],'no script error in the page');
 });
 
-test('Getting started lists the first steps, ticks what is done, and goes away when hidden',{skip},async()=>{
+test('Getting started shows the next step, lists them all, skips what a church does not use, hides, and comes back from Settings',{skip},async()=>{
  // A church that has seen the list before but has not finished it.
- await run("localStorage.removeItem('wordlight-getting-started-hidden');localStorage.removeItem('wordlight-getting-started-done');localStorage.setItem('wordlight-getting-started-seen','1')");
+ await run("localStorage.removeItem('wordlight-getting-started-hidden');localStorage.removeItem('wordlight-getting-started-done');localStorage.removeItem('wordlight-getting-started-skipped');localStorage.setItem('wordlight-getting-started-seen','1')");
  await open();
- await until("document.querySelector('#gettingStarted')&&!document.querySelector('#gettingStarted').hidden&&document.querySelector('.gs-steps')",'the checklist');
+ // One line by default: the next step only, so the live controls stay on screen.
+ await until("document.querySelector('#gettingStarted')&&!document.querySelector('#gettingStarted').hidden&&document.querySelector('.gs-next strong')",'the checklist');
+ assert.equal(await run("document.querySelector('.gs-steps')"),null,'the full list waits for All steps');
+ assert.match(await run("document.querySelector('.gs-next').textContent"),/Projector or TV/,'the next step is the first one not done');
+ await run("document.querySelector('[data-gs=toggle]').click()");await until("document.querySelector('.gs-steps')",'all steps');
  const text=await run("document.querySelector('#gettingStarted').textContent");
- assert.match(text,/Bibles on this computer/);assert.match(text,/Your songs/);assert.match(text,/of 4 done/);
+ assert.match(text,/Bibles on this computer/);assert.match(text,/Your songs/);assert.match(text,/Practise once/);
+ const count=await run("document.querySelector('.gs-count').textContent");assert.match(count,/of 5 done/);
  assert.equal(await run("document.querySelector('.gs-steps li').classList.contains('done')"),true,'the test Bible counts as installed');
+ // A church without OBS marks it as not used: it counts as done and says so.
+ await run("document.querySelector('[data-gs-skip=obs]').click()");
+ await until("[...document.querySelectorAll('.gs-steps li.skipped')].some(li=>/OBS/.test(li.textContent))",'OBS skipped');
+ assert.notEqual(await run("document.querySelector('.gs-count').textContent"),count,'the skipped step counts');
  await run("document.querySelector('[data-gs-action=goto-bible]')?.click()");
  await run("document.querySelector('[data-gs=hide]').click()");
  assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true);
  await open();await wait(500);
  assert.equal(await run("document.querySelector('#gettingStarted').hidden"),true,'it stays hidden after a reload');
+ // Settings brings it back, with the whole list open.
+ await run("document.querySelector('[data-action=settings-open]').click()");await until("document.querySelector('[data-action=settings-getting-started]')",'the Settings button');
+ await run("document.querySelector('[data-action=settings-getting-started]').click()");
+ await until("!document.querySelector('#gettingStarted').hidden&&document.querySelector('.gs-steps')",'the list back from Settings');
+ await run("document.querySelector('[data-gs=hide]').click()");
  // A church already using Wordlight (Bibles and songs there on the first check) never sees it.
  await run("localStorage.removeItem('wordlight-getting-started-hidden');localStorage.removeItem('wordlight-getting-started-seen')");
  await open();await wait(1500);

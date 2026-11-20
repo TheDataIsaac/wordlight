@@ -128,7 +128,7 @@ async function stopWordlight(){
  for(let i=0;i<60&&!await settled();i++)await sleep(250);
  if(!await settled())return [2,'Wordlight was asked to stop but is still running. Details: '+cfg.logDir];
  await clearStop(cfg);
- return [0,'Wordlight stopped. OBS outputs from it are now blank until it starts again.'];
+ return [0,'Wordlight stopped. OBS and the projector stop updating until it starts again.'];
 }
 async function stop(){return finish(...await stopWordlight());}
 // Restart, used by the studio's Restart now after an update has downloaded. Outputs keep their last screen meanwhile.

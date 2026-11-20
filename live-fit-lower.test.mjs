@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT,cleanDraft,cleanTextSlide,makeDeck,snapshot,validLive,fitPadding,FIT_PADDING} from './dist/core.mjs';
+import {DEFAULT as BLANK_SHOW,cleanDraft,cleanTextSlide,makeDeck,snapshot,validLive,fitPadding,FIT_PADDING} from './dist/core.mjs';
+// New shows no longer carry a sample word study, so these tests add their own.
+const DEFAULT={...BLANK_SHOW,notes:[{id:'sample-word',word:'Word',original:'λόγος',transliteration:'logos',strong:'G3056',meaning:'Word, speech, or message.\nRead John 1:14 alongside this verse.',source:'https://biblehub.com/greek/3056.htm'}],selectedNoteId:'sample-word'};
 import {cleanLibrary,createShow,activeShow,addScene,switchScene,sceneDraft,copyShow,mergeShows,moveSlides,removeSlides,copySlides,moveGroups,slideGroups,applyPastedNKJV,MAX_SCENES} from './dist/library.mjs';
 import {fitStage,largestFitting,FIT_LIMITS} from './dist/fit.mjs';
 import {cleanLowerThird,lowerThirdBandStyle,lowerThirdContent,TOP_SAFE,LOWER_THIRD_LIMITS} from './dist/lowerthird.mjs';
@@ -92,7 +94,7 @@ test('Lower third settings are bounded, keep the band inside the canvas, and sur
  const next={...structuredClone(reloaded),index:1};assert.equal(cleanLowerThird(next.lowerThird).height,400,'live arrows keep the settings');
 });
 test('Lower third content keeps headings, verse context, explanations, references and credits',()=>{
- const d=cleanDraft({...DEFAULT,textSlides:[{id:'t',heading:'Welcome',subtitle:'Sunday',body:'Body text',footer:'Pastor A',attribution:'Credit line'}]});
+ const d=cleanDraft({...DEFAULT,notes:[{id:'w',word:'Word',original:'λόγος',transliteration:'logos',strong:'G3056',meaning:'Word, speech, or message.'}],textSlides:[{id:'t',heading:'Welcome',subtitle:'Sunday',body:'Body text',footer:'Pastor A',attribution:'Credit line'}]});
  applyPastedNKJV(d,'For God so loved the world','John 3:16');
  const deck=makeDeck(d),style=snapshot(d).style;
  const passage=lowerThirdContent(deck.find(s=>s.type==='passage'),style);assert.equal(passage.text,'For God so loved the world');assert.equal(passage.reference,'John 3:16');assert.equal(passage.translation,'NKJV');assert.match(passage.credit,/Thomas Nelson/);

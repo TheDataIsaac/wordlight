@@ -36,7 +36,7 @@ function render(){
  '<div class="remote-actions"><button class="button" data-remote="password">'+(status.hasPassword?'Change password':'Set password')+'</button>'+
  (status.hasPassword?'<button class="button '+(status.enabled?'':'primary')+'" data-remote="'+(status.enabled?'off':'on')+'">'+(status.enabled?'Turn off':'Turn on')+'</button>':'')+
  (status.enabled&&status.signedIn?.length?'<button class="button" data-remote="signout">Sign out all phones</button>':'')+
- '</div><p class="small-note">Changing the password or turning the remote off signs out every phone. A phone stays signed in for 3 days.</p>'+
+ '</div>'+(!status.hasPassword?'<p class="small-note">First set a password, then Turn on appears.</p>':!status.enabled?'<p class="small-note remote-firewall">When you turn it on, Windows may ask whether <strong>Node.js JavaScript Runtime</strong> may use networks. That is Wordlight: tick <strong>Private networks</strong> and click <strong>Allow</strong>.</p>':'')+'<p class="small-note">Changing the password or turning the remote off signs out every phone. A phone stays signed in for 3 days.</p>'+
  (status.signedIn?.length?'<h3 class="section-title">Signed in</h3><ul class="remote-phones">'+status.signedIn.map(p=>'<li><span><strong>'+e(p.device)+'</strong> '+e(p.address)+' · '+(p.connected?'connected now':'last used '+when(p.lastSeen))+'</span><button class="button" data-remote="signout-one" data-id="'+e(p.id)+'">Sign out</button></li>').join('')+'</ul><p class="small-note">Sign out any phone you do not recognise, then change the password.</p>':'')+
  '</div>':'')+
  (on?'<div class="remote-section"><h3 class="section-title">Open on the phone</h3>'+

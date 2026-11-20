@@ -21,7 +21,7 @@ import {songFromImportedFile,decodeSongFile} from './song-import.mjs';
 import {openStageDisplay} from './stage-setup.mjs';
 import {setupListening,openListening,paintBar as paintListenBar} from './listen-panel.mjs';
 import {loadNotices,paintNotices} from './notices-bar.mjs';
-import {setupGettingStarted,paintGettingStarted} from './getting-started.mjs';
+import {setupGettingStarted,paintGettingStarted,reopenGettingStarted} from './getting-started.mjs';
 import {showUpdates,refreshUpdates} from './update-setup.mjs';
 import {FONTS,THEMES,DEFAULT,cleanDraft,deckFor,snapshot,validLive,occurrences,matchRegex,safeColor,getHighlights,nextHighlightColor,highlightPalette,highlightSegments,safeEmphasis,contrastInk,cleanTextSlide,fitPadding,FIT_PADDING,assetId,referenceSize,lowerReferenceSize,REFERENCE_SIZE,LOWER_REFERENCE_SIZE} from './core.mjs';
 const $=s=>document.querySelector(s);
@@ -61,11 +61,17 @@ const deckKey=()=>{const show=activeShow(library);return show.id+':'+show.active
 const autoName=name=>/^(Scene|Item) \d+$/.test(name);
 // Which copy of the live output the studio shows: full screen or lower third. Studio only.
 let liveView='full';try{const saved=localStorage.getItem('wordlight-live-view');if(saved==='lower'||saved==='graphics')liveView=saved;}catch{}
-let tab='slides',isLocal=false,localReachable=false,saveTimer,toastTimer,dictionary=[],lookupId=0,wordLookupId=0;
+let tab='passage',isLocal=false,localReachable=false,saveTimer,toastTimer,dictionary=[],lookupId=0,wordLookupId=0;
 // view=output is the full-screen output, view=lower the transparent lower third. Both follow the same live state.
-const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector');
+const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector'),isObsOutput=isOutput&&new URLSearchParams(location.search).has('obs');
 let channel;try{channel=new BroadcastChannel('wordlight-screen-v1');channel.onmessage=ev=>receive(ev.data);}catch{}
-function toast(text){if(!text)return;const dialog=document.querySelector('dialog[open]');if(dialog){let feedback=dialog.querySelector('.dialog-feedback');if(!feedback){feedback=document.createElement('p');feedback.className='dialog-feedback';feedback.setAttribute('role','status');dialog.append(feedback);}feedback.textContent=text;}$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3500);}
+// A message shows long enough to read (longer for longer text). {sticky:true} keeps it until closed, for problems the
+// operator must act on; {action:{label,run}} adds a button.
+function toast(text,opts={}){if(!text)return;const dialog=document.querySelector('dialog[open]');if(dialog){let feedback=dialog.querySelector('.dialog-feedback');if(!feedback){feedback=document.createElement('p');feedback.className='dialog-feedback';feedback.setAttribute('role','status');dialog.append(feedback);}feedback.textContent=text;}
+ const box=$('#toast'),hide=()=>box.classList.remove('visible','sticky');box.replaceChildren(text);
+ if(opts.action){const b=document.createElement('button');b.className='toast-action';b.textContent=opts.action.label;b.onclick=()=>{hide();opts.action.run();};box.append(b);}
+ if(opts.sticky){const x=document.createElement('button');x.className='toast-close';x.setAttribute('aria-label','Close message');x.textContent='×';x.onclick=hide;box.append(x);}
+ box.classList.add('visible');box.classList.toggle('sticky',!!opts.sticky);clearTimeout(toastTimer);if(!opts.sticky)toastTimer=setTimeout(hide,Math.max(4000,1500+60*text.length));}
 // The browser copy of the library is written at most every quarter second while typing (one write instead of one
 // per key, which a large library would make slow), and at once when the page is hidden or closed.
 let browserSaveTimer=null;
@@ -132,7 +138,7 @@ async function publish(next,base){
   // A send that takes longer than usual (a busy computer) shows "sending…" by LIVE, so the operator waits for it
   // instead of pressing again.
   let answer;const slow=setTimeout(()=>document.body.classList.add('live-sending'),400);
-  try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide.');return false;}
+  try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide. Start Wordlight again from the Desktop if this stays.',{sticky:true});return false;}
   finally{clearTimeout(slow);document.body.classList.remove('live-sending');}
   if(answer.superseded){toast('The screen just changed. Check it and press again.');reconcileWithCompanion();return false;}
   if(answer.saveFailed)showSaveProblem(true);
@@ -183,10 +189,10 @@ function render(){
 let renderedTab=null;
 function renderStudio(){
  document.title=APP_NAME+(appInfo?.preview?' (preview)':'');
- $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Save show','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Refresh presentation</button>'+'</div></header>'+
+ $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Export show file','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Refresh presentation</button>'+'</div></header>'+
  '<div id="noticeBar" class="notice-bar" hidden></div><div id="gettingStarted" class="getting-started" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
  '<main class="main"><div class="main-heading">'+button('Timer','timer')+button('Graphics','graphics-open')+button('OBS & screens','help','screen')+(isLocal?button('Listen','listen-open')+button('Stage','stage-open')+button('Phone remote','phone-remote')+button('Settings','settings-open'):'')+'</div><div class="stage-pair"><section class="stage-column"><div class="preview-header"><span class="preview-label"><span class="dot"></span> PREVIEW</span><span class="aspect-badge">16:9 &nbsp; / &nbsp; 1920 × 1080</span></div><div id="verseNav"></div><div id="preview" class="stage-frame" aria-label="Slide preview"></div></section>'+
- '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view"><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button><button class="button" data-action="lower-open-settings">Lower third settings</button></div><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
+ '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">View:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button></div><button class="button live-lower-settings" data-action="lower-open-settings">Lower third settings</button><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
  renderPanel();renderPreview();renderSceneBar();renderDeck();renderLive();paintListenBar();paintNotices();paintGettingStarted();
  $('#showSwitcher').addEventListener('change',ev=>switchShow(ev.target.value));
  $('#sessionTitle').addEventListener('input',ev=>{draft.title=ev.target.value;remember();});
@@ -195,7 +201,7 @@ function renderPanel(){
  if(tab==='slides')renderSlides();else if(tab==='passage')renderPassage();else if(tab==='songs')renderSongs();else if(tab==='words')renderWords();else renderDesign();
 }
 function renderPassage(){
- $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="Romans 12:1-2, or words from the verse" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div><div id="verseResults" class="verse-results"></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div>'+(isLocal?label('Second version under each verse','secondVersion')+'<select id="secondVersion">'+secondVersionOptions()+'</select>':'')+'<p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow','primary')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
+ $('#panel').innerHTML='<h3 class="section-title">Bible</h3>'+label('Find a passage','referenceLookup')+'<div class="lookup-row">'+input('referenceLookup',draft.reference,'placeholder="Romans 12:1-2, or words from the verse" maxlength="100" role="combobox" aria-autocomplete="list" aria-controls="bookSuggestions" aria-expanded="false" autocomplete="off" spellcheck="false"')+'<button class="button primary" id="lookupButton" data-action="lookup" aria-label="Look up passage">'+icon('search')+'</button><button class="button" data-action="picker-open" title="Choose book, chapter and verses" aria-label="Browse books, chapters and verses">Browse</button></div><div id="verseResults" class="verse-results"></div>'+label('Lookup translation','lookupTranslation')+'<div class="lookup-row"><select id="lookupTranslation">'+translationOptions(currentKey())+'</select>'+button('Versions…','versions-open')+'</div>'+(isLocal?label('Second version under each verse','secondVersion')+'<select id="secondVersion">'+secondVersionOptions()+'</select>':'')+'<p id="lookupStatus" class="small-note">Online lookup. Your own pasted text works offline.</p>'+label('Passage or text','passageText')+'<textarea id="passageText" rows="7" maxlength="500000" placeholder="Paste your Bible passage here...">'+e(draft.passage)+'</textarea>'+tip('Pasted text: leave a blank line to start a new slide. Long sections still split to fit.')+'<div class="field-row"><div>'+label('Reference / title on screen','referenceLabel')+input('referenceLabel',draft.reference,'maxlength="100"')+'</div><div>'+label('Version on screen','versionLabel')+input('versionLabel',draft.translation,'placeholder="e.g. KJV" maxlength="30"')+'</div></div><p class="small-note" id="passageStats"></p>'+button('Choose a word to study','words','arrow')+'<details class="source-note"><summary>Sources and licences</summary>Installed copies come from <a href="https://ebible.org/" target="_blank" rel="noopener">eBible.org</a>. Online lookups: English from <a href="https://bible-api.com/" target="_blank" rel="noopener">bible-api.com</a>, NKJV from <a href="https://bolls.life/" target="_blank" rel="noopener">bolls.life</a> (© Thomas Nelson), Yorùbá OYCB from <a href="https://bible.helloao.org/" target="_blank" rel="noopener">AO Lab</a>. OYCB: <a href="https://ebible.org/Scriptures/details.php?id=yor" target="_blank" rel="noopener">Biblica copyright and CC BY-SA 4.0 licence</a>. Yorùbá and English book names both work, for example Luku 10:18-20 or Luke 10:18-20.</details>';
  $('#lookupStatus').insertAdjacentHTML('beforebegin',label('Passage layout','passageLayout')+'<select id="passageLayout"><option value="verses" '+(draft.passageLayout!=='flow'?'selected':'')+'>One verse per slide</option><option value="flow" '+(draft.passageLayout==='flow'?'selected':'')+'>Flowing text (split by length)</option></select>'+tip('Choose how this show displays a range. You can switch after lookup without downloading it again.')+'');
  $('#passageLayout').addEventListener('change',ev=>{draft.passageLayout=ev.target.value;draft.previewId='';remember();renderPreview();renderDeck();renderVerseNavigation();updateStats();});
  $('#lookupStatus').insertAdjacentHTML('afterend','<div id="panelVerseNav"></div>'+button('Add passage as new item','keep-passage','plus')+''+tip('Looks up the reference above as a separate Scripture item, for example a second reading. Look up changes the current Scripture item.')+'');renderVerseNavigation();
@@ -443,13 +449,15 @@ function renderLive(){
   $('#liveViewFull')?.classList.toggle('active',liveView==='full');$('#liveViewLower')?.classList.toggle('active',liveView==='lower');$('#liveViewGraphics')?.classList.toggle('active',liveView==='graphics');
   $('#liveViewFull')?.setAttribute('aria-pressed',String(liveView==='full'));$('#liveViewLower')?.setAttribute('aria-pressed',String(liveView==='lower'));
   paintLiveSongBar();
-  const caption=$('#liveCaption');if(caption)caption.textContent=(live.blank?'HIDDEN · ':'')+(slide?[live.showTitle,live.sceneName].filter(Boolean).join(' · ')+' · '+(live.index+1)+' / '+live.slides.length:'Nothing sent yet');
+  const caption=$('#liveCaption');if(caption)caption.textContent=(live.blank&&slide?'HIDDEN · ':'')+(slide?[live.showTitle,live.sceneName,(live.index+1)+' / '+live.slides.length].filter(Boolean).join(' · '):'Nothing sent yet');
+  // A hidden screen says so on the live copy, with the way back, so nobody mistakes it for a broken projector.
+  liveFrame.classList.toggle('screen-hidden',!!(live.blank&&slide));
  }
  const toggle=$('#screenToggle');
- if(toggle){toggle.innerHTML=icon(live.blank?'eye':'moon')+(live.blank?'Show screen':'Hide screen');toggle.title=live.blank?'Restore the last slide sent to the TV':'Clear the TV to a black screen; keep your study open';toggle.dataset.hidden=String(live.blank);}
+ if(toggle){const nothing=!live.slides.length;toggle.disabled=nothing;toggle.innerHTML=icon(live.blank&&!nothing?'eye':'moon')+(live.blank&&!nothing?'Show screen':'Hide screen');toggle.title=live.blank?'Restore the last slide sent to the TV':'Clear the TV to a black screen; keep your study open';toggle.dataset.hidden=String(live.blank);}
  const el=$('#liveBar');if(!el)return;
- paintTimers();{const f=document.activeElement;if(!($('#rundown')?.contains(f)&&f.matches('input,textarea,select')))renderSceneBar();}const text=live.blank?'Screen is blank':(live.slides[live.index]?.title||'Ready to present');
- el.innerHTML='<div class="live-bar"><div class="live-dot"></div><div class="live-copy"><strong>'+e([live.showTitle,live.sceneName,text].filter(Boolean).join(' · '))+'</strong><br>'+(isLocal?'OBS & presentation output':companion.state==='connected'?'Presentation window and OBS companion':'Presentation window only · OBS not connected')+' · '+(live.blank?'Send a slide when you’re ready':(live.index+1)+' of '+live.slides.length)+'</div><div class="live-controls"><button class="icon-button" data-action="live-prev" aria-label="Previous live slide" '+(live.index<=0?'disabled':'')+'>'+icon('left')+'</button><button class="icon-button" data-action="live-next" aria-label="Next live slide" '+(live.index>=live.slides.length-1?'disabled':'')+'>'+icon('chevron')+'</button>'+'</div></div>';
+ paintTimers();{const f=document.activeElement;if(!($('#rundown')?.contains(f)&&f.matches('input,textarea,select')))renderSceneBar();}const text=live.blank?(live.slides[live.index]?'Screen hidden':'Screen is blank'):(live.slides[live.index]?.title||'Ready to present');
+ el.innerHTML='<div class="live-bar"><div class="live-dot"></div><div class="live-copy"><strong>'+e([...new Set([live.showTitle,live.sceneName,text].filter(Boolean))].join(' · '))+'</strong><br>'+(isLocal?'OBS & presentation output':companion.state==='connected'?'Presentation window and OBS companion':'Presentation window only · OBS not connected')+' · '+(live.blank?(live.slides[live.index]?'Press B or Show screen to bring it back':'Send a slide when you’re ready'):live.slides.length?(live.index+1)+' of '+live.slides.length:'Send a slide when you’re ready')+'</div><div class="live-controls"><button class="icon-button" data-action="live-prev" aria-label="Previous live slide" '+(live.index<=0?'disabled':'')+'>'+icon('left')+'</button><button class="icon-button" data-action="live-next" aria-label="Next live slide" '+(live.index>=live.slides.length-1?'disabled':'')+'>'+icon('chevron')+'</button>'+'</div></div>';
 }
 function renderOutput(){
  document.body.classList.add('output-body');if(new URLSearchParams(location.search).has('obs'))document.body.classList.add('obs');if(isProjector)document.body.classList.add('projector');
@@ -709,6 +717,9 @@ async function getBibleData(path){
 // show or item changes meanwhile, nothing is sent and the screen keeps its slide. Choosing another slide, editing the
 // passage or starting a manual lookup also cancels the steps: each step checks that the preview is still the one it set.
 async function stepVerse(delta){
+ // These buttons send, so they step from the verse on screen when it is from this item: after the arrows or a clicker
+ // moved the screen on, Send next verse still gives the next one, never the one already showing.
+ if(!verseStepping&&!verseSteps){const onScreen=live.slides[live.index];if(onScreen&&deckFor(draft).some(s=>s.id===onScreen.id&&s.text===onScreen.text))draft.previewId=onScreen.id;}
  verseSteps+=delta;if(verseStepping)return;
  verseStepping=true;renderVerseNavigation();
  const start=activeShow(library),showId=start.id,sceneId=start.activeSceneId,intent=verseIntent,screenBase=live.updated;
@@ -772,7 +783,7 @@ async function lookupPassage(delta=0,options={}){
  let normalized=query;
  if(!delta){
   try{normalized=parseReference(query).reference;if(!options.fromResult&&verseSearch){verseSearch=null;paintVerseResults();}}
-  catch(err){if(looksLikeWords(query))return searchVerses(query);const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return toast(err.message);}
+  catch(err){if(looksLikeWords(query))return searchVerses(query);const vr=$('#verseResults');if(vr)vr.innerHTML='<p class="small-note status-error lookup-error" role="alert">'+e(err.message)+'</p>';const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return toast(err.message);}
   const field=$('#referenceLookup');if(field)field.value=normalized;
  }
  const request=++lookupId,showId=library.activeShowId,sceneId=activeShow(library).activeSceneId,oldText=draft.passage,oldReference=draft.reference,oldPreview=draft.previewId;
@@ -904,17 +915,27 @@ async function present(){
  let problem='';
  if(isLocal){
   try{const done=await projectorRequest('open');toast(done.already?'The projector window is already open. If it is on the wrong screen, press Close projector window, then Present.':'Opening full screen on the projector. Use Send to screen when you’re ready.');setTimeout(refreshCompanion,2500);return;}
-  catch(err){problem=err.message+' ';}
+  catch(err){
+   // One screen: Windows is duplicating (the usual state just after plugging in). Say how to fix it; a window is optional.
+   if(/No projector found/i.test(err.message)){toast('Windows is showing the same picture on both screens, so there is no projector to fill. Press Windows+P, choose Extend, then click Present again.',{sticky:true,action:{label:'Open a window instead',run:presentationWindow}});return;}
+   problem=err.message+' ';
+  }
  }
+ presentationWindow(problem);
+}
+function presentationWindow(problem=''){
  const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');
  if(!w)toast(problem+'Allow pop-ups for this site to open the presentation window.');else toast(problem+'Presentation window opened. Use Send to screen when you’re ready.');
 }
 // The same list in the projection guide and in Settings, so there is one place to look.
 const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Shift+Enter (Alt+Enter also works)','Send it to the screen.'],['Ctrl+Enter in song search, or +','Keep the song in this show for later.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['L','Preview the newest verse heard (Listen).'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
-function keysTable(){return '<table class="keys-table">'+KEYS.map(([keys,what])=>'<tr><td>'+e(keys)+'</td><td>'+e(what)+'</td></tr>').join('')+'</table>';}
+function keysTable(){return '<p class="small-note keys-note">The single keys (B, the arrows, song section keys) work when the cursor is not in a typing box: click an empty part of the page first. They pause while a window like this one is open.</p><table class="keys-table">'+KEYS.map(([keys,what])=>'<tr><td>'+e(keys)+'</td><td>'+e(what)+'</td></tr>').join('')+'</table>';}
 function showHelp(){
  const full=(isLocal?location.origin:COMPANION_URL)+'/?view=output&obs=1',lower=(isLocal?location.origin:COMPANION_URL)+'/?view=lower&obs=1';
- const urls='<div class="setup-panel"><h3>OBS Browser sources (1920 × 1080)</h3><p>Full screen</p><code class="code-line">'+e(full)+'</code><p>Lower third (transparent)</p><code class="code-line">'+e(lower)+'</code><p>Graphics: logo, timer, card (transparent)</p><code class="code-line">'+e(lower.replace('view=lower','view=graphics'))+'</code><p class="small-note">Leave Local file off and Shutdown source when not visible off. Both follow the same live screen, so one Send updates both.</p></div>';
+ const address=(title,note,url)=>'<div class="obs-address"><p><strong>'+title+'</strong> '+note+'</p><div class="copy-row"><code class="code-line">'+e(url)+'</code><button class="button" data-action="copy-url" data-url="'+e(url)+'">Copy</button></div></div>';
+ const urls='<div class="setup-panel"><h3>Add Wordlight to OBS</h3><ol class="obs-steps"><li>In OBS, under <strong>Sources</strong>, click <strong>+</strong>, choose <strong>Browser</strong>, give it a name (for example “Wordlight verses”) and click OK.</li><li>Click <strong>Copy</strong> beside one of the addresses below and paste it into <strong>URL</strong>.</li><li>Set <strong>Width</strong> to 1920 and <strong>Height</strong> to 1080. Leave <strong>Local file</strong> and <strong>Shutdown source when not visible</strong> unticked. Click OK.</li><li>In the Sources list, keep the Wordlight source <strong>above</strong> your camera, so the words show over the picture.</li></ol>'+
+  address('Verses and songs over your camera','(lower third, see-through). Most churches start with this one.',lower)+address('Full-screen slides','(covers the camera, like the projector)',full)+address('Logo, timer and title card','(see-through, set up under Graphics)',lower.replace('view=lower','view=graphics'))+
+  '<p class="small-note">Every source follows the live screen, so one Send updates them all. Add the same source to each scene that needs it.</p></div>';
  const ndi='<details class="setup-panel"><summary><h3>NDI</h3></summary><p>Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser sources in one scene that stays rendered (for example a projector of a “Wordlight NDI Engine” scene) and give each source its own Dedicated NDI output filter, such as “Wordlight Full Screen” and “Wordlight Lower Third”. Keep that projector open and OBS not minimised: a source that is not being rendered can send stale frames. The lower third keeps its transparency. Check each feed on the receiving computer.</p></details>';
  const keys='<details class="setup-panel"><summary><h3>Keys</h3></summary>'+keysTable()+'</details>';
  $('#helpContent').innerHTML=isLocal?
@@ -1005,6 +1026,7 @@ document.addEventListener('click',async ev=>{
   draft.previewId=t.dataset.slide;const s=deckFor(draft).find(s=>s.id===draft.previewId);if(s?.note)draft.selectedNoteId=s.note.id;remember();renderPreview();renderDeck();if(s?.type==='text'&&!s.song){tab='slides';render();}else if(tab==='words')renderWords();else if(tab==='slides')renderSlides();return;}
  const a=t.dataset.action;if(!a)return;
  if(a==='timer'||a.startsWith('timer-')){await handleTimerAction(a);return;}
+ if(a==='copy-url'){try{await navigator.clipboard.writeText(t.dataset.url);toast('Copied. Paste it into the URL box in OBS.');}catch{toast('Select the address and press Ctrl+C to copy it.');}return;}
  if(a==='duplicate-preview'){duplicatePreviewSlide();return;}
  if(a==='delete-preview'){if(activeTextSlide())deleteTextSlide();else{const selected=deckFor(draft).find(s=>s.id===draft.previewId);if(!selected)return;lastRemovedBible={previewId:draft.previewId,excludedSlides:[...(draft.excludedSlides||[])],songs:[...(draft.songs||[])]};lastRemovedSlide=null;removeGroups(draft,[groupKey(selected)]);remember();render();toast((selected.song?'Song':'Slide')+' deleted from this show. Undo deletion is available.');}return;}
  if(a==='undo-preview'){if(lastRemovedSlide)restoreTextSlide();else if(lastRemovedBible){draft.excludedSlides=lastRemovedBible.excludedSlides;if(lastRemovedBible.songs)draft.songs=lastRemovedBible.songs;draft.previewId=lastRemovedBible.previewId;lastRemovedBible=null;remember();render();}return;}
@@ -1186,12 +1208,12 @@ function switchShow(id){
 }
 function renderVerseNavigation(){
  const ready=!!(draft.verseRange||(draft.reference.trim()&&TRANSLATIONS.includes(draft.translation.toLowerCase())))&&(!lookupBusy||verseStepping);
- const nav='<div class="verse-navigation"><button class="button" data-action="verse-prev" title="Show the previous verse on screen" '+(!ready?'disabled':'')+'>'+icon('left')+'Previous verse</button><button class="button" data-action="verse-next" title="Show the next verse on screen" '+(!ready?'disabled':'')+'>Next verse'+icon('chevron')+'</button></div>';
+ const nav='<div class="verse-navigation"><button class="button" data-action="verse-prev" title="Puts the previous verse on the live screen" '+(!ready?'disabled':'')+'>'+icon('left')+'Send previous verse</button><button class="button" data-action="verse-next" title="Puts the next verse on the live screen" '+(!ready?'disabled':'')+'>Send next verse'+icon('chevron')+'</button></div>';
  const message=lookupBusy?'Loading verse…':draft.verseRange?(draft.passageLayout==='flow'?'Previous and Next verse put the verse on screen. Flowing text is split by length.':'Previous and Next verse put the verse on screen, starting from the selected verse.'):ready?'Navigation follows the reference and version labels. Pasted text will be replaced.':'Look up a Bible reference to enable verse navigation.';
  const panel=$('#panelVerseNav');if(panel)panel.innerHTML=nav+'<p class="small-note">'+message+'</p>';
  const bar=$('#verseNav'),slide=deckFor(draft).find(s=>s.id===draft.previewId);
- if(bar)bar.innerHTML=slide&&slide.type!=='text'?'<div class="preview-verse-row"><span>'+e(slide.reference||draft.reference||'Bible passage')+'</span>'+nav+'</div>':'';
- const lookup=$('#lookupButton');if(lookup)lookup.disabled=lookupBusy||($('#lookupTranslation')?.value==='nkjv'&&!nkjvReady());
+ if(bar)bar.innerHTML=slide&&slide.type!=='text'?'<div class="preview-verse-row"><span>'+e(slide.reference||draft.reference||'Bible passage')+'</span><span class="goes-live">These go live</span>'+nav+'</div>':'';
+ const lookup=$('#lookupButton');if(lookup)lookup.disabled=lookupBusy;
 }
 function keepPassage(){
  if(!draft.passage.trim())return toast('Look up or paste a passage first.');
@@ -1289,12 +1311,23 @@ function applyTimerAppearance(element,timer,scale=1){
 function timerAppearanceControls(timer){
  const number=(title,key,min,max)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="number" min="'+min+'" max="'+max+'" step="1"')+'</div>';
  const color=(title,key)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="color"')+'</div>';
- return '<h3>Appearance</h3><p class="small-note">Preview changes above. Apply timer settings sends them to the audience without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
+ return '<h3>Appearance</h3><p class="small-note">Preview changes above. Save timer settings sends them to the audience without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
  '<div class="field-row">'+number('Text size (px)','fontSize',24,160)+number('Background opacity (%)','backgroundOpacity',0,100)+'</div>'+
  '<div class="field-row">'+color('Text color','textColor')+color('Background color','backgroundColor')+'</div>'+
  '<div class="field-row">'+number('Padding (px)','padding',0,60)+number('Corner rounding (px)','radius',0,80)+'</div>'+
  '<div class="field-row">'+number('Distance from side (px)','offsetX',0,300)+number('Distance from top / bottom (px)','offsetY',0,300)+'</div>';
 }
+// Where an overlay on this canvas is seen. An output page follows its own place (see cleanTimer). In the studio the
+// lower third and graphics are OBS only, and the full-screen views stand for both the TV and OBS, so their overlay
+// carries a "TV only" or "OBS only" tag when the timer shows in just one of them.
+function timerOnCanvas(canvas,timer){
+ if(isOutput)return isObsOutput?timer.onObs:timer.onScreen;
+ if(!canvas.closest('#liveStage'))return false; // the preview shows the next slide, not the screen
+ if(canvas.classList.contains('lower-canvas'))return timer.onObs;
+ return timer.onScreen||timer.onObs;
+}
+function timerOnlyTag(timer){return timer.onScreen&&!timer.onObs?'TV only':!timer.onScreen&&timer.onObs?'OBS only':'';}
+function timerPlaces(timer){return timer.onScreen&&timer.onObs?'on the TV and in OBS':timer.onScreen?'on the TV only, not in OBS':timer.onObs?'in OBS only, not on the TV':'on neither the TV nor OBS';}
 function paintTimers(){
  // An output page with no timer showing has nothing to tick.
  if(isOutput&&!live.timer?.visible&&!document.querySelector('.timer-overlay,[data-graphics-timer]'))return;
@@ -1304,40 +1337,44 @@ function paintTimers(){
  const paintState=(el,warn=true)=>{for(const name of ['warning','expired','over'])el.classList.toggle(name,state===name&&(warn||name!=='warning'));};
  for(const canvas of document.querySelectorAll('.stage-canvas')){
   if(canvas.classList.contains('graphics-canvas'))continue;
-  let overlay=canvas.querySelector('.timer-overlay');const visible=timer.visible&&!canvas.classList.contains('blank');
+  let overlay=canvas.querySelector('.timer-overlay');const visible=timer.visible&&!canvas.classList.contains('blank')&&timerOnCanvas(canvas,timer);
   if(!visible){overlay?.remove();continue;}
   if(!overlay){overlay=document.createElement('div');overlay.className='timer-overlay';canvas.append(overlay);}
   const look=JSON.stringify(cleanTimerAppearance(timer))+timer.position;
   if(overlay.dataset.look!==look){applyTimerAppearance(overlay,timer);overlay.dataset.position=timer.position;overlay.dataset.look=look;}
+  const tag=isOutput||canvas.classList.contains('lower-canvas')?'':timerOnlyTag(timer);if((overlay.dataset.only||'')!==tag)overlay.dataset.only=tag;
   paintState(overlay,false);if(overlay.textContent!==formatted)overlay.textContent=formatted;
  }
  // Graphics timers: same clock and look; shown per the graphics settings of their canvas, never hidden by blanking.
  for(const el of document.querySelectorAll('[data-graphics-timer]')){
-  const settings=el.closest('[data-graphics-source]')?.dataset.graphicsSource==='form'?graphicsForm():live.graphics,shown=graphicsTimerShown(settings,timer,value);
+  const settings=el.closest('[data-graphics-source]')?.dataset.graphicsSource==='form'?graphicsForm():live.graphics,shown=graphicsTimerShown(settings,timer,value)&&timer.onObs;
   if(el.hidden!==!shown)el.hidden=!shown;
   const appearance=cleanTimerAppearance(timer),scale=cleanGraphics(settings).timer.size/appearance.fontSize,look=JSON.stringify(appearance)+scale;
   if(el.dataset.look!==look){applyTimerAppearance(el,timer,scale);el.dataset.look=look;}
   paintState(el,false);if(el.textContent!==formatted)el.textContent=formatted;
  }
- const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;paintState(readout);}
+ const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;paintState(readout);readout.parentElement.classList.toggle('not-shown',!timer.visible);}
  const condition=state==='over'?'Over time':state==='expired'?'Finished':timer.mode==='until'?'Counting to '+timer.untilTime:timer.running?'Running':'Paused';
  const gState=$('#gTimerState');if(gState&&gState.textContent!==condition+' · '+formatted)gState.textContent=condition+' · '+formatted;
- const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(timer.visible?'Overlay enabled':'Overlay hidden')+(live.blank?' · audience screen blank':'');
+ const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(timer.visible?'Overlay showing '+timerPlaces(timer):'Overlay hidden')+(live.blank?' · audience screen blank':'');
 }
 function showTimer(){
  const timer=cleanTimer(live.timer);
- $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="timer-actions">'+button('Start / resume','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note">These controls update the live timer immediately. Hiding the audience screen also hides the overlay. Switching shows keeps the timer running.</p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="until" '+(timer.mode==='until'?'selected':'')+'>Count down to a time of day</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div id="timerMinutesField">'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div><div id="timerUntilField">'+label('Time of day (this computer\'s clock)','timerUntil')+input('timerUntil',timer.untilTime,'type="time"')+'</div></div>'+
- '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Apply timer settings','timer-apply')+'</div><p class="small-note">Applying a new mode or duration resets the timer to paused. Changing only its appearance or position keeps it running. Use Show overlay when you want the audience to see it.</p>';
- $('#timerPosition').insertAdjacentHTML('afterend',timerAppearanceControls(timer));
+ $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="until" '+(timer.mode==='until'?'selected':'')+'>Count down to a time of day</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div id="timerMinutesField">'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div><div id="timerUntilField">'+label('Time of day (this computer\'s clock)','timerUntil')+input('timerUntil',timer.untilTime,'type="time"')+'</div></div>'+
+ '<fieldset class="timer-places"><legend>Show the timer on</legend>'+settingRow('timerOnScreen','Projector and TVs (everyone in the room can see them)',timer.onScreen)+settingRow('timerOnObs','OBS (the livestream and recording)',timer.onObs)+'</fieldset><p class="small-note">To keep the timer off the livestream, untick OBS before you start. These boxes change it straight away. For a timer only the preacher sees, use the Stage display on a screen facing the pulpit (Stage button): it shows the timer whenever it is running.</p>'+
+ '<div class="timer-actions">'+button('Start and show','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note">Start and show uses the mode and minutes above and puts the timer on screen. Hide overlay takes it off without stopping it. Hiding the screen also hides it; switching shows keeps it running.</p>'+
+ '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Save timer settings','timer-apply')+'</div><p class="small-note">Saves everything here without starting. A new mode or duration resets the timer to paused; the warning and look keep it running.</p>';
+ $('#timerPosition').insertAdjacentHTML('afterend','<details class="timer-appearance"><summary>Appearance: size and colours</summary>'+timerAppearanceControls(timer)+'</details>');
  const showFields=()=>{const mode=$('#timerMode').value;$('#timerMinutesField').hidden=mode==='until';$('#timerUntilField').hidden=mode!=='until';$('#timerOverrun').closest('label').hidden=mode==='stopwatch';};
  $('#timerMode').addEventListener('change',showFields);showFields();
+ for(const id of ['timerOnScreen','timerOnObs','timerPosition'])$('#'+id).addEventListener('change',()=>handleTimerAction('timer-places'));
  for(const id of Object.values(timerAppearanceFields))$('#'+id).addEventListener('input',paintTimers);
  if(!$('#timerDialog').open)$('#timerDialog').showModal();paintTimers();
 }
 async function handleTimerAction(action){
  if(action==='timer'){showTimer();return;}if(action==='timer-close'){$('#timerDialog').close();return;}
  let timer=cleanTimer(live.timer);
- if(action==='timer-apply'){
+ if(action==='timer-apply'||action==='timer-start'||action==='timer-reset'){
   const duration=Number($('#timerMinutes').value),mode=$('#timerMode').value,untilTime=$('#timerUntil').value,warn=Number($('#timerWarn').value);
   if(!Number.isFinite(warn)||warn<0||warn>3600){toast('Enter a warning time from 0 to 3,600 seconds.');return;}
   const options={overrun:$('#timerOverrun').checked,warnMs:Math.round(warn*1000)};
@@ -1349,9 +1386,21 @@ async function handleTimerAction(action){
    const durationMs=Math.round(duration*60000);
    if(mode!==timer.mode||durationMs!==timer.durationMs)timer=changeTimer({...timer,mode,durationMs,...options},'reset');
   }
-  timer=cleanTimer({...timer,...options,...timerFormAppearance(),position:$('#timerPosition').value});
- }else timer=changeTimer(timer,action.slice(6));
- if(await publishChange({...clone(live),timer})){showTimer();}
+  timer=cleanTimer({...timer,...options,...timerFormAppearance(),position:$('#timerPosition').value,onScreen:$('#timerOnScreen').checked,onObs:$('#timerOnObs').checked});
+  // Start uses what is in the boxes, so a duration typed and then Start gives that duration.
+  if(action==='timer-start')timer=cleanTimer({...changeTimer(timer,'start'),visible:true});
+  if(action==='timer-reset')timer=changeTimer(timer,'reset');
+ }else if(action==='timer-places'){
+  const onScreen=$('#timerOnScreen').checked,onObs=$('#timerOnObs').checked;
+  if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast('Keep one place ticked. To take the timer off everywhere, use Hide overlay.');return;}
+  timer=cleanTimer({...timer,onScreen,onObs,position:$('#timerPosition').value});
+ }
+ else timer=changeTimer(timer,action.slice(6));
+ if(!await publishChange({...clone(live),timer}))return;
+ if(action==='timer-apply'){showTimer();return;}
+ const toggle=$('#timerDialog [data-action=timer-show],#timerDialog [data-action=timer-hide]');
+ if(toggle){const shown=cleanTimer(live.timer).visible;toggle.dataset.action=shown?'timer-hide':'timer-show';toggle.textContent=shown?'Hide overlay':'Show overlay';}
+ paintTimers();
 }
 setInterval(paintTimers,250);
 
@@ -1874,9 +1923,10 @@ async function searchSongLibrary(append){
 }
 function paintSongResults(){
  const list=$('#songResults'),status=$('#songStatus');if(!list)return;
- if(status)status.textContent=songState.error||(songState.freeshow===undefined?'Loading the song library…':songState.total+' found · '+songState.native+' in your library · '+(songState.freeshow===null?songState.freeshowError||'FreeShow library not found':songState.freeshow+' in FreeShow'));
+ if(status)status.textContent=songState.error||(songState.freeshow===undefined?'Loading the song library…':songState.total+' found · '+songState.native+' in your library'+(songState.freeshow===null?(songState.freeshowError?' · '+songState.freeshowError:''):' · '+songState.freeshow+' in FreeShow'));
+ if(!songState.error&&songState.freeshow!==undefined&&!songState.native&&!songState.freeshow&&!songState.query){list.innerHTML='<div class="empty-songs"><p><strong>No songs yet.</strong> Bring in the songs you already have (EasyWorship, ProPresenter, SongSelect, OpenLyrics, ChordPro, plain text or a Wordlight song library file), or type a new one.</p>'+button('Import songs','song-import-open','upload','primary')+' '+button('New song','song-new','plus')+'</div>';return;}
  if(songState.error){list.innerHTML=button('Retry','song-retry');return;}
- list.innerHTML=songState.items.map((s,i)=>'<div class="song-hit"><button class="song-row'+(songState.selected?.source.id===s.id?' active':'')+'" data-action="song-peek" data-song-index="'+i+'" title="Click to preview. Double-click to send to screen."><span>'+e(s.name)+'</span><small>'+songBadge(s)+e(s.artist||s.category)+'</small>'+(s.line?'<em>'+e(s.section?s.section+': ':'')+e(s.line)+'</em>':'')+'</button><button class="button" data-action="song-keep" data-song-index="'+i+'" title="Keep in this show for later" aria-label="Keep '+e(s.name)+' in this show">+</button><button class="button" data-action="song-send" data-song-index="'+i+'" title="Put this part on screen">Send</button></div>').join('')+(songState.items.length<songState.total?button('Show more','song-more'):'');
+ list.innerHTML=songState.items.map((s,i)=>'<div class="song-hit"><button class="song-row'+(songState.selected?.source.id===s.id?' active':'')+'" data-action="song-peek" data-song-index="'+i+'" title="Click to preview. Double-click to send to screen."><span>'+e(s.name)+'</span><small>'+songBadge(s)+e(s.artist||s.category)+'</small>'+(s.line?'<em>'+e(s.section?s.section+': ':'')+e(s.line)+'</em>':'')+'</button><button class="button" data-action="song-keep" data-song-index="'+i+'" title="Keep in this show for later" aria-label="Keep '+e(s.name)+' in this show">Keep</button><button class="button" data-action="song-send" data-song-index="'+i+'" title="Put this part on screen">Send</button></div>').join('')+(songState.items.length<songState.total?button('Show more','song-more'):'');
  // Nothing found: the words can still go up, and the song is kept for next time.
  if(!songState.items.length&&songState.query.trim()&&songState.freeshow!==undefined)list.innerHTML='<p class="small-note">Not in the library.</p>'+button('Put these words on screen','song-capture-query','arrow','gold');
 }
@@ -2068,7 +2118,11 @@ async function handleSongAction(action,t,ev){
   const entryId=t?.dataset.songEntry,index=(draft.songs||[]).findIndex(x=>x.entryId===entryId);
   if(action==='song-preview'&&index>=0){draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entryId)?.id||draft.previewId;remember();renderPreview();renderDeck();return;}
   if(action==='song-remove'&&index>=0){removedSong={entry:draft.songs[index],index};draft.songs=draft.songs.filter(x=>x.entryId!==entryId);remember();render();toast('Song removed from this show. Undo is available in Songs.');return;}
-  if(action==='song-new'){addSongEntry(newSong('New song'),true);return;}
+  if(action==='song-new'){
+   const show=activeShow(library),scenes=show.scenes.length;addSongEntry(newSong('New song'),true);
+   pendingNewSong={showId:show.id,sceneId:show.activeSceneId,entryId:(draft.songs||[]).at(-1)?.entryId,newScene:show.scenes.length>scenes};return;
+  }
+  if(action==='song-import-open'){chooseFile($('#songFile'));return;}
   if(action==='song-library-export'){downloadJSON(await songApi('/api/songs/library/export'),'Wordlight-song-library');return;}
   if(action==='song-library-import'){chooseFile($('#songLibraryFile'));return;}
   if(action==='song-library-remove'){const id=songState.selected?.source.app==='wordlight'?songState.selected.id:'';if(!id)return;const r=await fetch('/api/songs/library/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error);songState.selected=null;await searchSongLibrary(false);paintSongDetail();toast('Removed from your library. Shows that use it keep their copy.');return;}
@@ -2100,6 +2154,7 @@ function settingRow(id,text,checked){return '<label><input type="checkbox" id="'
 function renderSettings(){
  const s=settings();
  $('#settingsDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">SETTINGS</span><button class="icon-button" data-action="settings-close" aria-label="Close settings">×</button></div><h2 id="settingsTitle">Settings</h2><p class="small-note">Shared with the phone remote. Saved on this computer as soon as you change them.</p>'+
+  '<section class="settings-group"><h3>Help</h3><p class="small-note">The Getting started list at the top: the setup steps, each with a button that does it.</p>'+button('Show Getting started again','settings-getting-started')+'</section>'+
  '<section class="settings-group"><h3>Songs on screen</h3><p class="small-note">Songs only: Bible verses and text slides are not affected. The saved words never change. The preview updates at once; a song already on screen changes when it is sent again.</p><label>Lines per slide <select id="setLines">'+LINES_PER_SLIDE.map(n=>'<option value="'+n+'" '+(n===s.linesPerSlide?'selected':'')+'>'+(n||'As typed')+'</option>').join('')+'</select></label>'+settingRow('setRepeat','Hide repeat marks like (2x)',s.hideRepeatMarks)+settingRow('setCaps','All capitals',s.allCaps)+settingRow('setFooter','Show song name and section at the bottom',s.songFooter)+'</section>'+
  '<section class="settings-group"><h3>Sending</h3><label>One click on a search result <select id="setResultClick"><option value="preview" '+(s.resultClick==='preview'?'selected':'')+'>Shows it in the preview</option><option value="send" '+(s.resultClick==='send'?'selected':'')+'>Sends it to the screen</option></select></label><label>One tap on the phone <select id="setPhoneTap"><option value="select" '+(s.phoneTap==='select'?'selected':'')+'>Selects it</option><option value="send" '+(s.phoneTap==='send'?'selected':'')+'>Sends it to the screen</option></select></label>'+settingRow('setCheckFirst','Songs marked Check first always stop at the preview',s.checkFirst)+'</section>'+
  '<section class="settings-group"><h3>Screens</h3>'+settingRow('setFade','Fade between slides on the projector and OBS (0.4 s)',s.fadeSlides)+'</section>'+
@@ -2123,6 +2178,7 @@ async function changeSettings(change){
 const renderSettingsSoon=()=>setTimeout(()=>{if($('#settingsDialog').open)renderSettings();},1500);
 function handleSettingsAction(a){
  if(a==='settings-open')openSettings();
+ if(a==='settings-getting-started'){$('#settingsDialog').close();reopenGettingStarted();window.scrollTo({top:0});}
  else if(a==='settings-close')$('#settingsDialog').close();
  else if(a==='settings-reset')changeSettings(cleanSettings({}));
 }
@@ -2149,6 +2205,20 @@ function paintLiveSongBar(){
  bar.innerHTML='<span class="small-note">'+e(current.title)+'</span>'+buttons.join('');
 }
 
+// A song started with New song and closed without saving leaves nothing behind: no empty "New song" item.
+let pendingNewSong=null;
+document.addEventListener('close',ev=>{if(ev.target?.id==='songDialog')dropUnsavedNewSong();},true);
+function dropUnsavedNewSong(){
+ const p=pendingNewSong;pendingNewSong=null;if(!p)return;
+ const show=activeShow(library);if(show.id!==p.showId||show.activeSceneId!==p.sceneId)return;
+ const entry=(draft.songs||[]).find(x=>x.entryId===p.entryId);if(!entry)return;
+ const song=entry.song,untouched=song.title==='New song'&&!(song.sections||[]).some(s=>(s.slides||[]).some(t=>String(t).trim()));
+ if(!untouched)return;
+ const onlyThis=(draft.songs||[]).length===1&&!(draft.textSlides||[]).length&&!(draft.passage||'').trim();
+ if(p.newScene&&onlyThis&&show.scenes.length>1){removeScene(show,p.sceneId);draft=show.draft;}
+ else draft.songs=draft.songs.filter(x=>x.entryId!==p.entryId);
+ summaryCache=new WeakMap();remember();render();
+}
 // Adds a song snapshot to the show (checked against the show's limits first) and previews it.
 function addSongEntry(song,edit=false,hit=null,quiet=false){
  // Each song gets its own item (an empty current item is reused). The complete item is checked before anything
@@ -2207,17 +2277,18 @@ const notInLibrary=song=>/^native-/.test(song.id)&&companionReady();
 function openSongEditor(entryId){
  const entry=(draft.songs||[]).find(x=>x.entryId===entryId);if(!entry)return;const song=entry.song;
  const arrangement=song.arrangements.find(a=>a.id===song.arrangementId)||song.arrangements[0],hiddenPages=Object.keys(arrangement.hidden||{}).length;
- $('#songDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">SONG</span><button class="icon-button" data-action="song-editor-close" aria-label="Close song editor">×</button></div><h2 id="songDialogTitle">Edit song</h2>'+
+ const fresh=song.title==='New song'&&!(song.sections||[]).some(s=>(s.slides||[]).some(t=>String(t).trim()));
+ $('#songDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">SONG</span><button class="icon-button" data-action="song-editor-close" aria-label="Close song editor">×</button></div><h2 id="songDialogTitle">'+(fresh?'New song':'Edit song')+'</h2>'+
   '<p class="small-note">'+(song.source.app==='freeshow'?'The FreeShow file is never changed. ':'')+(notInLibrary(song)?'A new song is saved to your song library and this show.':companionReady()?'Save to song library also updates your library copy.':'Changes apply to this show’s copy.')+'</p>'+
-  '<div class="field-row"><div>'+label('Title','songTitle')+input('songTitle',song.title,'maxlength="200"')+'</div><div>'+label('Author','songAuthor')+input('songAuthor',song.meta.author||song.meta.artist||'','maxlength="300"')+'</div></div>'+
+  '<div class="field-row"><div>'+label('Title','songTitle')+input('songTitle',fresh?'':song.title,'maxlength="200" placeholder="The song\'s title"')+'</div><div>'+label('Author','songAuthor')+input('songAuthor',song.meta.author||song.meta.artist||'','maxlength="300"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Copyright','songCopyright')+input('songCopyright',song.meta.copyright||'','maxlength="300"')+'</div><div>'+label('CCLI song number','songCcli')+input('songCcli',song.meta.ccli||'','maxlength="30"')+'</div></div>'+
   '<div class="field-row"><div>'+label('Other names or spellings','songAliases')+input('songAliases',song.meta.aliases||'','maxlength="500"')+'</div><div>'+label('Status','songStatus')+'<select id="songStatus">'+[['','Not set'],['checked','Checked'],['book','From a songbook'],['draft','Draft'],['reserve','Check first']].map(([v,n])=>'<option value="'+v+'" '+(v===(song.meta.status||'')?'selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
-  label('Lyrics','songLyrics')+'<textarea id="songLyrics" rows="16" spellcheck="false">'+e(songToText(song))+'</textarea>'+
+  label('Lyrics','songLyrics')+'<textarea id="songLyrics" rows="16" spellcheck="false" placeholder="[Verse 1]&#10;First line of the verse&#10;Second line&#10;&#10;[Chorus]&#10;First line of the chorus">'+(fresh?'':e(songToText(song)))+'</textarea>'+
   tip('Start each section with a label line such as [Verse 1] or [Chorus]. A blank line starts a new slide; a slide with only (blank) is a blank cue.')+
   label('Arrangement'+(song.arrangements.length>1?' · '+e(arrangement.name):''),'songArrangementText')+input('songArrangementText',arrangementText(song),'maxlength="4000"')+
   tip('Section labels in the order they are sung, separated by commas. Repeats are fine: Verse 1, Chorus, Verse 2, Chorus.')+
   (hiddenPages?'<p class="small-note">This arrangement hides some slides for single repeats (from FreeShow). Changing the order shows all slides of each section.</p>':'')+
-  '<p id="songEditError" class="small-note status-error" aria-live="polite"></p><div class="timer-actions"><button class="button primary" data-action="song-editor-save" data-song-entry="'+e(entryId)+'">'+(notInLibrary(song)?'Save song':'Save in this show')+'</button>'+(companionReady()&&!notInLibrary(song)?'<button class="button" data-action="song-editor-library" data-song-entry="'+e(entryId)+'" title="Save in this show and in your song library">Save to song library</button><button class="button" data-action="song-editor-library-new" data-song-entry="'+e(entryId)+'" hidden>Save as new song</button>':'')+'<button class="button" data-action="song-editor-show-only" data-song-entry="'+e(entryId)+'" hidden>Save in this show only</button>'+button('Cancel','song-editor-close')+'</div>';
+  '<p id="songEditError" class="small-note status-error" aria-live="polite"></p><div class="timer-actions song-editor-actions"><button class="button primary" data-action="song-editor-save" data-song-entry="'+e(entryId)+'">'+(notInLibrary(song)?'Save song':'Save in this show')+'</button>'+(companionReady()&&!notInLibrary(song)?'<button class="button" data-action="song-editor-library" data-song-entry="'+e(entryId)+'" title="Save in this show and in your song library">Save to song library</button><button class="button" data-action="song-editor-library-new" data-song-entry="'+e(entryId)+'" hidden>Save as new song</button>':'')+'<button class="button" data-action="song-editor-show-only" data-song-entry="'+e(entryId)+'" hidden>Save in this show only</button>'+button('Cancel','song-editor-close')+'</div>';
  if(!$('#songDialog').open)$('#songDialog').showModal();
 }
 document.addEventListener('click',async ev=>{
@@ -2225,6 +2296,7 @@ document.addEventListener('click',async ev=>{
  if(t.dataset.action==='song-editor-close'){$('#songDialog').close();return;}
  const entry=(draft.songs||[]).find(x=>x.entryId===t.dataset.songEntry);if(!entry)return;
  try{
+  if(!$('#songTitle').value.trim()){$('#songEditError').textContent='Type the song’s title first.';$('#songTitle').focus();return;}
   let song=editSong(entry.song,{title:$('#songTitle').value,meta:{author:$('#songAuthor').value,copyright:$('#songCopyright').value,ccli:$('#songCcli').value,aliases:$('#songAliases').value,status:$('#songStatus').value},lyrics:$('#songLyrics').value,arrangement:$('#songArrangementText').value});
   cleanDraft({...draft,songs:draft.songs.map(x=>x===entry?{entryId:entry.entryId,song}:x)});
   let note='saved in this show';
@@ -2245,6 +2317,8 @@ document.addEventListener('click',async ev=>{
   {const show=activeShow(library),scene=activeScene(show);if(scene.name===entry.song.title&&song.title!==entry.song.title)renameScene(show,scene.id,song.title);}
   draft.previewId=deckFor(draft).find(x=>x.song?.entryId===entry.entryId)?.id||draft.previewId;
   $('#songDialog').close();remember();render();toast(song.title+' '+note+'. The screen is unchanged until you send.');
+  // The Songs tab's results and counts include the song just saved, with the same search and filters.
+  forgetCompanionSongs();if(tab==='songs')searchSongLibrary(false);
  }catch(err){$('#songEditError').textContent=(err.message||'That could not be saved.');const showOnly=$('[data-action=song-editor-show-only]');if(showOnly&&notInLibrary(entry.song))showOnly.hidden=false;}
 });
 $('#songLibraryFile')?.addEventListener('change',async ev=>{
@@ -2293,13 +2367,14 @@ async function openGraphics(){
  await loadGraphicsAssets();renderGraphicsPanel();if(!$('#graphicsDialog').open)$('#graphicsDialog').showModal();
 }
 function renderGraphicsPanel(){
- const air=cleanGraphics(live.graphics),g=graphicsDraft||air,opts=(list,value,names)=>list.map(x=>'<option value="'+x+'" '+(x===value?'selected':'')+'>'+(names?.[x]||x.replace('-',' '))+'</option>').join('');
+ const air=cleanGraphics(live.graphics),g=graphicsDraft||air,opts=(list,value,names)=>list.map(x=>'<option value="'+x+'" '+(x===value?'selected':'')+'>'+(names?.[x]||(x.charAt(0).toUpperCase()+x.slice(1)).replace('-',' '))+'</option>').join('');
  const assetOpts=value=>'<option value="">None</option>'+(value&&!graphicsAssets.some(a=>a.id===value)?'<option value="'+value+'" selected>Current image</option>':'')+graphicsAssets.map(a=>'<option value="'+a.id+'" '+(a.id===value?'selected':'')+'>'+e(a.name)+' ('+a.width+'×'+a.height+')</option>').join('');
  const num=(id,label,value,[min,max])=>'<label class="graphics-num">'+label+' <input class="input" id="'+id+'" type="number" min="'+min+'" max="'+max+'" value="'+e(value)+'"></label>';
- const toggle=(el,name)=>{const shown=air[el].visible;return '<button class="button'+(shown?' active':'')+'" data-action="graphics-'+(shown?'hide':'show')+'" data-graphics-el="'+el+'" aria-label="'+(shown?'Hide ':'Show ')+name+' on the graphics output">'+(shown?'Hide':'Show')+'</button>';};
- const row=(title,el,body)=>'<fieldset class="graphics-row"><legend>'+title+' '+toggle(el,title.toLowerCase())+(air[el].visible?' <span class="graphics-on">on air</span>':'')+'</legend>'+body+'</fieldset>';
+ const toggle=(el,name)=>{const shown=air[el].visible;return '<button class="button'+(shown?' active':'')+'" data-action="graphics-'+(shown?'hide':'show')+'" data-graphics-el="'+el+'" aria-label="'+(shown?'Hide ':'Show ')+name+' on the graphics output">'+(shown?'Hide ':'Show ')+name+'</button>';};
+ const offObs=el=>el==='timer'&&!cleanTimer(live.timer).onObs;
+ const row=(title,el,body)=>'<fieldset class="graphics-row"><legend>'+title+' '+toggle(el,title.toLowerCase())+(air[el].visible?(offObs(el)?' <span class="graphics-off">hidden from OBS by the Timer settings</span> <button class="button" data-action="timer">Timer settings</button>':' <span class="graphics-on">on air</span>'):'')+'</legend>'+body+'</fieldset>';
  $('#graphicsDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">GRAPHICS</span><button class="icon-button" data-action="graphics-close" aria-label="Close">×</button></div>'+
-  '<div id="graphicsPreview" class="stage-frame lower-preview graphics-preview" aria-label="Preview of these settings; the checkerboard is transparent"></div><p id="graphicsError" class="small-note status-error" aria-live="polite"></p>'+(graphicsAssetError?'<p class="small-note status-error">Images: '+e(graphicsAssetError)+'</p>':'')+
+  '<h2 id="graphicsTitle">Graphics</h2><p class="small-note">See-through extras for OBS: a logo, the timer, a title card and a background. Add the Graphics address from OBS &amp; screens to OBS to use them.</p><div id="graphicsPreview" class="stage-frame lower-preview graphics-preview" aria-label="Preview of these settings; the checkerboard is transparent"></div><p id="graphicsError" class="small-note status-error" aria-live="polite"></p>'+(graphicsAssetError?'<p class="small-note status-error">Images: '+e(graphicsAssetError)+'</p>':'')+
   row('Logo','logo','<div class="field-row"><select id="gLogoAsset" aria-label="Logo image">'+assetOpts(g.logo.assetId)+'</select>'+button('Upload','graphics-upload-logo','upload')+'</div><div class="field-row"><select id="gLogoPosition" aria-label="Logo position">'+opts(GRAPHICS_POSITIONS,g.logo.position)+'</select>'+num('gLogoSize','Size',g.logo.size,GRAPHICS_LIMITS.logoSize)+num('gLogoMargin','Margin',g.logo.margin,GRAPHICS_LIMITS.margin)+num('gLogoOpacity','Opacity %',g.logo.opacity,GRAPHICS_LIMITS.opacity)+'</div>')+
   row('Timer','timer','<div class="field-row"><select id="gTimerPosition" aria-label="Timer position">'+opts(GRAPHICS_POSITIONS,g.timer.position)+'</select>'+num('gTimerSize','Size',g.timer.size,GRAPHICS_LIMITS.timerSize)+num('gTimerMargin','Margin',g.timer.margin,GRAPHICS_LIMITS.margin)+'<label><input id="gTimerHide" type="checkbox" '+(g.timer.hideAtZero?'checked':'')+'> Hide at 0:00</label></div><div class="field-row">'+button('Start','graphics-timer-start')+button('Pause','graphics-timer-pause')+button('Reset','graphics-timer-reset')+'<span class="small-note" id="gTimerState"></span></div>'+tip('The same clock as the slide timer; set its duration and look in Timer. Turn off the slide timer overlay so OBS does not show it twice.'))+
   row('Background','background','<div class="field-row"><select id="gBgKind" aria-label="Background type">'+opts(['color','image'],g.background.kind,{color:'Color',image:'Image'})+'</select><input id="gBgColor" type="color" value="'+g.background.color+'" aria-label="Background color"><select id="gBgAsset" aria-label="Background image">'+assetOpts(g.background.assetId)+'</select>'+button('Upload','graphics-upload-background','upload')+'<label><input id="gBgPreview" type="checkbox" '+(previewBackground?'checked':'')+'> Preview background</label></div>'+tip('A holding screen that covers everything under it. It stays off until you press Show.'))+
