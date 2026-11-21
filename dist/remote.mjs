@@ -109,7 +109,7 @@ function paintTimer(){
  tickTimer();
  // Where the overlay shows is chosen in the studio's Timer; the phone says which.
  const places=live.timer.onScreen===false?'OBS only':live.timer.onObs===false?'projector/TV only':'projector/TV and OBS';
- $('timerShow').textContent=(live.timer.visible?'Hide timer':'Show timer')+' (shows on '+places+')';$('timerShow').classList.toggle('on',live.timer.visible);
+ $('timerShow').textContent=(live.timer.visible?'Hide timer':'Show timer')+' · on '+places;$('timerShow').classList.toggle('on',live.timer.visible);
  if(document.activeElement!==$('timerMinutes')&&!$('timerMinutes').value)$('timerMinutes').value=live.timer.durationMs/60000;
  if(document.activeElement!==$('timerUntil')&&!$('timerUntil').value)$('timerUntil').value=live.timer.untilTime;
  if(document.activeElement!==$('timerMode'))$('timerMode').value=live.timer.mode;
