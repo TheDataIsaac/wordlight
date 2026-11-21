@@ -36,7 +36,7 @@ async function finish(code,message){
 function openWindow(){
  // An Edge app window looks like a desktop app; without Edge the default browser opens the address.
  const edge=flags.includes('--app-window')&&['ProgramFiles(x86)','ProgramFiles'].map(v=>process.env[v]&&path.join(process.env[v],'Microsoft','Edge','Application','msedge.exe')).find(p=>p&&existsSync(p));
- if(edge){const app=spawn(edge,['--app='+cfg.url,'--new-window','--no-first-run','--no-default-browser-check'],{detached:true,stdio:'ignore'});app.on('error',()=>{});app.unref();return;}
+ if(edge){const app=spawn(edge,['--app='+cfg.url,'--new-window','--no-first-run','--no-default-browser-check','--start-maximized'],{detached:true,stdio:'ignore'});app.on('error',()=>{});app.unref();return;}
  const child=process.platform==='win32'?spawn(path.join(process.env.SystemRoot||'C:\\Windows','explorer.exe'),[cfg.url],{detached:true,stdio:'ignore',windowsHide:true})
   :spawn(process.platform==='darwin'?'open':'xdg-open',[cfg.url],{detached:true,stdio:'ignore'});
  child.on('error',()=>{});child.unref();

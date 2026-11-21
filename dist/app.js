@@ -115,7 +115,7 @@ function startGettingStarted(){
   if(action==='goto-bible'){tab='passage';render();}
   else if(action==='present')present();
   else if(action==='help')showHelp();
-  else if(action==='song-import')chooseFile($('#songFile'));
+  else if(action==='song-import')openImportGuide();
   else if(action==='phone-remote')openPhoneRemote();
  });
 }
@@ -194,7 +194,7 @@ function renderStudio(){
  $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Export show file','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Reload projector</button>'+'</div></header>'+
  '<div id="noticeBar" class="notice-bar" hidden></div><div id="gettingStarted" class="getting-started" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
  '<main class="main"><div class="main-heading">'+button('Timer','timer')+button('Graphics','graphics-open')+button('OBS & screens','help','screen')+(isLocal?button('Listen','listen-open')+button('Stage','stage-open')+button('Phone remote','phone-remote')+button('Settings','settings-open'):'')+'</div><div class="stage-pair"><section class="stage-column"><div class="preview-header"><span class="preview-label"><span class="dot"></span> PREVIEW</span><span class="aspect-badge">16:9 &nbsp; / &nbsp; 1920 × 1080</span></div><div id="verseNav"></div><div id="preview" class="stage-frame" aria-label="Slide preview"></div></section>'+
- '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">This copy shows:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button><button class="link-button live-lower-settings" data-action="lower-open-settings">Lower third style</button></div><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button class="button slide-step" id="toolbarPrev" data-action="live-prev" aria-label="Previous slide on screen" title="Previous slide on screen (←)">'+icon('left')+'Slide</button><button class="button slide-step" id="toolbarNext" data-action="live-next" aria-label="Next slide on screen" title="Next slide on screen (→ or Space)">Slide'+icon('chevron')+'</button><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
+ '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">This copy shows:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button><button class="link-button live-lower-settings" data-action="lower-open-settings">Lower third settings</button></div><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" id="previewCaption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button class="button slide-step" id="toolbarPrev" data-action="live-prev" aria-label="Previous slide on screen" title="Previous slide on screen (←)">'+icon('left')+'Slide</button><button class="button slide-step" id="toolbarNext" data-action="live-next" aria-label="Next slide on screen" title="Next slide on screen (→ or Space)">Slide'+icon('chevron')+'</button><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
  renderPanel();renderPreview();renderSceneBar();renderDeck();renderLive();paintListenBar();paintNotices();paintGettingStarted();
  $('#showSwitcher').addEventListener('change',ev=>switchShow(ev.target.value));
  $('#sessionTitle').addEventListener('input',ev=>{draft.title=ev.target.value;remember();});
@@ -398,7 +398,7 @@ document.fonts?.ready.then(refitStages);document.fonts?.addEventListener?.('load
 {const fonts=document.createElement('link');fonts.rel='stylesheet';fonts.href='https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap';document.head.append(fonts);}
 function renderPreview(){
  const deck=deckFor(draft);const slide=deck.find(s=>s.id===draft.previewId)||deck[0];if(slide)draft.previewId=slide.id;
- drawStage($('#preview'),slide,draft,false,getHighlights(draft));renderVerseNavigation();paintTimers();
+ drawStage($('#preview'),slide,draft,false,getHighlights(draft));renderVerseNavigation();paintTimers();updatePreviewCaption();
 }
 function renderDeck(){
  const el=$('#deck');if(!el)return;const deck=deckFor(draft);
@@ -455,6 +455,7 @@ function renderLive(){
   // A hidden screen says so on the live copy, with the way back, so nobody mistakes it for a broken projector.
   liveFrame.classList.toggle('screen-hidden',!!(live.blank&&slide));
  }
+ updatePreviewCaption();
  {const prev=$('#toolbarPrev'),next=$('#toolbarNext');if(prev)prev.disabled=live.index<=0||!live.slides.length;if(next)next.disabled=live.index>=live.slides.length-1;}
  const toggle=$('#screenToggle');
  if(toggle){const nothing=!live.slides.length;toggle.disabled=nothing;toggle.innerHTML=icon(live.blank&&!nothing?'eye':'moon')+(live.blank&&!nothing?'Show screen':'Hide screen');toggle.title=live.blank?'Restore the last slide sent to the TV':'Clear the TV to a black screen; keep your study open';toggle.dataset.hidden=String(live.blank);}
@@ -786,7 +787,7 @@ async function lookupPassage(delta=0,options={}){
  let normalized=query;
  if(!delta){
   try{normalized=parseReference(query).reference;if(!options.fromResult&&verseSearch){verseSearch=null;paintVerseResults();}}
-  catch(err){if(looksLikeWords(query))return searchVerses(query);const vr=$('#verseResults');if(vr)vr.innerHTML='<p class="small-note status-error lookup-error" role="alert">'+e(err.message)+'</p>';const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return vr?undefined:toast(err.message);}
+  catch(err){if(looksLikeWords(query))return searchVerses(query);const vr=$('#verseResults');if(vr)vr.innerHTML='<p class="small-note status-error lookup-error" role="alert">'+e(err.message)+'</p>';const el=$('#lookupStatus');if(el&&!vr){el.textContent=err.message;el.className='small-note status-error';}return vr?undefined:toast(err.message);}
   const field=$('#referenceLookup');if(field)field.value=normalized;
  }
  const request=++lookupId,showId=library.activeShowId,sceneId=activeShow(library).activeSceneId,oldText=draft.passage,oldReference=draft.reference,oldPreview=draft.previewId;
@@ -957,7 +958,7 @@ function showHelp(){
  const ndi='<details class="setup-panel"><summary><h3>NDI</h3></summary><p>Wordlight does not send NDI itself; OBS does, with DistroAV. Put both Browser sources in one scene that stays rendered (for example a projector of a “Wordlight NDI Engine” scene) and give each source its own Dedicated NDI output filter, such as “Wordlight Full Screen” and “Wordlight Lower Third”. Keep that projector open and OBS not minimised: a source that is not being rendered can send stale frames. The lower third keeps its transparency. Check each feed on the receiving computer.</p></details>';
  const keys='<details class="setup-panel"><summary><h3>Keys</h3></summary>'+keysTable()+'</details>';
  $('#helpContent').innerHTML=isLocal?
-  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>Projector or TV</h3><p class="small-note">With the projector connected and set to Extend (Windows+P), Present fills it with nothing else on screen. Press F5 here if you ever need to refresh it, or use Reload projector.</p>'+button('Present on projector','present','screen')+' '+(isLocal?button('Close projector window','projector-close')+' ':'')+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
+  urls+'<div class="setup-panel" id="bridgePanel" hidden><h3>Web studio connection</h3><p>To control these outputs from the web version, enter this code there under OBS &amp; screens. Only that site can use it.</p><code class="code-line" id="pairingCode">…</code><p id="pairingViewers" class="small-note"></p>'+button('New code','companion-rotate')+'</div>'+ndi+keys+'<div class="setup-panel"><h3>Projector or TV</h3><p class="small-note">With the projector connected and set to Extend (Windows+P), Present fills it with nothing else on screen. If it ever looks wrong, use Reload projector at the top.</p>'+button('Present on projector','present','screen')+' '+(isLocal?button('Close projector window','projector-close')+' ':'')+button('Open lower third window','lower-window')+'</div><p class="small-note" id="appBuild">'+e(appInfo?'Wordlight '+appInfo.version+' · build '+appInfo.build+(appInfo.preview?' · preview copy':''):'')+'</p>':
   '<div class="setup-panel"><h3>Local companion</h3><p>OBS reads the outputs from the Wordlight companion on this computer. Start it (Start Wordlight.cmd), open its studio at '+e(COMPANION_URL)+', copy the code from OBS &amp; screens there, and enter it here. The browser may ask to allow access to devices on your local network; allow it.</p><div class="lookup-row">'+input('pairingInput',pairing?.code||'','placeholder="ABCD-EFGH-JKLM" maxlength="14" spellcheck="false" aria-label="Pairing code"')+button(pairing?'Reconnect':'Connect','companion-pair','','primary')+'</div><p id="pairingState" class="small-note"></p>'+(pairing?button('Disconnect','companion-forget'):'')+' <a class="button" href="wordlight-obs-companion.zip" download>'+icon('download')+'Download companion</a></div>'+urls+ndi+keys+'<div class="setup-panel"><h3>TV</h3>'+button('Open presentation window','present','screen')+'</div>';
  $('#helpDialog').showModal();refreshCompanion();
 }
@@ -1329,7 +1330,7 @@ function applyTimerAppearance(element,timer,scale=1){
 function timerAppearanceControls(timer){
  const number=(title,key,min,max)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="number" min="'+min+'" max="'+max+'" step="1"')+'</div>';
  const color=(title,key)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="color"')+'</div>';
- return '<h3>Appearance</h3><p class="small-note">Preview changes above. Save timer settings sends them to the audience without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
+ return '<h3>Appearance</h3><p class="small-note">Changes show in the preview above and go to the screen at once, without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
  '<div class="field-row">'+number('Text size (px)','fontSize',24,160)+number('Background opacity (%)','backgroundOpacity',0,100)+'</div>'+
  '<div class="field-row">'+color('Text color','textColor')+color('Background color','backgroundColor')+'</div>'+
  '<div class="field-row">'+number('Padding (px)','padding',0,60)+number('Corner rounding (px)','radius',0,80)+'</div>'+
@@ -1379,17 +1380,18 @@ function paintTimers(){
 function showTimer(){
  const timer=cleanTimer(live.timer);
  $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="until" '+(timer.mode==='until'?'selected':'')+'>Count down to a time of day</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div id="timerMinutesField">'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div><div id="timerUntilField">'+label('Time of day (this computer\'s clock)','timerUntil')+input('timerUntil',timer.untilTime,'type="time"')+'</div></div>'+
- '<fieldset class="timer-places"><legend>Show the timer on</legend>'+settingRow('timerOnScreen','Projector and TVs (everyone in the room can see them)',timer.onScreen)+settingRow('timerOnObs','OBS (the livestream and recording)',timer.onObs)+'</fieldset><p class="small-note">Untick OBS to keep the timer off the livestream. These boxes and the position below change it at once, even while it runs. For a timer only the preacher sees, use the Stage display on a screen facing the pulpit (Stage button): it shows the timer whenever it is running.</p>'+
+ '<fieldset class="timer-places"><legend>Show the timer on</legend>'+settingRow('timerOnScreen','Projector and TVs (everyone in the room can see them)',timer.onScreen)+settingRow('timerOnObs','OBS (the livestream and recording, through Wordlight’s OBS sources)',timer.onObs)+'</fieldset><p class="small-note">Untick OBS to keep the timer off the livestream. These boxes and the position below change it at once, even while it runs. For a timer only the preacher sees, use the Stage display on a screen facing the pulpit (Stage button): it shows the timer whenever it is running.</p>'+
  '<div class="timer-actions">'+button('Start and show','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note" id="timerStartNote"></p>'+
- '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Save timer settings','timer-apply')+'</div><p class="small-note" id="timerSaveNote"></p>';
+ '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Set new time (resets the timer)','timer-apply')+'</div><p class="small-note" id="timerSaveNote"></p>';
  $('#timerPosition').insertAdjacentHTML('afterend','<details class="timer-appearance"><summary>Appearance: size and colours</summary>'+timerAppearanceControls(timer)+'</details>');
  const showFields=()=>{const mode=$('#timerMode').value,until=mode==='until';$('#timerMinutesField').hidden=until;$('#timerUntilField').hidden=!until;$('#timerOverrun').closest('label').hidden=mode==='stopwatch';
   // A time-of-day timer follows the clock: it cannot pause, and saving a time starts it counting.
   const pause=$('#timerDialog [data-action=timer-pause]');if(pause)pause.hidden=until;
   $('#timerStartNote').textContent=until?'This timer follows the clock: it counts down to the time you set from the moment you start or save it, and cannot be paused. Hide overlay takes it off the screen.':'Start and show uses the mode and minutes above and puts the timer on screen. Hide overlay takes it off without stopping it. Hiding the screen also hides it; switching shows keeps it running.';
-  $('#timerSaveNote').textContent=until?'Saves the warning, overrun and look. A new time starts counting at once.':'Saves the warning, overrun and look (and a new mode or duration, which resets the timer to paused). Changing only the warning or the look does not stop it.';};
+  $('#timerSaveNote').textContent=until?'The warning, position and look change at once. Set new time counts down to the new time straight away.':'The warning, overrun, position and look change at once. Set new time changes the mode or minutes without starting, and resets the timer to paused (Start and show does both).';};
  $('#timerMode').addEventListener('change',showFields);showFields();
  for(const id of ['timerOnScreen','timerOnObs','timerPosition'])$('#'+id).addEventListener('change',()=>handleTimerAction('timer-places'));
+ for(const id of ['timerWarn','timerOverrun',...Object.values(timerAppearanceFields)])$('#'+id)?.addEventListener('change',()=>handleTimerAction('timer-look'));
  for(const id of Object.values(timerAppearanceFields))$('#'+id).addEventListener('input',paintTimers);
  if(!$('#timerDialog').open)$('#timerDialog').showModal();paintTimers();
 }
@@ -1412,6 +1414,9 @@ async function handleTimerAction(action){
   // Start uses what is in the boxes, so a duration typed and then Start gives that duration.
   if(action==='timer-start')timer=cleanTimer({...changeTimer(timer,'start'),visible:true});
   if(action==='timer-reset')timer=changeTimer(timer,'reset');
+ }else if(action==='timer-look'){
+  const warn=Number($('#timerWarn').value);if(!Number.isFinite(warn)||warn<0||warn>3600)return;
+  timer=cleanTimer({...timer,overrun:$('#timerOverrun').checked,warnMs:Math.round(warn*1000),...timerFormAppearance()});
  }else if(action==='timer-places'){
   const onScreen=$('#timerOnScreen').checked,onObs=$('#timerOnObs').checked;
   if(!onScreen&&!onObs){$('#timerOnScreen').checked=timer.onScreen;$('#timerOnObs').checked=timer.onObs;toast(timer.visible?'Keep one place ticked. To take the timer off everywhere, use Hide overlay'+(cleanGraphics(live.graphics).timer.visible?' and Graphics > Hide timer.':'.'):'Keep at least one place ticked.');return;}
@@ -1622,13 +1627,25 @@ function summaryOf(show,scene){
  if(scene.id===show.activeSceneId)return itemSummary(draft,deckFor(draft));
  let s=summaryCache.get(scene.draft);if(!s){s=itemSummary(scene.draft);summaryCache.set(scene.draft,s);}return s;
 }
+// After a new lookup in the item that is live, the screen still shows the old passage: the tag says "was live" then.
+function liveStillIn(show,scene){
+ const onScreen=live.slides[live.index];if(!onScreen)return true;
+ const deck=scene.id===show.activeSceneId?deckFor(draft):deckFor(scene.draft);
+ return deck.some(x=>x.id===onScreen.id&&x.text===onScreen.text);
+}
+// The caption under the preview says when it shows the very slide that is on screen.
+function updatePreviewCaption(){
+ const cap=$('#previewCaption');if(!cap)return;
+ const onScreen=live.slides[live.index],same=!!(!live.blank&&onScreen&&onScreen.id===draft.previewId&&deckFor(draft).some(x=>x.id===onScreen.id&&x.text===onScreen.text));
+ if(cap.dataset.same!==String(same)){cap.dataset.same=String(same);cap.innerHTML=icon('eye')+(same?'Same as on screen':'Preview only');}
+}
 function renderSceneBar(){
  const el=$('#rundown');if(!el)return;
  // A live change can redraw the list while a row has focus; focus returns to the same row.
  const had=document.activeElement?.closest?.('#rundown [data-action]'),focusKey=had?had.dataset.action+'|'+(had.dataset.item||''):'';
  const show=activeShow(library),liveId=liveItemId(show),scene=activeScene(show),current=summaryOf(show,scene);
  const rows=show.scenes.map(s=>{const {kind,count}=summaryOf(show,s),selected=s.id===show.activeSceneId;
-  return '<li><button class="item-row'+(selected?' selected':'')+'" data-action="item-open" data-item="'+e(s.id)+'"'+(selected?' aria-current="true"':'')+'><span class="item-kind">'+kind+'</span><span class="item-name">'+e(s.name)+'</span><span class="item-count">'+count+'</span>'+(s.id===liveId?'<span class="item-live">LIVE</span>':'')+'</button></li>';}).join('');
+  return '<li><button class="item-row'+(selected?' selected':'')+'" data-action="item-open" data-item="'+e(s.id)+'"'+(selected?' aria-current="true"':'')+'><span class="item-kind">'+kind+'</span><span class="item-name">'+e(s.name)+'</span><span class="item-count">'+count+'</span>'+(s.id===liveId?(liveStillIn(show,s)?'<span class="item-live">LIVE</span>':'<span class="item-was-live" title="The screen still shows what was sent from this item before it changed">was live</span>'):'')+'</button></li>';}).join('');
  const plan=current.kind==='Mixed'?planSplit(draft,liveSlideIdFor(show)):null;
  const split=!plan?'':plan.error?'<p class="small-note">'+e(plan.error)+'</p>':'<p class="small-note">Split into '+plan.pieces.length+' items: '+e(plan.pieces.map(p=>(p.kind==='Song'?p.name:p.kind)+' ('+p.count+')').join(', '))+'.</p>'+button('Split into items','item-split');
  const listTop=el.querySelector('.item-list')?.scrollTop||0;
@@ -2152,11 +2169,13 @@ async function handleSongAction(action,t,ev){
    const show=activeShow(library),scenes=show.scenes.length;addSongEntry(newSong('New song'),true);
    pendingNewSong={showId:show.id,sceneId:show.activeSceneId,entryId:(draft.songs||[]).at(-1)?.entryId,newScene:show.scenes.length>scenes};return;
   }
-  if(action==='song-import-open'){chooseFile($('#songFile'));return;}
+  if(action==='song-import-open'){openImportGuide();return;}
   if(action==='song-library-export'){downloadJSON(await songApi('/api/songs/library/export'),'Wordlight-song-library');return;}
   if(action==='song-library-import'){chooseFile($('#songLibraryFile'));return;}
   if(action==='song-library-remove'){const id=songState.selected?.source.app==='wordlight'?songState.selected.id:'';if(!id)return;const r=await fetch('/api/songs/library/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error);songState.selected=null;await searchSongLibrary(false);paintSongDetail();toast('Removed from your library. Shows that use it keep their copy.');return;}
-  if(action==='song-import'){chooseFile($('#songFile'));return;}
+  if(action==='song-import'){openImportGuide();return;}
+  if(action==='song-import-choose'){$('#importDialog')?.close();chooseFile($('#songFile'));return;}
+  if(action==='song-import-close'){$('#importDialog')?.close();return;}
   if(action==='song-edit'&&index>=0){openSongEditor(entryId);return;}
   if(action==='song-export'&&index>=0){const song=draft.songs[index].song;downloadJSON(songFile(song),song.title+'.wordlight-song');return;}
   if(action==='song-undo'&&removedSong){const list=[...(draft.songs||[])];list.splice(Math.min(removedSong.index,list.length),0,removedSong.entry);draft.songs=list;removedSong=null;remember();render();}
@@ -2188,13 +2207,13 @@ function renderSettings(){
  '<section class="settings-group"><h3>Songs on screen</h3><p class="small-note">Songs only: Bible verses and text slides are not affected. The saved words never change. The preview updates at once; a song already on screen changes when it is sent again.</p><label>Lines per slide <select id="setLines">'+LINES_PER_SLIDE.map(n=>'<option value="'+n+'" '+(n===s.linesPerSlide?'selected':'')+'>'+(n||'As typed')+'</option>').join('')+'</select></label>'+settingRow('setRepeat','Hide repeat marks like (2x)',s.hideRepeatMarks)+settingRow('setCaps','All capitals',s.allCaps)+settingRow('setFooter','Show song name and section at the bottom',s.songFooter)+'</section>'+
  '<section class="settings-group"><h3>Sending</h3><label>One click on a search result <select id="setResultClick"><option value="preview" '+(s.resultClick==='preview'?'selected':'')+'>Shows it in the preview</option><option value="send" '+(s.resultClick==='send'?'selected':'')+'>Sends it to the screen</option></select></label><label>One tap on the phone <select id="setPhoneTap"><option value="select" '+(s.phoneTap==='select'?'selected':'')+'>Selects it</option><option value="send" '+(s.phoneTap==='send'?'selected':'')+'>Sends it to the screen</option></select></label>'+settingRow('setCheckFirst','Songs marked Check first always stop at the preview',s.checkFirst)+'</section>'+
  '<section class="settings-group"><h3>Screens</h3>'+settingRow('setFade','Fade between slides on the projector and OBS (0.4 s)',s.fadeSlides)+'</section>'+
- '<section class="settings-group"><h3>Song search</h3>'+settingRow('setFreeShow','Include FreeShow songs, by title',s.searchFreeShow)+settingRow('setReserve','Include Check first songs',s.searchReserve)+'</section>'+
+ '<section class="settings-group"><h3>Song search</h3>'+(songState.freeshow===null?'':settingRow('setFreeShow','Include FreeShow songs, by title',s.searchFreeShow))+settingRow('setReserve','Include Check first songs',s.searchReserve)+'</section>'+
  '<section class="settings-group" id="updateSection"></section><section class="settings-group"><h3>Keys</h3>'+keysTable()+'</section><p id="settingsError" class="small-note status-error" aria-live="polite"></p>'+button('Back to defaults','settings-reset');
  const send=change=>changeSettings(change);
  $('#setLines').addEventListener('change',ev=>send({linesPerSlide:Number(ev.target.value)}));
  $('#setResultClick').addEventListener('change',ev=>send({resultClick:ev.target.value}));
  $('#setPhoneTap').addEventListener('change',ev=>send({phoneTap:ev.target.value}));
- for(const [id,key] of [['setRepeat','hideRepeatMarks'],['setCaps','allCaps'],['setFooter','songFooter'],['setCheckFirst','checkFirst'],['setFreeShow','searchFreeShow'],['setReserve','searchReserve'],['setFade','fadeSlides']])$('#'+id).addEventListener('change',ev=>send({[key]:ev.target.checked}));
+ for(const [id,key] of [['setRepeat','hideRepeatMarks'],['setCaps','allCaps'],['setFooter','songFooter'],['setCheckFirst','checkFirst'],['setFreeShow','searchFreeShow'],['setReserve','searchReserve'],['setFade','fadeSlides']])$('#'+id)?.addEventListener('change',ev=>send({[key]:ev.target.checked}));
  showUpdates();
 }
 function openSettings(){if(!isLocal)return;renderSettings();if(!$('#settingsDialog').open)$('#settingsDialog').showModal();}
@@ -2248,6 +2267,20 @@ function dropUnsavedNewSong(){
  if(p.newScene&&onlyThis&&show.scenes.length>1){removeScene(show,p.sceneId);draft=show.draft;}
  else draft.songs=draft.songs.filter(x=>x.entryId!==p.entryId);
  summaryCache=new WeakMap();remember();render();
+}
+// Import songs: where each program keeps its songs, then the file picker. EasyWorship needs two files chosen together.
+function openImportGuide(){
+ let d=$('#importDialog');if(!d){d=document.createElement('dialog');d.id='importDialog';d.setAttribute('aria-labelledby','importTitle');document.body.append(d);}
+ const row=(name,how)=>'<li><strong>'+name+'</strong> '+how+'</li>';
+ d.innerHTML='<div class="dialog-top"><span class="eyebrow">SONGS</span><button class="icon-button" data-action="song-import-close" aria-label="Close">×</button></div><h2 id="importTitle">Import songs</h2><p class="small-note">Choose the files from the program you used before. You can choose many files at once (Ctrl+A selects all in a folder). The screen does not change.</p><ul class="import-sources">'+
+  row('EasyWorship 6 or 7:','close EasyWorship first. Open <code>C:\\Users\\Public\\Documents\\Softouch\\EasyWorship\\Default</code>, then the version folder (often v6.1), then Databases, then Data. Hold Ctrl, click <b>Songs.db</b> and <b>SongWords.db</b>, then Open.')+
+  row('ProPresenter 6:','the .pro6 files in Documents\\ProPresenter6.')+
+  row('SongSelect (CCLI):','the .usr or .txt files you downloaded, usually in Downloads.')+
+  row('OpenLP:','export the songs as OpenLyrics (.xml) in OpenLP, then choose those files.')+
+  row('ChordPro or plain text:','.cho, .pro or .txt files, one song in each.')+
+  row('A Wordlight song library file (.json):','for example one another church sent you. All its songs go into your library.')+
+  '</ul><div class="timer-actions">'+button('Choose files','song-import-choose','upload','primary')+button('Cancel','song-import-close')+'</div>';
+ if(!d.open)d.showModal();
 }
 // Adds a song snapshot to the show (checked against the show's limits first) and previews it.
 function addSongEntry(song,edit=false,hit=null,quiet=false){
