@@ -55,7 +55,7 @@ for(const [id,info] of Object.entries(CATALOG)){
 }
 files[top+'bibles/BIBLES.txt']=Buffer.from('Bible text packs installed on first start (only for versions not installed yet).\r\nEach archive is the unchanged official download from eBible.org and contains its own copyright notice.\r\n\r\n'+seedLines.join('\r\n\r\n')+'\r\n');
 const add=async(source,target)=>{files[top+target]=await readFile(path.join(repo,source));};
-for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','easyworship.mjs','notices.mjs','updates.mjs'])await add(name,'app/'+name);
+for(const name of ['package.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','server.mjs','apibible.mjs','bibles.mjs','ziputil.mjs','remote-server.mjs','remote-content.mjs','projector.mjs','song-search.mjs','bible-search.mjs','listen.mjs','listen-worker.mjs','easyworship.mjs','notices.mjs','updates.mjs','psalm-titles.json'])await add(name,'app/'+name);
 // The launcher with crash recovery, the same one Start Wordlight.cmd uses, and the step that installs a downloaded update.
 for(const name of ['start.mjs','supervisor.mjs','shared.mjs','update.mjs'])await add('tools/launcher/'+name,'app/tools/launcher/'+name);
 // The installer: Install Wordlight.cmd runs it from the unzipped package, and the release offers it on its own for

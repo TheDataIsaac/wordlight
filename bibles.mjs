@@ -3,6 +3,7 @@
 // books are kept in memory. Nothing is bundled with the app and no Bible text goes into the studio page or shows
 // beyond the verses looked up.
 import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {zipEntries,readZipEntry} from './ziputil.mjs';
 import {BIBLE_BOOKS} from './dist/reference.mjs';
@@ -23,6 +24,24 @@ const DOWNLOAD_BASE='https://ebible.org/Scriptures/',ARCHIVE_LIMIT=25e6,TEXT_LIM
 const EBIBLE_CODES={SOL:'SNG',EZE:'EZK',JOE:'JOL',NAH:'NAM',MAR:'MRK',JOH:'JHN',PHI:'PHP',JAM:'JAS','1JO':'1JN','2JO':'2JN','3JO':'3JN'};
 const BOOKS=new Map(BIBLE_BOOKS.map(b=>[b.id,b]));
 const fail=(status,message)=>Object.assign(new Error(message),{status});
+// Psalm titles and Psalm 119's letter headings, per version (tools/build-psalm-titles.mjs). The verse-per-line files
+// join them onto the verse that follows, so a heading is taken off the front of its verse when the verse starts with
+// it exactly; anything that does not match is left as it is. Applied when a book is read, so copies installed by
+// earlier versions are put right too.
+let PSALM_TITLES={};
+try{PSALM_TITLES=JSON.parse(readFileSync(new URL('./psalm-titles.json',import.meta.url),'utf8'));}catch{}
+export function withoutPsalmTitles(id,chapters,titles=PSALM_TITLES[id]){
+ if(!titles||!Array.isArray(chapters))return chapters;
+ return chapters.map((verses,c)=>{
+  const headings=titles[c+1];if(!headings||!Array.isArray(verses))return verses;
+  return verses.map((text,v)=>{
+   const heading=headings[v+1];if(!heading||typeof text!=='string')return text;
+   // Some files keep the translators' brackets in titles ([A Psalm] of David), some do not.
+   for(const form of [heading,heading.replace(/[[\]]/g,'')])if(text.startsWith(form+' ')&&text.length>form.length+1)return text.slice(form.length).trim();
+   return text;
+  });
+ });
+}
 
 // VPL text ("GEN 1:1 In the beginning…") to {BOOK:[[verse 1 text, …], …]}. Verses a translation leaves out are null.
 export function parseVPL(text,strip){
@@ -178,6 +197,7 @@ export function createBibleLibrary({dataDir,request=fetch,base=DOWNLOAD_BASE,see
   const key=id+'/'+bookId;
   if(books.has(key)){const value=books.get(key);books.delete(key);books.set(key,value);return value;}
   let value;try{value=JSON.parse(await readFile(path.join(root,id,bookId+'.json'),'utf8'));}catch{throw fail(404,CATALOG[id].abbreviation+' is not installed on this computer.');}
+  if(bookId==='PSA')value=withoutPsalmTitles(id,value);
   books.set(key,value);while(books.size>BOOKS_IN_MEMORY)books.delete(books.keys().next().value);
   return value;
  }

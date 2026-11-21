@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 import {deflateRawSync,crc32} from 'node:zlib';
 import {BIBLE_BOOKS} from './dist/reference.mjs';
 import {zipEntries,readZipEntry} from './ziputil.mjs';
-import {parseVPL,createBibleLibrary} from './bibles.mjs';
+import {parseVPL,createBibleLibrary,withoutPsalmTitles} from './bibles.mjs';
 import {rename,rm as remove,writeFile,mkdir} from 'node:fs/promises';
 import {adjacentByChapter} from './dist/scripture.mjs';
 
@@ -154,4 +154,19 @@ test('Downloads are read with a size cap: a large declared size is refused early
   await lib.install('kjv');let b;for(let i=0;i<100;i++){b=(await lib.list()).find(x=>x.id==='kjv');if(b.job?.state!=='running')break;await new Promise(r=>setTimeout(r,20));}
   assert.equal(b.job.state,'failed');assert.match(b.job.message,/KJV download is larger than expected/);
  }finally{await remove(data,{recursive:true,force:true});}
+});
+
+test('Psalm titles come off the front of verse 1, with or without the translators brackets, and nothing else changes',()=>{
+ const titles={23:{1:'A Psalm of David.'},11:{1:'To the chief Musician, [A Psalm] of David.'},119:{1:'ALEPH'}};
+ const chapters=Array.from({length:150},()=>['Plain verse.']);
+ chapters[22]=['A Psalm of David. The LORD is my shepherd; I shall not want.','He maketh me to lie down.'];
+ chapters[10]=['To the chief Musician, A Psalm of David. In the LORD put I my trust.'];
+ chapters[118]=['ALEPH Blessed are the undefiled.'];chapters[2]=['A Psalm of David.'];
+ const out=withoutPsalmTitles('test',chapters,titles);
+ assert.equal(out[22][0],'The LORD is my shepherd; I shall not want.');assert.equal(out[22][1],'He maketh me to lie down.');
+ assert.equal(out[10][0],'In the LORD put I my trust.','a title written without the brackets still comes off');
+ assert.equal(out[118][0],'Blessed are the undefiled.');
+ assert.equal(out[2][0],'A Psalm of David.','a verse with no table entry is left as it is');
+ assert.equal(out[0][0],'Plain verse.');
+ assert.equal(withoutPsalmTitles('kjv',[[null]]).length,1,'missing verses are fine');
 });
