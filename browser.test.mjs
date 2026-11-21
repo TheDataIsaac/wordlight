@@ -183,6 +183,11 @@ test('Timer Start uses the typed minutes and puts the timer on screen; Reset use
  await run("document.querySelector('#timerMinutes').value='10'");
  await run("document.querySelector('[data-action=timer-reset]').click()");
  await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.durationMs===600000&&!s.live.timer.running)",'Reset to the typed 10 minutes');
+ // Set new time resets even when the minutes are the same.
+ await run("document.querySelector('[data-action=timer-start]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>s.live.timer.running)",'the timer running again');
+ await run("document.querySelector('[data-action=timer-apply]').click()");
+ await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.live.timer.running&&s.live.timer.valueMs===600000)",'Set new time resetting the running timer to paused');
  await run("document.querySelector('[data-action=timer-hide]')?.click()");
  await until("fetch('/api/state').then(r=>r.json()).then(s=>!s.live.timer.visible)",'the timer hidden again');
  await run("document.querySelector('#timerDialog').close()");

@@ -1412,6 +1412,7 @@ async function handleTimerAction(action){
   }
   timer=cleanTimer({...timer,...options,...timerFormAppearance(),position:$('#timerPosition').value,onScreen:$('#timerOnScreen').checked,onObs:$('#timerOnObs').checked});
   // Start uses what is in the boxes, so a duration typed and then Start gives that duration.
+  if(action==='timer-apply')timer=changeTimer(timer,'reset'); // the button says it resets, so it always does
   if(action==='timer-start')timer=cleanTimer({...changeTimer(timer,'start'),visible:true});
   if(action==='timer-reset')timer=changeTimer(timer,'reset');
  }else if(action==='timer-look'){

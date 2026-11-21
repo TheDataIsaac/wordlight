@@ -75,6 +75,9 @@ Install (recommended):
   1. If you are reading this inside the ZIP file, close it first: right-click the ZIP, choose Extract All, then Extract,
      and open the Wordlight folder that appears.
   2. Double-click "Install Wordlight". If Windows asks whether to run it, choose Run (or More info, then Run anyway).
+     If Windows blocks it with no way to run it (Smart App Control on some Windows 11 laptops), install with
+     PowerShell instead: press the Windows key, type PowerShell, press Enter, paste this line and press Enter:
+       irm https://github.com/TheDataIsaac/wordlight/releases/latest/download/install.ps1 | iex
   3. It copies Wordlight to your user folder, adds "Wordlight" and "Stop Wordlight" to the Desktop and the Start menu,
      and starts it. No administrator rights are needed. Afterwards this folder and the ZIP can be deleted.
   Without installing, the files below also work from this folder.
