@@ -1398,7 +1398,7 @@ function showTimer(){
   // A time-of-day timer follows the clock: it cannot pause, and saving a time starts it counting.
   const pause=$('#timerDialog [data-action=timer-pause]');if(pause)pause.hidden=until;
   $('#timerStartNote').textContent=until?'This timer follows the clock: it counts down to the time you set from the moment you start or save it, and cannot be paused. Hide overlay takes it off the screen.':'Start and show uses the mode and minutes above and puts the timer on screen. Hide overlay takes it off without stopping it. Hiding the screen also hides it; switching shows keeps it running.';
-  $('#timerSaveNote').textContent=until?'The warning, position and look change at once. Set new time counts down to the new time straight away.':'The warning, overrun, position and look change at once. Set new time changes the mode or minutes without starting, and resets the timer to paused (Start and show does both).';};
+  $('#timerSaveNote').textContent=until?'The warning, position and look change at once. Set new time counts down to the new time straight away.':'The warning, overrun, position and look change at once. Set new time resets the timer to the mode and minutes above without starting it. Press Start and show when ready.';};
  $('#timerMode').addEventListener('change',showFields);showFields();
  for(const id of ['timerOnScreen','timerOnObs','timerPosition'])$('#'+id).addEventListener('change',()=>handleTimerAction('timer-places'));
  for(const id of ['timerWarn','timerOverrun',...Object.values(timerAppearanceFields)])$('#'+id)?.addEventListener('change',()=>handleTimerAction('timer-look'));

@@ -424,7 +424,13 @@ function paintGraphics(){
   // A graphics timer switched on while the laptop's Timer keeps the timer out of OBS is not on air: say why instead.
   const shown=live.graphics[b.dataset.graphics].visible,blocked=shown&&b.dataset.graphics==='timer'&&live.timer?.onObs===false;
   b.classList.toggle('on',shown&&!blocked);b.classList.toggle('blocked',blocked);
-  if(b.dataset.graphics==='timer')b.textContent=blocked?'Timer: hidden from OBS (tick OBS in the laptop’s Timer)':'Timer';
+  if(b.dataset.graphics==='timer'){
+   b.textContent=blocked?'Timer: off OBS':'Timer';
+   // The reason goes on its own line under the buttons, so the buttons stay the same size.
+   const row=b.closest('.toggles');let note=document.getElementById('graphicsTimerNote');
+   if(!note&&row){note=document.createElement('p');note.id='graphicsTimerNote';note.className='graphics-note';row.after(note);}
+   if(note){note.hidden=!blocked;note.textContent=blocked?'The timer is kept off OBS by the Timer settings. To show it, tick OBS in Timer on the laptop.':'';}
+  }
   if(b.dataset.graphics==='card')b.textContent=shown?'Hide title card':'Show title card';
  }
  if(document.activeElement!==$('cardTitle')&&!$('cardTitle').value)$('cardTitle').value=live.graphics.card.title;
