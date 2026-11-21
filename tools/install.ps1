@@ -69,7 +69,7 @@
       $null = $line -match '^([0-9a-f]{64})\s+(Wordlight-portable-(\d+\.\d+\.\d+)-win-x64\.zip)$'
       $expected = $Matches[1]; $zipName = $Matches[2]; $version = $Matches[3]
       $zip = Join-Path $work $zipName
-      Say "Downloading Wordlight $version (about 55 MB)..."
+      Say "Downloading Wordlight $version (about 55 MB). This can take a few minutes; please wait until it says installed."
       Get-ReleaseFile $zipName $zip
       # The checksum makes sure the download arrived whole and is the file the release lists.
       if ((Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'The download was damaged (its checksum does not match). Nothing was changed. Please try again.' }

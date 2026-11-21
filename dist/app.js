@@ -41,6 +41,8 @@ let deckSelecting=false,deckSelection=new Set(),lastCardClick=null,removedScene=
 // Web studio pairing with the local companion, and its last known state (also shown in the live bar).
 let pairing=null;try{pairing=readPairing(localStorage);}catch{}
 let companion={state:pairing?'checking':'unpaired'},shownCompanionState='';
+// The projector window was open at some point this session: if it closes while slides are live, the studio says so in red.
+let projectorSeen=false;
 // A Send from this web studio that has not reached the companion yet (see nextPending). Kept in memory only.
 let pendingLive=null,latestSend=null;
 // Images in the companion's store (graphics and slide backgrounds), and the graphics dialog state.
@@ -63,7 +65,7 @@ const autoName=name=>/^(Scene|Item) \d+$/.test(name);
 let liveView='full';try{const saved=localStorage.getItem('wordlight-live-view');if(saved==='lower'||saved==='graphics')liveView=saved;}catch{}
 let tab='passage',isLocal=false,localReachable=false,saveTimer,toastTimer,dictionary=[],lookupId=0,wordLookupId=0;
 // view=output is the full-screen output, view=lower the transparent lower third. Both follow the same live state.
-const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector'),isObsOutput=isOutput&&new URLSearchParams(location.search).has('obs');
+const outputView=new URLSearchParams(location.search).get('view'),isLower=outputView==='lower',isGraphics=outputView==='graphics',isOutput=outputView==='output'||isLower||isGraphics,isProjector=outputView==='output'&&new URLSearchParams(location.search).has('projector'),isObsOutput=isOutput&&(new URLSearchParams(location.search).has('obs')||isLower||isGraphics);
 let channel;try{channel=new BroadcastChannel('wordlight-screen-v1');channel.onmessage=ev=>receive(ev.data);}catch{}
 // A message shows long enough to read (longer for longer text). {sticky:true} keeps it until closed, for problems the
 // operator must act on; {action:{label,run}} adds a button.
@@ -192,7 +194,7 @@ function renderStudio(){
  $('#app').innerHTML='<header class="topbar"><a class="logo" href="./" aria-label="Wordlight home"><div class="logo-mark">'+icon('book')+'</div>wordlight<span>CHURCH MEDIA'+(appInfo?.preview?' · PREVIEW':'')+'</span></a><div class="top-divider"></div><input id="sessionTitle" class="session-name" value="'+e(draft.title)+'" aria-label="Show title" maxlength="100"><div class="top-actions"><span class="save-status" id="saveStatus">'+e(saveStatusText)+'</span>'+button('Shows','shows','book')+button('Export show file','export','download')+button('Present','present','screen','primary')+'<button class="button" data-action="refresh-presentation" title="Fetch fresh app files and reload the audience window. Saved shows stay intact. The screen may briefly flash.">Reload projector</button>'+'</div></header>'+
  '<div id="noticeBar" class="notice-bar" hidden></div><div id="gettingStarted" class="getting-started" hidden></div><div class="show-switch-bar"><label for="showSwitcher">CURRENT SHOW</label><select id="showSwitcher" aria-label="Current show">'+library.shows.map(s=>'<option value="'+e(s.id)+'" '+(s.id===library.activeShowId?'selected':'')+'>'+e(s.draft.title)+'</option>').join('')+'</select><span>'+library.shows.length+' saved show'+(library.shows.length===1?'':'s')+'</span></div><div class="workspace"><aside class="sidebar"><section id="rundown" class="rundown" aria-label="Items in this show"></section><nav class="steps" aria-label="Study steps">'+[['slides','Slides'],['passage','Bible'],['songs','Songs'],['words','Words'],['design','Design']].map(([id,t],i)=>'<button class="step '+(tab===id?'active':'')+'" data-tab="'+id+'"><span class="num">'+(i+1)+'</span>'+t+'</button>').join('')+'</nav><div id="panel"></div></aside>'+
  '<main class="main"><div class="main-heading">'+button('Timer','timer')+button('Graphics','graphics-open')+button('OBS & screens','help','screen')+(isLocal?button('Listen','listen-open')+button('Stage','stage-open')+button('Phone remote','phone-remote')+button('Settings','settings-open'):'')+'</div><div class="stage-pair"><section class="stage-column"><div class="preview-header"><span class="preview-label"><span class="dot"></span> PREVIEW</span><span class="aspect-badge">16:9 &nbsp; / &nbsp; 1920 × 1080</span></div><div id="verseNav"></div><div id="preview" class="stage-frame" aria-label="Slide preview"></div></section>'+
- '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">View:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button></div><button class="button live-lower-settings" data-action="lower-open-settings">Lower third settings</button><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
+ '<section class="stage-column live-column" aria-label="Live output"><div class="preview-header"><span class="preview-label live-label"><span class="dot live-dot-small"></span> LIVE</span><span id="liveCaption" class="aspect-badge"></span></div><div class="live-mode" role="group" aria-label="Live view" title="Changes only this copy, not the screen or OBS"><span class="live-mode-label">This copy shows:</span><button class="button" data-action="live-view-full" id="liveViewFull">Full screen</button><button class="button" data-action="live-view-lower" id="liveViewLower">Lower third</button><button class="button" data-action="live-view-graphics" id="liveViewGraphics">Graphics</button></div><button class="button live-lower-settings" data-action="lower-open-settings">Lower third settings</button><div id="liveStage" class="stage-frame live-frame" aria-label="Copy of the live output" title="Copy of what Wordlight sends. It cannot confirm what a TV or OBS shows."></div><p class="small-note live-note" id="companionStatus" aria-live="polite"></p><button class="button" id="connectObs" data-action="help" hidden>Connect OBS</button><div id="liveSongBar" class="live-song-bar" role="group" aria-label="Sections of the song on screen"></div></section></div><div class="preview-toolbar"><span class="preview-caption" title="Edits stay in the preview until you send them.">'+icon('eye')+'Preview only</span><div class="toolbar-actions"><button id="screenToggle" class="button screen-toggle" data-action="blank" title="Hide or restore the presentation on the TV">Hide screen</button>'+button('Send to screen','send','arrow','gold')+'</div></div><div id="listenBar" class="listen-bar" aria-label="Verses heard" hidden></div><div class="deck-heading"><h2>Slides in this item</h2><span id="deckCount"></span></div><div class="deck-actions"><button class="button" data-action="deck-select" id="deckSelectToggle" aria-pressed="false">Select slides</button>'+button('Organize slides','organize','copy')+'<button class="button" data-action="duplicate-preview" id="duplicatePreview">Duplicate slide</button><button class="button danger" data-action="delete-preview" id="deletePreview">Delete slide</button><button class="button" data-action="undo-preview" id="undoPreview" hidden>Undo deletion</button><span class="deck-hint">Click to preview. Double-click to send to screen.</span></div><div id="bulkBar"></div><div id="deck" class="deck" aria-label="Study slides"></div><div id="liveBar"></div><div class="footer-tip"><span></span><span><button data-action="import">Import shows</button> &nbsp; · &nbsp; <button data-action="help">Projection guide</button></span></div></main></div>';
  renderPanel();renderPreview();renderSceneBar();renderDeck();renderLive();paintListenBar();paintNotices();paintGettingStarted();
  $('#showSwitcher').addEventListener('change',ev=>switchShow(ev.target.value));
  $('#sessionTitle').addEventListener('input',ev=>{draft.title=ev.target.value;remember();});
@@ -783,7 +785,7 @@ async function lookupPassage(delta=0,options={}){
  let normalized=query;
  if(!delta){
   try{normalized=parseReference(query).reference;if(!options.fromResult&&verseSearch){verseSearch=null;paintVerseResults();}}
-  catch(err){if(looksLikeWords(query))return searchVerses(query);const vr=$('#verseResults');if(vr)vr.innerHTML='<p class="small-note status-error lookup-error" role="alert">'+e(err.message)+'</p>';const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return toast(err.message);}
+  catch(err){if(looksLikeWords(query))return searchVerses(query);const vr=$('#verseResults');if(vr)vr.innerHTML='<p class="small-note status-error lookup-error" role="alert">'+e(err.message)+'</p>';const el=$('#lookupStatus');if(el){el.textContent=err.message;el.className='small-note status-error';}return vr?undefined:toast(err.message);}
   const field=$('#referenceLookup');if(field)field.value=normalized;
  }
  const request=++lookupId,showId=library.activeShowId,sceneId=activeShow(library).activeSceneId,oldText=draft.passage,oldReference=draft.reference,oldPreview=draft.previewId;
@@ -885,6 +887,8 @@ let presentationRefreshing=false;
 async function refreshPresentation(){
  if(presentationRefreshing)return;
  if(isLocal&&companion.viewers?.projector){try{await projectorRequest('reload');toast('Projector window reloaded.');}catch(err){toast(err.message);}return;}
+ // Nothing to reload: in the local studio the projector is opened with Present, so say that rather than open a window.
+ if(isLocal&&!(presentationWin&&!presentationWin.closed)){toast('The projector window isn’t open. Click Present to open it.',{sticky:true,action:{label:'Present',run:present}});return;}
  // Obtain the existing named window during the click so popup blockers can be reported.
  const w=window.open('','wordlight-presentation','popup,width=1280,height=720');
  if(!w)return toast('Allow pop-ups for Wordlight, then click Reload projector again.');
@@ -917,6 +921,11 @@ function outputsText(raw={}){
  const obs=[[lower,'lower third'],[full,'full screen'],[graphics,'graphics']].filter(([n])=>n).map(([n,name])=>n+' '+name);
  return 'Projector: '+(projector?'open':'not open (click Present)')+' · OBS: '+(obs.length?obs.join(', '):'not connected');
 }
+function outputsHtml(raw={},lost=false){
+ const text=outputsText(raw),obs=text.slice(text.indexOf(' · OBS:'));
+ if((raw.projector||0)>0)return 'Projector: open'+e(obs);
+ return '<span class="'+(lost?'output-lost':'')+'">Projector: '+(lost?'window closed':'not open')+'</span> <button class="link-button" data-action="present">Click Present</button>'+e(obs);
+}
 // The local studio fills the projector by itself. A web studio, or a laptop with no second screen, opens a normal window.
 async function present(){
  let problem='';
@@ -930,8 +939,9 @@ async function present(){
  }
  presentationWindow(problem);
 }
+let presentationWin=null;
 function presentationWindow(problem=''){
- const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');
+ const w=window.open('./?view=output','wordlight-presentation','popup,width=1280,height=720');presentationWin=w;
  if(!w)toast(problem+'Allow pop-ups for this site to open the presentation window.');else toast(problem+'Presentation window opened. Use Send to screen when you’re ready.');
 }
 // The same list in the projection guide and in Settings, so there is one place to look.
@@ -1368,7 +1378,7 @@ function paintTimers(){
 function showTimer(){
  const timer=cleanTimer(live.timer);
  $('#timerDialog').innerHTML='<div class="dialog-top"><span class="eyebrow">TIMER</span><button class="icon-button" data-action="timer-close" aria-label="Close timer">×</button></div><h2 id="timerTitle">Timer</h2><div class="timer-appearance-preview"><div id="timerReadout" class="timer-readout"></div></div><p class="small-note">Appearance preview at 60% size</p><p id="timerStatus" class="small-note"></p><div class="field-row"><div>'+label('Mode','timerMode')+'<select id="timerMode"><option value="countdown" '+(timer.mode==='countdown'?'selected':'')+'>Countdown</option><option value="until" '+(timer.mode==='until'?'selected':'')+'>Count down to a time of day</option><option value="stopwatch" '+(timer.mode==='stopwatch'?'selected':'')+'>Stopwatch</option></select></div><div id="timerMinutesField">'+label('Duration (minutes)','timerMinutes')+input('timerMinutes',timer.durationMs/60000,'type="number" min="0.016667" max="1440" step="any"')+'</div><div id="timerUntilField">'+label('Time of day (this computer\'s clock)','timerUntil')+input('timerUntil',timer.untilTime,'type="time"')+'</div></div>'+
- '<fieldset class="timer-places"><legend>Show the timer on</legend>'+settingRow('timerOnScreen','Projector and TVs (everyone in the room can see them)',timer.onScreen)+settingRow('timerOnObs','OBS (the livestream and recording)',timer.onObs)+'</fieldset><p class="small-note">To keep the timer off the livestream, untick OBS before you start. These boxes change it straight away. For a timer only the preacher sees, use the Stage display on a screen facing the pulpit (Stage button): it shows the timer whenever it is running.</p>'+
+ '<fieldset class="timer-places"><legend>Show the timer on</legend>'+settingRow('timerOnScreen','Projector and TVs (everyone in the room can see them)',timer.onScreen)+settingRow('timerOnObs','OBS (the livestream and recording)',timer.onObs)+'</fieldset><p class="small-note">Untick OBS to keep the timer off the livestream. These boxes and the position below change it at once, even while it runs. For a timer only the preacher sees, use the Stage display on a screen facing the pulpit (Stage button): it shows the timer whenever it is running.</p>'+
  '<div class="timer-actions">'+button('Start and show','timer-start','','primary')+button('Pause','timer-pause')+button('Reset','timer-reset')+button(timer.visible?'Hide overlay':'Show overlay',timer.visible?'timer-hide':'timer-show')+'</div><p class="small-note" id="timerStartNote"></p>'+
  '<div class="field-row"><div>'+label('Warning colour in the last (seconds, 0 for none)','timerWarn')+input('timerWarn',timer.warnMs/1000,'type="number" min="0" max="3600" step="1"')+'</div><div>'+settingRow('timerOverrun','Keep counting past zero (shows −01:20 in red)',timer.overrun)+'</div></div>'+label('Overlay position','timerPosition')+'<select id="timerPosition">'+[['top-right','Top right'],['top-left','Top left'],['bottom-right','Bottom right'],['bottom-left','Bottom left']].map(([id,name])=>'<option value="'+id+'" '+(timer.position===id?'selected':'')+'>'+name+'</option>').join('')+'</select><div class="timer-actions">'+button('Save timer settings','timer-apply')+'</div><p class="small-note" id="timerSaveNote"></p>';
  $('#timerPosition').insertAdjacentHTML('afterend','<details class="timer-appearance"><summary>Appearance: size and colours</summary>'+timerAppearanceControls(timer)+'</details>');
@@ -1376,7 +1386,7 @@ function showTimer(){
   // A time-of-day timer follows the clock: it cannot pause, and saving a time starts it counting.
   const pause=$('#timerDialog [data-action=timer-pause]');if(pause)pause.hidden=until;
   $('#timerStartNote').textContent=until?'This timer follows the clock: it counts down to the time you set from the moment you start or save it, and cannot be paused. Hide overlay takes it off the screen.':'Start and show uses the mode and minutes above and puts the timer on screen. Hide overlay takes it off without stopping it. Hiding the screen also hides it; switching shows keeps it running.';
-  $('#timerSaveNote').textContent=until?'Saves everything here. A new time starts counting at once; the warning and look keep it as it is.':'Saves everything here without starting. A new mode or duration resets the timer to paused; the warning and look keep it running.';};
+  $('#timerSaveNote').textContent=until?'Saves the warning, overrun and look. A new time starts counting at once.':'Saves the warning, overrun and look (and a new mode or duration, which resets the timer to paused). Changing only the warning or the look does not stop it.';};
  $('#timerMode').addEventListener('change',showFields);showFields();
  for(const id of ['timerOnScreen','timerOnObs','timerPosition'])$('#'+id).addEventListener('change',()=>handleTimerAction('timer-places'));
  for(const id of Object.values(timerAppearanceFields))$('#'+id).addEventListener('input',paintTimers);
@@ -1738,7 +1748,7 @@ function setupBookAutocomplete(field){
     if(!found||!send)return;const sent=await publish(currentSnapshot(),base);if(sent)toast(sentMessage(draft.reference,sent));
    });
   }}
-  else if(ev.key==='Escape'&&open){ev.preventDefault();close();}
+  else if(ev.key==='Escape'){ev.preventDefault();if(open)close();else ev.target.blur();}
  });
  // mousedown keeps focus in the field, so the blur handler does not close the list first.
  list.addEventListener('mousedown',ev=>{const item=ev.target.closest('[data-book-index]');if(item){ev.preventDefault();choose(Number(item.dataset.bookIndex));}});
@@ -1783,7 +1793,14 @@ function companionText(){
 }
 function showCompanion(result){
  if(result)companion=result;
- const el=$('#companionStatus');if(el){el.textContent=companionText();el.dataset.state=companion.state;}
+ const el=$('#companionStatus');if(el){
+  if(isLocal&&companion.state==='connected'){
+   const open=(companion.viewers?.projector||0)>0;if(open)projectorSeen=true;
+   const lost=!open&&projectorSeen&&live.slides.length>0;
+   el.innerHTML=outputsHtml(companion.viewers,lost);
+  }else el.textContent=companionText();
+  el.dataset.state=companion.state;
+ }
  const connect=$('#connectObs');if(connect)connect.hidden=isLocal||isOutput||companion.state==='connected'||companion.state==='checking';
  // The live bar says whether OBS is in the loop; redraw it when that changes.
  if(!isLocal&&!isOutput&&companion.state!==shownCompanionState){
