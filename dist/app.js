@@ -96,9 +96,9 @@ function showSaveProblem(problem){setSaveStatus(problem?'Could not save to disk 
 let offlineTimer=null;
 function setOffline(lost){
  if(isOutput)return;
- if(!lost){clearTimeout(offlineTimer);offlineTimer=null;$('#offlineBanner')?.remove();return;}
+ if(!lost){clearTimeout(offlineTimer);offlineTimer=null;$('#offlineBanner')?.remove();document.body.classList.remove('studio-offline');return;}
  if(offlineTimer||$('#offlineBanner'))return;
- offlineTimer=setTimeout(()=>{offlineTimer=null;if($('#offlineBanner'))return;const b=document.createElement('div');b.id='offlineBanner';b.setAttribute('role','alert');b.textContent='Wordlight isn’t answering. The projector and OBS keep the last slide, but sends won’t reach them. If this doesn’t clear in 30 seconds, double-click Wordlight on the Desktop.';document.body.append(b);},3000);
+ offlineTimer=setTimeout(()=>{offlineTimer=null;if($('#offlineBanner'))return;const b=document.createElement('div');b.id='offlineBanner';b.setAttribute('role','alert');document.body.classList.add('studio-offline');b.textContent='Wordlight isn’t answering. The projector and OBS keep the last slide, but sends won’t reach them. If this doesn’t clear in 30 seconds, double-click Wordlight on the Desktop.';document.body.append(b);},3000);
 }
 function setSaveStatus(text){saveStatusText=text;const el=$('#saveStatus');if(el)el.textContent=text;}
 // Output pages need only the screen on air, not the library.
@@ -149,7 +149,7 @@ async function publish(next,base){
   // A send that takes longer than usual (a busy computer) shows "sending…" by LIVE, so the operator waits for it
   // instead of pressing again.
   let answer;const slow=setTimeout(()=>document.body.classList.add('live-sending'),400);
-  try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;toast('The local app is disconnected. The screen has kept its last slide. Start Wordlight again from the Desktop if this stays.',{sticky:true});return false;}
+  try{answer=await apiWrite({live:next,...(isLocal&&base!==undefined?{base}:{})});localReachable=true;}catch{localReachable=false;if(!$('#offlineBanner'))toast('The local app is disconnected. The screen has kept its last slide. Start Wordlight again from the Desktop if this stays.',{sticky:true});return false;}
   finally{clearTimeout(slow);document.body.classList.remove('live-sending');}
   if(answer.superseded){toast('The screen just changed. Check it and press again.');reconcileWithCompanion();return false;}
   if(answer.saveFailed)showSaveProblem(true);
@@ -956,7 +956,7 @@ function presentationWindow(problem=''){
  if(!w)toast(problem+'Allow pop-ups for this site to open the presentation window.');else toast(problem+'Presentation window opened. Use Send to screen when you’re ready.');
 }
 // The same list in the projection guide and in Settings, so there is one place to look.
-const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Shift+Enter (Alt+Enter also works)','Send it to the screen.'],['Ctrl+Enter in song search, or +','Keep the song in this show for later.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['Esc','Leave the typing box (for example after a Bible lookup), so B, Space and the arrows work.'],['L','Preview the newest verse heard (Listen).'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
+const KEYS=[['One click, or Enter in a search box','Show it in the preview. The screen does not change.'],['Double-click, or Shift+Enter (Alt+Enter also works)','Send it to the screen.'],['Ctrl+Enter in song search, or +','Add the song to this show for later, without sending it.'],['Space, →, Page Down','Next slide on screen.'],['←, Page Up','Previous slide on screen.'],['B','Hide or bring back the screen.'],['Esc','Leave the typing box (for example after a Bible lookup), so B, Space and the arrows work.'],['L','Preview the newest verse heard (Listen).'],['1–9, C, P, G, T, E','Jump to that verse, chorus, pre-chorus, bridge, tag or ending of the song on screen.'],['?','Open Settings.']];
 function keysTable(){return '<p class="small-note keys-note">The single keys (B, the arrows, song section keys) work when the cursor is not in a typing box: click an empty part of the page first. They pause while a window like this one is open.</p><table class="keys-table">'+KEYS.map(([keys,what])=>'<tr><td>'+e(keys)+'</td><td>'+e(what)+'</td></tr>').join('')+'</table>';}
 function showHelp(){
  const full=(isLocal?location.origin:COMPANION_URL)+'/?view=output&obs=1',lower=(isLocal?location.origin:COMPANION_URL)+'/?view=lower&obs=1';
@@ -1384,7 +1384,7 @@ function paintTimers(){
  const readout=$('#timerReadout');if(readout){applyTimerAppearance(readout,timerFormAppearance(),0.6);if(readout.textContent!==formatted)readout.textContent=formatted;paintState(readout);readout.parentElement.classList.toggle('not-shown',!timer.visible||!!live.blank);}
  const condition=state==='over'?'Over time':state==='expired'?'Finished':timer.mode==='until'?'Counting to '+timer.untilTime:timer.running?'Running':'Paused';
  const gState=$('#gTimerState');if(gState&&gState.textContent!==condition+' · '+formatted)gState.textContent=condition+' · '+formatted;
- const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(!timer.visible?'Overlay hidden'+(cleanGraphics(live.graphics).timer.visible&&timer.onObs?' · the Graphics timer is still showing in OBS':''):live.blank?'Overlay hidden because the screen is hidden. Close Timer and choose Show screen to bring both back.':'Overlay showing '+timerPlaces(timer));
+ const status=$('#timerStatus');if(status)status.textContent=condition+' · '+(!timer.visible?'Overlay hidden'+(cleanGraphics(live.graphics).timer.visible&&timer.onObs?' · the Graphics timer is still showing in OBS':''):!live.slides.length?'Nothing is on the screen yet, so the timer has nowhere to show. Send a slide (for example a Welcome text slide) and the timer appears on it.':live.blank?'Overlay hidden because the screen is hidden. Close Timer and choose Show screen to bring both back.':'Overlay showing '+timerPlaces(timer));
 }
 function showTimer(){
  const timer=cleanTimer(live.timer);
@@ -1951,7 +1951,7 @@ function songsInShow(){
 function renderSongs(){
  const panel=$('#panel');
  if(!companionReady()){panel.innerHTML='<h3 class="section-title">Songs</h3><p class="hint">Connect OBS to search the song library on this computer. Songs already in this item still play here.</p>'+button('Connect OBS','help','screen')+songsInShow();bindSongEntries();return;}
- panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Type any line you hear" maxlength="100" autocomplete="off" aria-label="Search songs by any line"')+'</div>'+tip('One click or Enter shows a song in the preview, at the line that matched. Another result replaces it, so the show stays tidy. Double-click, Shift+Enter or Send puts it on screen. Ctrl+Enter or + keeps it in the show for later.')+
+ panel.innerHTML='<h3 class="section-title">Songs</h3><div class="lookup-row">'+input('songQuery',songState.query,'placeholder="Type any line you hear" maxlength="100" autocomplete="off" aria-label="Search songs by any line"')+'</div>'+tip('One click or Enter shows a song in the preview, at the line that matched. Another result replaces it, so the show stays tidy. Double-click, Shift+Enter or Send puts it on screen. Ctrl+Enter or + adds it to the show for later.')+
   '<select id="songSource" aria-label="Song source">'+[['all','All songs'],['wordlight','My library'],['drafts','Drafts to check'],['freeshow','FreeShow']].map(([v,n])=>'<option value="'+v+'" '+(songState.source===v?'selected':'')+'>'+n+'</option>').join('')+'</select><select id="songCategory" aria-label="Song category">'+songCategoryOptions()+'</select>'+
   '<p id="songStatus" class="small-note" aria-live="polite"></p><div id="songResults" class="song-results"></div><div id="songDetail"></div>'+captureTools()+songsInShow();
  $('#songQuery').addEventListener('input',ev=>{songState.query=ev.target.value;clearTimeout(songState.timer);songState.timer=setTimeout(()=>searchSongLibrary(false),120);});
@@ -2033,7 +2033,7 @@ async function keepSong(hit){
  const {song}=await songApi('/api/songs/item?id='+encodeURIComponent(hit.id));
  addSongEntry(song,false,hit);markSongUsed(hit.id);
 }
-// Enter in the search box looks at the best match; Ctrl+Enter keeps it in the show.
+// Enter in the search box looks at the best match; Ctrl+Enter adds it to the show.
 async function topResult(keep,send=false){
  if(!songState.query.trim()){if(send)sendPreview();return;}
  const base=live.updated;
