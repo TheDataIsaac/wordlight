@@ -420,7 +420,13 @@ for(const b of document.querySelectorAll('[data-graphics]'))b.addEventListener('
 });
 function paintGraphics(){
  if(!live)return;
- for(const b of document.querySelectorAll('[data-graphics]')){const shown=live.graphics[b.dataset.graphics].visible;b.classList.toggle('on',shown);if(b.dataset.graphics==='card')b.textContent=shown?'Hide title card':'Show title card';}
+ for(const b of document.querySelectorAll('[data-graphics]')){
+  // A graphics timer switched on while the laptop's Timer keeps the timer out of OBS is not on air: say why instead.
+  const shown=live.graphics[b.dataset.graphics].visible,blocked=shown&&b.dataset.graphics==='timer'&&live.timer?.onObs===false;
+  b.classList.toggle('on',shown&&!blocked);b.classList.toggle('blocked',blocked);
+  if(b.dataset.graphics==='timer')b.textContent=blocked?'Timer: hidden from OBS (tick OBS in the laptop’s Timer)':'Timer';
+  if(b.dataset.graphics==='card')b.textContent=shown?'Hide title card':'Show title card';
+ }
  if(document.activeElement!==$('cardTitle')&&!$('cardTitle').value)$('cardTitle').value=live.graphics.card.title;
  if(document.activeElement!==$('cardSubtitle')&&!$('cardSubtitle').value)$('cardSubtitle').value=live.graphics.card.subtitle;
 }
