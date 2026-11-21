@@ -78,6 +78,6 @@ test('Stage screens and phones get every field they need to tick the timer thems
  const timer=cleanTimer({mode:'until',untilTime:'10:30',targetAt:at(10,30),overrun:true,warnMs:120000,visible:true});
  const stage=stageState({slides:[],index:0,timer});
  assert.deepEqual(stage.timer,timerSummary(timer));
- assert.deepEqual(Object.keys(stage.timer).sort(),['durationMs','mode','overrun','running','startedAt','targetAt','untilTime','valueMs','visible','warnMs']);
+ assert.deepEqual(Object.keys(stage.timer).sort(),['durationMs','mode','onObs','onScreen','overrun','running','startedAt','targetAt','untilTime','valueMs','visible','warnMs']);
  assert.equal(timerState(stage.timer,at(10,29)),'warning');
 });

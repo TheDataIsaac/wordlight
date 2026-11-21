@@ -59,7 +59,7 @@ export function changeTimer(raw,action,now=Date.now()){
 // The timer fields a stage screen or phone needs to show and tick the timer by itself.
 export function timerSummary(raw){
  const t=cleanTimer(raw);
- return {mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,targetAt:t.targetAt,untilTime:t.untilTime,overrun:t.overrun,warnMs:t.warnMs,visible:t.visible};
+ return {mode:t.mode,durationMs:t.durationMs,valueMs:t.valueMs,running:t.running,startedAt:t.startedAt,targetAt:t.targetAt,untilTime:t.untilTime,overrun:t.overrun,warnMs:t.warnMs,visible:t.visible,onScreen:t.onScreen,onObs:t.onObs};
 }
 
 export function cleanTimerAppearance(raw={}){
