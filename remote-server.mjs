@@ -164,7 +164,7 @@ export function createRemote({getState,commitLive,dataDir,root,localOrigins,bibl
  const sessions=new Map(),streams=new Set(),stageStreams=new Set(),limiter=createLoginLimiter(),commands=createCommandLog();
  // Screens that phone content replaced, newest last, so Back returns to the sermon slide after a called verse.
  const screensBefore=[];
- function summary(live){const before=screensBefore.at(-1);return {...liveSummary(live),backTo:before?clip(before.showTitle||before.slides[before.index]?.title,60)||'the last screen':''};}
+ function summary(live){const before=screensBefore.at(-1);return {...liveSummary(live),backTo:before?clip(before.slides[before.index]?.title||before.showTitle,60)||'the last screen':''};}
  let checking=0,queue=Promise.resolve(),queued=0;
 
  // A missing file means "never set up". An unreadable file or a malformed password leaves the remote off with no

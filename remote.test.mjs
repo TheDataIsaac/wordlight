@@ -410,7 +410,7 @@ test('Back returns to the slide before the called verse, and Slides jumps anywhe
  assert.equal((await command(cookie,{action:'goto',index:0,base:sermon.updated})).status,409,'a stale tap is refused');
  assert.equal((await command(cookie,{action:'goto',index:9,base:moved.updated})).status,409);
  const verse=await command(cookie,{action:'bible',reference:'John 3:16',version:'kjv'});
- assert.equal(verse.body.live.backTo,'Sample service');
+ assert.equal(verse.body.live.backTo,'Closing','Back names the slide it returns to');
  await command(cookie,{action:'timer',timer:'pause'});
  const goBack=async()=>command(cookie,{action:'back',base:(await state()).live.updated});
  assert.equal((await command(cookie,{action:'back',base:1})).status,409,'a stale tap is refused');
@@ -425,7 +425,7 @@ test('Back returns to the slide before the called verse, and Slides jumps anywhe
  const verse17={id:'passage-JHN-3-17',type:'passage',text:'Studio verse',reference:'John 3:17',translation:'KJV',versePoint:{bookId:'JHN',chapter:3,verse:17},title:'John 3:17'};
  await request(port,'POST','/api/state',{body:{live:{...now,bibleVersion:undefined,slides:[verse17],index:0,showTitle:'Studio deck',updated:Date.now()+5}},headers:{Origin:'http://127.0.0.1:'+port}});
  const stepped=await command(cookie,{action:'next',base:(await state()).live.updated});
- assert.equal(stepped.body.live.current.title,'John 4:1');assert.equal(stepped.body.live.backTo,'Studio deck');
+ assert.equal(stepped.body.live.current.title,'John 4:1');assert.equal(stepped.body.live.backTo,'John 3:17');
  await command(cookie,{action:'previous',base:(await state()).live.updated});
  assert.equal((await goBack()).body.live.current.text,'Studio verse');
  assert.equal((await remote('GET','/remote/api/live',{cookie})).body.backTo,'','one Back returns to the studio deck');
