@@ -1339,7 +1339,7 @@ function applyTimerAppearance(element,timer,scale=1){
 function timerAppearanceControls(timer){
  const number=(title,key,min,max)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="number" min="'+min+'" max="'+max+'" step="1"')+'</div>';
  const color=(title,key)=>'<div>'+label(title,timerAppearanceFields[key])+input(timerAppearanceFields[key],timer[key],'type="color"')+'</div>';
- return '<h3>Appearance</h3><p class="small-note">Changes show in the preview above and go to the screen at once, without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
+ return '<p class="small-note">Changes show in the preview above and go to the screen at once, without restarting the timer. Sizes use the 1920 x 1080 screen.</p>'+
  '<div class="field-row">'+number('Text size (px)','fontSize',24,160)+number('Background opacity (%)','backgroundOpacity',0,100)+'</div>'+
  '<div class="field-row">'+color('Text color','textColor')+color('Background color','backgroundColor')+'</div>'+
  '<div class="field-row">'+number('Padding (px)','padding',0,60)+number('Corner rounding (px)','radius',0,80)+'</div>'+
@@ -1406,7 +1406,7 @@ function showTimer(){
  if(!$('#timerDialog').open)$('#timerDialog').showModal();paintTimers();
 }
 async function handleTimerAction(action){
- if(action==='timer'){showTimer();return;}if(action==='timer-close'){$('#timerDialog').close();return;}
+ if(action==='timer'){showTimer();return;}if(action==='timer-close'){$('#timerDialog').close();if($('#graphicsDialog')?.open)renderGraphicsPanel();return;}
  let timer=cleanTimer(live.timer);
  if(action==='timer-apply'||action==='timer-start'||action==='timer-reset'){
   const duration=Number($('#timerMinutes').value),mode=$('#timerMode').value,untilTime=$('#timerUntil').value,warn=Number($('#timerWarn').value);
@@ -1439,7 +1439,7 @@ async function handleTimerAction(action){
  const toggle=$('#timerDialog [data-action=timer-show],#timerDialog [data-action=timer-hide]');
  if(action==='timer-hide'&&cleanGraphics(live.graphics).timer.visible&&timer.onObs)toast('The overlay is hidden. The Graphics timer is still showing in OBS: Graphics > Hide timer takes it off.',{sticky:true});
  if(toggle){const shown=cleanTimer(live.timer).visible;toggle.dataset.action=shown?'timer-hide':'timer-show';toggle.textContent=shown?'Hide overlay':'Show overlay';}
- paintTimers();
+ paintTimers();if($('#graphicsDialog')?.open)renderGraphicsPanel();
 }
 setInterval(paintTimers,250);
 
