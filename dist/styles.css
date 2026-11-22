@@ -77,7 +77,17 @@ button:disabled{opacity:.42;cursor:not-allowed}
 .organizer-check{display:flex;align-items:center;gap:12px;cursor:pointer}.organizer-check input,.organizer-toolbar input{width:17px;height:17px;accent-color:#45633e}
 .organizer-description{flex:1;min-width:0}.organizer-description strong{font-size:13px;overflow-wrap:anywhere}.organizer-description p{font-size:11px;line-height:1.5;color:#737e68;margin:6px 0;overflow-wrap:anywhere}
 .empty-list{text-align:center;padding:30px;color:#7c8572;font-size:13px}
-@media(min-width:761px){.workspace{height:calc(100vh - 131px)}.main{padding-top:15px}.main-heading{margin-bottom:8px}.main-heading p{margin-bottom:0}.deck-heading{margin-top:4px}.show-switch-bar{flex-shrink:0}}
+@media(min-width:761px){.main{padding-top:15px}.main-heading{margin-bottom:8px}.main-heading p{margin-bottom:0}.deck-heading{margin-top:4px}.show-switch-bar{flex-shrink:0}}
+/* The studio fills the window whatever sits above the workspace (top bar, update notices, show bar). */
+@media(min-width:761px){#app:has(>.workspace){display:flex;flex-direction:column;height:100vh}.workspace{flex:1 1 0;height:auto}}
+/* Preview and live side by side: both frames shrink, still 16:9, so the slides and buttons under them stay on screen.
+   Below 300px for the pair the main area scrolls instead. */
+@media(min-width:1280px){
+ .main .stage-pair{flex:0 1 auto;min-height:300px;grid-template-rows:minmax(0,1fr);align-items:stretch}
+ .main .stage-column{container-type:inline-size;display:flex;flex-direction:column;min-height:0}
+ .main .stage-column>*{flex-shrink:0}
+ .main .stage-column>.stage-frame{flex:0 1 calc(100cqw * 9 / 16);min-height:0;width:auto;max-width:100%;align-self:center}
+}
 @media(max-width:1100px){.show-private-note{display:none}.topbar{gap:10px}.top-actions{gap:6px}.topbar .session-name{width:125px}}
 @media(max-width:760px){.show-switch-bar{padding:7px 15px;gap:8px}.show-switch-bar select{flex:1;width:auto}.show-switch-bar>span{display:none}.preview-verse-row{flex-wrap:wrap}.wide-dialog{padding:20px}.show-row{flex-wrap:wrap}.show-row-actions{width:100%;justify-content:flex-end}.show-library-tools{flex-wrap:wrap}.show-library-tools .input{flex-basis:100%}.organizer-transfer{flex-wrap:wrap}.organizer-transfer label{width:100%}.organizer-row{gap:8px;padding:10px}.show-symbol{display:none}}
 
